@@ -108,9 +108,10 @@ export default function PlaylistDetail() {
   
         if (data.hasMore) loadAllPages(data.nextPage);
       })
-      .catch(() => {
+      .catch(async (err) => {
         if (cancelled) return;
-        setError('Failed to load tracks');
+        const message = err.message || 'Failed to load tracks';
+        setError(message);
         setLoading(false);
       });
   
@@ -125,8 +126,25 @@ export default function PlaylistDetail() {
   );
 
   if (error) return (
-    <div className="min-h-screen bg-bg-primary flex items-center justify-center">
-      <div className="text-red-400 text-xl">{error}</div>
+    <div className="min-h-screen bg-bg-primary flex items-center justify-center px-8">
+      <div className="text-center max-w-md">
+        <p className="text-4xl mb-4">{isOwner ? '⚠️' : '🔒'}</p>
+        <p className="text-text-primary text-lg font-semibold mb-2">
+          {isOwner ? 'Something went wrong' : 'Playlist Unavailable'}
+        </p>
+        <p className="text-text-muted text-sm mb-2">{error}</p>
+        {!isOwner && (
+          <p className="text-text-muted text-sm mb-6">
+            Tunecraft can only access playlists you own. Playlists created by other users are restricted.
+          </p>
+        )}
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-3 rounded-full transition-all duration-200"
+        >
+          Back to Dashboard
+        </button>
+      </div>
     </div>
   );
 

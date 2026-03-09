@@ -41,3 +41,27 @@ export const fetchLikedSongs = async (userId: string): Promise<LikedSongsPlaylis
   const data = await response.json();
   return data.playlist;
 };
+
+// Fetches metadata for any public playlist by Spotify ID
+// Used by the discovery search bar on the dashboard
+export const discoverPlaylist = async (
+  userId: string,
+  playlistId: string
+): Promise<{
+  spotifyId: string;
+  name: string;
+  ownerId: string;
+  trackCount: number;
+  imageUrl: string | null;
+}> => {
+  const response = await fetch(
+    `${API_BASE_URL}/playlists/${userId}/discover/${playlistId}`
+  );
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.error || 'Failed to fetch playlist');
+  }
+
+  return response.json();
+};
