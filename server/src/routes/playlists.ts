@@ -21,33 +21,36 @@ const fetchTrackEnrichment = async (
   audioFeaturesMap: Record<string, any>;
   artistGenreMap: Record<string, string[]>;
 }> => {
+  console.log('Total tracks to enrich:', tracks.length);
   const trackIds = tracks.map(t => t.id);
+  const artistIds = [...new Set(tracks.map(t => t.artistId))];
 
-  // Step 1 — Check which tracks are already cached in the database
-  const cached = await prisma.trackCache.findMany({
-    where: { spotifyId: { in: trackIds } },
-  });
+  // Check both caches in parallel
+  const [cachedTracks, cachedArtists] = await Promise.all([
+    prisma.trackCache.findMany({ where: { spotifyId: { in: trackIds } } }),
+    prisma.artistCache.findMany({ where: { artistId: { in: artistIds } } }),
+  ]);
 
-  const cachedMap: Record<string, any> = {};
-  cached.forEach(entry => {
-    cachedMap[entry.spotifyId] = entry;
-  });
+  console.log('Cache hits — tracks:', cachedTracks.length, 'artists:', cachedArtists.length);
+  console.log('Cache misses — tracks:', trackIds.filter(id => !cachedTracks.find(t => t.spotifyId === id)).length);
 
-  // Step 2 — Find which tracks are NOT in the cache
-  const missedTracks = tracks.filter(t => !cachedMap[t.id]);
-  const missedTrackIds = missedTracks.map(t => t.id);
-
+  // Build lookup maps from cache results
   const audioFeaturesMap: Record<string, any> = {};
-  const artistGenreMap: Record<string, string[]> = {};
-
-  // Step 3 — Populate maps from cache for tracks we already have
-  cached.forEach(entry => {
+  cachedTracks.forEach(entry => {
     audioFeaturesMap[entry.spotifyId] = entry.audioFeatures;
-    // genres are stored per-track in cache, keyed by spotifyId temporarily
-    // we'll resolve to artistId below
   });
 
-  // Step 4 — Fetch external data only for cache misses
+  const artistGenreMap: Record<string, string[]> = {};
+  cachedArtists.forEach(entry => {
+    artistGenreMap[entry.artistId] = entry.genres as string[];
+  });
+
+  // Find cache misses
+  const missedTrackIds = trackIds.filter(id => !audioFeaturesMap[id]);
+  const missedArtists = tracks.filter(t => !artistGenreMap[t.artistId]);
+  const missedTracks = tracks.filter(t => missedTrackIds.includes(t.id));
+
+  // Fetch audio features for missed tracks
   if (missedTrackIds.length > 0) {
     const chunks = chunkArray(missedTrackIds, 50);
 
@@ -56,12 +59,17 @@ const fetchTrackEnrichment = async (
         axios.get('https://api.reccobeats.com/v1/track', {
           params: { ids: chunk.join(',') },
         })
-        .then(r => r.data.content || [])
-        .catch(() => [])
+        .then(r => {
+          console.log('ReccoBeats batch size returned:', r.data.content?.length);
+          return r.data.content || [];
+        })
+        .catch((err) => {
+          console.error('ReccoBeats batch failed:', err.response?.status, err.response?.data);
+          return [];
+        })
       )
     );
 
-    // Map Spotify IDs to ReccoBeats UUIDs
     const reccoBeatsIdMap: Record<string, string> = {};
     batchResults.flat().forEach((feature: any) => {
       if (feature?.href && feature?.id) {
@@ -70,7 +78,6 @@ const fetchTrackEnrichment = async (
       }
     });
 
-    // Fetch audio features for cache misses
     await Promise.all(
       Object.entries(reccoBeatsIdMap).map(([spotifyId, reccoId]) =>
         axios.get(`https://api.reccobeats.com/v1/track/${reccoId}/audio-features`)
@@ -79,11 +86,28 @@ const fetchTrackEnrichment = async (
       )
     );
 
-    // Fetch genres for unique artists of cache misses only
+    // Save missed tracks to TrackCache
+    await Promise.all(
+      missedTracks.map(track =>
+        prisma.trackCache.upsert({
+          where: { spotifyId: track.id },
+          update: {
+            audioFeatures: audioFeaturesMap[track.id] || {},
+            cachedAt: new Date(),
+          },
+          create: {
+            spotifyId: track.id,
+            audioFeatures: audioFeaturesMap[track.id] || {},
+          },
+        }).catch(() => {})
+      )
+    );
+  }
+
+  // Fetch genres for missed artists
+  if (missedArtists.length > 0) {
     const uniqueMissedArtists = [
-      ...new Map(
-        missedTracks.map(t => [t.artistId, { id: t.artistId, name: t.artistName }])
-      ).values()
+      ...new Map(missedArtists.map(t => [t.artistId, { id: t.artistId, name: t.artistName }])).values()
     ];
 
     const genreResults = await Promise.all(
@@ -98,50 +122,27 @@ const fetchTrackEnrichment = async (
         })
         .then(r => ({
           id,
+          name,
           genres: (r.data.toptags?.tag || [])
             .slice(0, 3)
             .map((tag: any) => tag.name.toLowerCase()),
         }))
-        .catch(() => ({ id, genres: [] as string[] }))
+        .catch(() => ({ id, name, genres: [] as string[] }))
       )
     );
 
-    const missedArtistGenreMap: Record<string, string[]> = {};
-    genreResults.forEach(({ id, genres }) => {
-      missedArtistGenreMap[id] = genres;
-    });
-
-    // Step 5 — Save all cache misses to the database in one batch
+    // Save missed artists to ArtistCache
     await Promise.all(
-      missedTracks.map(track =>
-        prisma.trackCache.upsert({
-          where: { spotifyId: track.id },
-          update: {
-            audioFeatures: audioFeaturesMap[track.id] || {},
-            genres: missedArtistGenreMap[track.artistId] || [],
-            cachedAt: new Date(),
-          },
-          create: {
-            spotifyId: track.id,
-            audioFeatures: audioFeaturesMap[track.id] || {},
-            genres: missedArtistGenreMap[track.artistId] || [],
-          },
-        }).catch(() => {})
-      )
+      genreResults.map(({ id, name, genres }) => {
+        artistGenreMap[id] = genres;
+        return prisma.artistCache.upsert({
+          where: { artistId: id },
+          update: { genres, cachedAt: new Date() },
+          create: { artistId: id, artistName: name, genres },
+        }).catch(() => {});
+      })
     );
-
-    // Merge missed artist genres into the main genre map
-    Object.assign(artistGenreMap, missedArtistGenreMap);
   }
-
-  // Step 6 — Build the final artistGenreMap from all sources
-  // For cached tracks, retrieve their genres and map back to artistId
-  cached.forEach(entry => {
-    const track = tracks.find(t => t.id === entry.spotifyId);
-    if (track) {
-      artistGenreMap[track.artistId] = entry.genres as string[];
-    }
-  });
 
   return { audioFeaturesMap, artistGenreMap };
 };
@@ -204,7 +205,8 @@ const calculateAverages = (tracks: any[]) => {
   };
 };
 
-// GET /playlists/:userId
+// 1. user's playlists
+// GET /playlists/:userId 
 // Fetches all Spotify playlists for a given Tunecraft user
 router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
   try {
@@ -233,6 +235,45 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
   }
 });
 
+// 2. discover
+// GET /playlists/:userId/discover/:playlistId
+// Fetches metadata for any public Spotify playlist by ID
+// Used when a user pastes a URL or ID they don't own
+router.get('/:userId/discover/:playlistId', refreshTokenMiddleware, async (req, res) => {
+  const { playlistId } = req.params;
+  const accessToken = (req as any).accessToken;
+
+  try {
+    const response = await axios.get(
+      `https://api.spotify.com/v1/playlists/${playlistId}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    
+    const playlist = response.data;
+
+    res.json({
+      spotifyId: playlist.id,
+      name: playlist.name,
+      ownerId: playlist.owner.id,
+      trackCount: playlist.tracks?.total ?? 0,
+      imageUrl: playlist.images?.[0]?.url ?? null,
+    });
+
+  } catch (error: any) {
+    const status = error.response?.status;
+    if (status === 404) {
+      return res.status(404).json({ error: 'Playlist not found' });
+    }
+    if (status === 403) {
+      return res.status(403).json({ error: 'This playlist is private' });
+    }
+    res.status(500).json({ error: 'Failed to fetch playlist' });
+  }
+});
+
+// 3. liked count
 // GET /playlists/:userId/liked
 // Fetches the Liked Songs count for the dashboard card
 // Liked Songs are not included in /me/playlists so they require a separate call
@@ -261,6 +302,7 @@ router.get('/:userId/liked', refreshTokenMiddleware, async (req, res) => {
   }
 });
 
+// 4. liked tracks
 // GET /playlists/:userId/liked/tracks
 // Streams tracks from the user's Liked Songs page by page
 // Uses SSE to send tracks to the frontend as each page loads
@@ -306,6 +348,7 @@ router.get('/:userId/liked/tracks', refreshTokenMiddleware, async (req, res) => 
   }
 });
 
+// 5. playlist tracks
 // GET /playlists/:userId/:spotifyId/tracks
 // Fetches a single page of tracks for a playlist with audio features and genres
 // Supports pagination via ?page= query parameter
@@ -351,7 +394,15 @@ router.get('/:userId/:spotifyId/tracks', refreshTokenMiddleware, async (req, res
     });
 
   } catch (error: any) {
-    console.error('Failed to fetch tracks:', error.response?.data || error.message);
+    const status = error.response?.status;
+    console.error('Failed to fetch tracks:', error.response?.data || error.message, 'URL:', error.config?.url);
+    
+    if (status === 403) {
+      return res.status(403).json({ 
+        error: "This playlist can't be accessed. Spotify restricts access to playlists owned by other users in development mode." 
+      });
+    }
+    
     res.status(500).json({ error: 'Failed to fetch playlist tracks' });
   }
 });
