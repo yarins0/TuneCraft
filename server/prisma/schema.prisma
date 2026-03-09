@@ -1,0 +1,55 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+// Prisma schema defines the database connection and all table structures
+// Prisma uses this file to generate the database tables and the TypeScript client
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String     @id @default(cuid())  // unique internal ID
+  spotifyId      String     @unique               // Spotify's own user ID
+  displayName    String
+  email          String?                          // optional, not all Spotify accounts have email
+  accessToken    String
+  refreshToken   String
+  tokenExpiresAt DateTime
+  createdAt      DateTime   @default(now())
+
+  // One user can have many playlists
+  playlists      Playlist[]
+}
+
+model Playlist {
+  id                 String    @id @default(cuid())
+  spotifyPlaylistId  String    @unique
+  name               String
+  autoReshuffle      Boolean   @default(false)
+  reshuffleInterval  String?                      // "daily" | "weekly" | "monthly"
+  lastReshuffledAt   DateTime?
+
+  createdAt          DateTime  @default(now())
+
+  // Every playlist belongs to one user
+  userId             String
+  user               User      @relation(fields: [userId], references: [id])
+}
+
+model TrackCache {
+  id            String   @id @default(cuid())
+  spotifyId     String   @unique
+  audioFeatures Json
+  genres        Json
+  releaseYear   Int?
+  cachedAt      DateTime @default(now())
+}

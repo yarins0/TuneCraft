@@ -1,0 +1,285 @@
+import { useEffect, useState, useRef } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { fetchTracksPage } from '../api/tracks';
+import type { Track, PlaylistAverages } from '../api/tracks';
+import { formatDuration } from '../api/tracks';
+import AudioFeatureChart from '../components/AudioFeatureChart';
+import { AUDIO_FEATURES } from '../constants/audioFeatures';
+import PlaylistCompositionCharts from '../components/PlaylistCompositionCharts';
+
+const getUserId = () => sessionStorage.getItem('userId') || '';
+const getSpotifyId = () => sessionStorage.getItem('spotifyId') || '';
+
+// Calculates averages across all loaded tracks on the frontend
+const recalculateAverages = (tracks: Track[]): PlaylistAverages => {
+  const avg = (key: keyof PlaylistAverages) => {
+    const values = tracks
+      .map(t => t.audioFeatures[key])
+      .filter(v => v !== null) as number[];
+    return values.length
+      ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 100) / 100
+      : null;
+  };
+
+  const tempos = tracks
+    .map(t => t.audioFeatures.tempo)
+    .filter(v => v !== null) as number[];
+
+  return {
+    energy: avg('energy'),
+    danceability: avg('danceability'),
+    valence: avg('valence'),
+    acousticness: avg('acousticness'),
+    instrumentalness: avg('instrumentalness'),
+    speechiness: avg('speechiness'),
+    tempo: tempos.length
+      ? Math.round(tempos.reduce((a, b) => a + b, 0) / tempos.length)
+      : null,
+  };
+};
+
+export default function PlaylistDetail() {
+  const { spotifyId } = useParams<{ spotifyId: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { ownerId, name } = (location.state || {}) as { ownerId?: string; name?: string };
+  const isOwner = ownerId === getSpotifyId();
+
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [averages, setAverages] = useState<PlaylistAverages | null>(null);
+  const [total, setTotal] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [insightsOpen, setInsightsOpen] = useState(false);
+
+  // Ref to track if the component is still mounted during async background loading
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!spotifyId) return;
+  
+    // Reset state when playlist changes
+    setTracks([]);
+    setAverages(null);
+    setLoading(true);
+    setLoadingMore(false);
+  
+    let cancelled = false;
+  
+    const loadAllPages = async (startPage: number) => {
+      let currentPage = startPage;
+      let more = true;
+      setLoadingMore(true);
+  
+      while (more && !cancelled) {
+        try {
+          const data = await fetchTracksPage(getUserId(), spotifyId, currentPage);
+          if (cancelled) break;
+  
+          setTracks(prev => {
+            const updated = [...prev, ...data.tracks];
+            setAverages(recalculateAverages(updated));
+            return updated;
+          });
+  
+          more = data.hasMore;
+          currentPage = data.nextPage;
+        } catch {
+          console.error(`Failed to load page ${currentPage}`);
+          break;
+        }
+      }
+  
+      if (!cancelled) setLoadingMore(false);
+    };
+  
+    fetchTracksPage(getUserId(), spotifyId, 0)
+      .then(data => {
+        if (cancelled) return;
+        setTracks(data.tracks);
+        setAverages(data.playlistAverages);
+        setTotal(data.total);
+        setLoading(false);
+  
+        if (data.hasMore) loadAllPages(data.nextPage);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setError('Failed to load tracks');
+        setLoading(false);
+      });
+  
+    // When the effect re-runs, cancel the previous run immediately
+    return () => { cancelled = true; };
+  }, [spotifyId]);
+
+  if (loading) return (
+    <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+      <div className="text-accent text-xl animate-pulse">Loading playlist...</div>
+    </div>
+  );
+
+  if (error) return (
+    <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+      <div className="text-red-400 text-xl">{error}</div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-bg-primary text-text-primary">
+
+      {/* Header */}
+      <div className="border-b border-border-color px-8 py-6 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="text-text-muted hover:text-text-primary transition-colors duration-200"
+          >
+            ← Back
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">
+              Tune<span className="text-accent">craft</span>
+            </h1>
+            {name && <p className="text-lg font-semibold">{name}</p>}
+            {/* Shows live loading progress as pages arrive */}
+            <p className="text-text-muted text-sm">
+              {loadingMore
+                ? `Loading... ${tracks.length} of ${total} tracks`
+                : `${tracks.length} tracks`
+              }
+            </p>
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-3">
+          <button className="bg-accent hover:bg-accent-hover text-white font-semibold px-5 py-2 rounded-full transition-all duration-200 hover:scale-105 active:scale-95">
+            🔀 Shuffle
+          </button>
+          {isOwner && spotifyId !== 'liked' && (
+            <button className="bg-bg-card hover:bg-bg-secondary text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50">
+              💾 Save
+            </button>
+          )}
+          <button className="bg-bg-card hover:bg-bg-secondary text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50">
+            💾 Save as Copy
+          </button>
+        </div>
+      </div>
+
+      <div className="px-8 py-8">
+
+        {/* Collapsible Insights Section */}
+        <div className="mb-8 bg-bg-card rounded-2xl border border-border-color overflow-hidden">
+          <button
+            onClick={() => setInsightsOpen(!insightsOpen)}
+            className="w-full px-6 py-4 flex items-center justify-between hover:bg-bg-secondary transition-colors duration-200"
+          >
+            <span className="text-sm font-semibold uppercase tracking-widest text-text-muted">
+              Playlist Insights
+              {loadingMore && (
+                <span className="ml-2 text-accent/60 normal-case tracking-normal font-normal">
+                  — updating as tracks load
+                </span>
+              )}
+            </span>
+            <span
+              className="text-text-muted transition-transform duration-300"
+              style={{ transform: insightsOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
+            >
+              ▼
+            </span>
+          </button>
+
+          {insightsOpen && averages && (
+            <div className="px-6 pb-6">
+              {/* Row 1 — Audio feature donut charts */}
+              <div className="grid grid-cols-4 md:grid-cols-7 gap-6 justify-items-center mb-8">
+                {AUDIO_FEATURES.map(feature => (
+                  <AudioFeatureChart
+                    key={feature.key}
+                    label={feature.label}
+                    value={averages[feature.key as keyof PlaylistAverages]}
+                    isTempo={feature.isTempo}
+                    isLoading={loadingMore}
+                  />
+                ))}
+              </div>
+
+              {/* Row 2 — Genre and decade pie charts */}
+              <PlaylistCompositionCharts
+                tracks={tracks}
+                isLoading={loadingMore}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Track list */}
+        <div className="flex flex-col gap-2">
+          {tracks.map((track, index) => (
+            <div
+              key={track.id}
+              className="group flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-bg-card transition-colors duration-200"
+            >
+              <span className="text-text-muted text-sm w-6 text-right shrink-0">
+                {index + 1}
+              </span>
+              <div className="w-10 h-10 rounded-md overflow-hidden bg-bg-secondary shrink-0">
+                {track.albumImageUrl ? (
+                  <img
+                    src={track.albumImageUrl}
+                    alt={track.albumName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-text-muted">
+                    🎵
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{track.name}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <p className="text-text-muted text-xs truncate">{track.artist}</p>
+                  {track.genres.slice(0, 2).map(genre => (
+                    <span
+                      key={genre}
+                      className="text-accent text-xs bg-accent/10 px-2 py-0.5 rounded-full shrink-0"
+                    >
+                      {genre}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="text-text-muted text-xs w-16 text-center shrink-0">
+                {track.audioFeatures.tempo
+                  ? `${Math.round(track.audioFeatures.tempo)} BPM`
+                  : '—'
+                }
+              </div>
+              <span className="text-text-muted text-sm w-10 text-right shrink-0">
+                {formatDuration(track.durationMs)}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Background loading indicator at bottom of list */}
+        {loadingMore && (
+          <div className="flex justify-center py-8">
+            <div className="text-accent/60 text-sm animate-pulse">
+              Loading remaining tracks in background...
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

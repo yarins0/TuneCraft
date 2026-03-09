@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-bg-primary: #0a0a0a;
+    --color-bg-secondary: #111111;
+    --color-bg-card: #161616;
+    --color-accent: #a855f7;
+    --color-accent-hover: #9333ea;
+    --color-accent-glow: rgba(168, 85, 247, 0.5);
+    --color-text-primary: #ffffff;
+    --color-text-muted: rgba(255, 255, 255, 0.4);
+    --color-border: rgba(255, 255, 255, 0.1);
+  }
+}
