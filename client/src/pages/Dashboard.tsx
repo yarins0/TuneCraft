@@ -102,24 +102,6 @@ export default function Dashboard() {
       </div>
 
       <div className="px-8 py-10">
-        {/* Stats bar */}
-        <div className="flex gap-8 mb-10">
-          <div className="bg-bg-card rounded-2xl px-6 py-4 border border-border-color">
-            <p className="text-text-muted text-xs uppercase tracking-widest mb-1">Playlists</p>
-            <p className="text-3xl font-bold text-accent">{playlists.length}</p>
-          </div>
-          <div className="bg-bg-card rounded-2xl px-6 py-4 border border-border-color">
-            <p className="text-text-muted text-xs uppercase tracking-widest mb-1">Liked Songs</p>
-            <p className="text-3xl font-bold text-accent">{likedCount ?? '...'}</p>
-          </div>
-          <div className="bg-bg-card rounded-2xl px-6 py-4 border border-border-color">
-            <p className="text-text-muted text-xs uppercase tracking-widest mb-1">Total Tracks</p>
-            <p className="text-3xl font-bold text-accent">
-              {playlists.reduce((sum, p) => sum + p.trackCount, 0) + (likedCount ?? 0)}
-            </p>
-          </div>
-        </div>
-
         {/* Playlist Discovery Search Bar */}
         <div className="mb-8">
           <p className="text-text-muted text-sm mb-3 uppercase tracking-widest font-semibold">
@@ -153,7 +135,7 @@ export default function Dashboard() {
         {/* Group 1 — Liked Songs + Owned Playlists */}
         <div className="mb-10">
           <p className="text-text-muted text-sm mb-4 uppercase tracking-widest font-semibold">
-            Your Library
+            Your Library <span className="text-accent normal-case">· {ownedPlaylists.length + 1}</span>
           </p>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
 
@@ -208,7 +190,7 @@ export default function Dashboard() {
         {followingPlaylists.length > 0 && (
           <div>
             <p className="text-text-muted text-sm mb-4 uppercase tracking-widest font-semibold">
-              Following
+              Following <span className="text-accent normal-case">· {followingPlaylists.length}</span>
             </p>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               {followingPlaylists.map(playlist => (

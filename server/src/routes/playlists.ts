@@ -214,7 +214,7 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
       .map((playlist: any) => ({
         spotifyId: playlist.id,
         name: playlist.name,
-        trackCount: playlist.tracks?.total ?? 0,
+        trackCount: playlist.items?.total ?? 0,
         imageUrl: playlist.images?.[0]?.url ?? null,
         ownerId: playlist.owner.id,
       }));
