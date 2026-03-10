@@ -7,6 +7,7 @@ import AudioFeatureChart from '../components/AudioFeatureChart';
 import { AUDIO_FEATURES } from '../constants/audioFeatures';
 import PlaylistCompositionCharts from '../components/PlaylistCompositionCharts';
 import ShuffleModal from '../components/ShuffleModal';
+import CopyModal from '../components/CopyModal';
 import { copyPlaylist, savePlaylist } from '../api/playlists';
 import { applyShuffle } from '../utils/shuffleAlgorithms';
 
@@ -46,7 +47,15 @@ export default function PlaylistDetail() {
   const { spotifyId } = useParams<{ spotifyId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { ownerId, name } = (location.state || {}) as { ownerId?: string; name?: string };
+
+  // location.state is set when navigating within the app via React Router
+  // searchParams is the fallback for when the page is opened in a new tab (e.g. after copy)
+  // — new tabs don't carry React Router state, so we encode the info in the URL instead
+  const searchParams = new URLSearchParams(location.search);
+  const state = (location.state || {}) as { ownerId?: string; name?: string };
+  const ownerId = state.ownerId || searchParams.get('ownerId') || undefined;
+  const name = state.name || searchParams.get('name') || undefined;
+
   const isOwner = ownerId === getSpotifyId();
 
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -58,6 +67,7 @@ export default function PlaylistDetail() {
   const [insightsOpen, setInsightsOpen] = useState(false);
 
   const [shuffleModalOpen, setShuffleModalOpen] = useState(false);
+  const [copyModalOpen, setCopyModalOpen] = useState(false);
 
   const [isShuffled, setIsShuffled] = useState(false);
   const [originalTracks, setOriginalTracks] = useState<Track[]>([]);
@@ -159,10 +169,11 @@ export default function PlaylistDetail() {
     }
   };
 
-  // Creates a new copy of the playlist in the user's Spotify library
-  // Used for playlists the user doesn't own, where saving in-place isn't allowed
-  const handleSaveAsCopy = async () => {
-    if (!spotifyId) return;
+  // Called when the user confirms the name in the CopyModal
+  // Creates the new playlist on Spotify, then opens it in a new tab
+  // ownerId and name are passed as query params so the new tab can read them
+  // (React Router location.state does not survive across new tab opens)
+  const handleConfirmCopy = async (copyName: string) => {
     setSaveLoading(true);
     setSaveError(null);
 
@@ -170,12 +181,18 @@ export default function PlaylistDetail() {
       const { playlist: newPlaylist } = await copyPlaylist(
         getUserId(),
         tracks,
-        name || 'My Playlist'
+        copyName
       );
+      setCopyModalOpen(false);
       setIsShuffled(false);
       setSaveSuccess('Copy saved to your library!');
       setTimeout(() => setSaveSuccess(null), 3000);
-      window.open(`/playlist/${newPlaylist.spotifyId}`, '_blank');
+
+      const params = new URLSearchParams({
+        name: newPlaylist.name,
+        ownerId: newPlaylist.ownerId,
+      });
+      window.open(`/playlist/${newPlaylist.spotifyId}?${params}`, '_blank');
     } catch {
       setSaveError('Spotify restricts playlist modifications in development mode. This will work once the app is published.');
       setTimeout(() => setSaveError(null), 5000);
@@ -258,11 +275,11 @@ export default function PlaylistDetail() {
             </button>
           )}
           <button
-            onClick={handleSaveAsCopy}
+            onClick={() => setCopyModalOpen(true)}
             disabled={saveLoading}
             className="bg-bg-card hover:bg-bg-secondary disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50"
           >
-            {saveLoading ? 'Saving...' : '💾 Save as Copy'}
+            💾 Save as Copy
           </button>
         </div>
       </div>
@@ -415,6 +432,15 @@ export default function PlaylistDetail() {
         onClose={() => setShuffleModalOpen(false)}
         onShuffle={handleShuffle}
         isLoading={false}
+      />
+
+      {/* Copy modal — lets the user rename the playlist before saving */}
+      <CopyModal
+        isOpen={copyModalOpen}
+        defaultName={`${name || 'My Playlist'} (Tunecraft Copy)`}
+        isLoading={saveLoading}
+        onClose={() => setCopyModalOpen(false)}
+        onConfirm={handleConfirmCopy}
       />
     </div>
   );

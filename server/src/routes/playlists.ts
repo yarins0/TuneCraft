@@ -455,7 +455,7 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
     const createResponse = await axios.post(
       'https://api.spotify.com/v1/me/playlists',
       {
-        name: `${name} (Tunecraft Copy)`,
+        name: name,
         description: 'Created by Tunecraft',
         public: true,
       },
@@ -483,7 +483,7 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
       success: true,
       playlist: {
         spotifyId: newPlaylistId,
-        name: `${name} (Tunecraft Copy)`,
+        name: name,
         ownerId: newPlaylistOwnerId,
       },
     });
