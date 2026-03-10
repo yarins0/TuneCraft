@@ -92,8 +92,11 @@ export default function Dashboard() {
     <div className="min-h-screen bg-bg-primary text-text-primary">
       {/* Header */}
       <div className="border-b border-border-color px-8 py-6">
-        <h1 className="text-3xl font-bold tracking-tight">
-          Tune<span className="text-accent">craft</span>
+        <h1
+          onClick={() => navigate('/dashboard')}
+          className="text-3xl font-bold tracking-tight cursor-pointer w-fit"
+        >
+          Tune<span className="text-accent">Craft</span>
         </h1>
         <p className="text-text-muted text-sm mt-1">Your music, engineered.</p>
       </div>

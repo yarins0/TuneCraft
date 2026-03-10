@@ -243,9 +243,12 @@ export default function PlaylistDetail() {
             ← Back
           </button>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              Tune<span className="text-accent">craft</span>
-            </h1>
+          <h1
+            onClick={() => navigate('/dashboard')}
+            className="text-2xl font-bold tracking-tight cursor-pointer w-fit"
+          >
+            Tune<span className="text-accent">Craft</span>
+          </h1>
             {name && <p className="text-lg font-semibold">{name}</p>}
             {/* Shows live loading progress as pages stream in */}
             <p className="text-text-muted text-sm">
