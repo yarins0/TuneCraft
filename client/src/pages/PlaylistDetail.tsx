@@ -264,14 +264,15 @@ export default function PlaylistDetail() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setShuffleModalOpen(true)}
-            className="bg-accent hover:bg-accent-hover text-white font-semibold px-5 py-2 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
+            disabled={loadingMore}
+            className="bg-accent hover:bg-accent-hover disabled:opacity-50  text-white font-semibold px-5 py-2 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
           >
             🔀 Shuffle
           </button>
           {isOwner && spotifyId !== 'liked' && (
             <button
               onClick={handleSave}
-              disabled={saveLoading}
+              disabled={saveLoading || loadingMore}
               className="bg-bg-card hover:bg-bg-secondary disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50"
             >
               {saveLoading ? 'Saving...' : '💾 Save'}
@@ -279,7 +280,7 @@ export default function PlaylistDetail() {
           )}
           <button
             onClick={() => setCopyModalOpen(true)}
-            disabled={saveLoading}
+            disabled={saveLoading || loadingMore}
             className="bg-bg-card hover:bg-bg-secondary disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50"
           >
             💾 Save as Copy

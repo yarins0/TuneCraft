@@ -1,0 +1,21 @@
+{
+  "name": "tunecraft",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "npx concurrently --kill-others \"npm run dev --prefix server\" \"npm run dev --prefix client\" \"cd server && npx prisma studio\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yarins0/TuneCraft.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/yarins0/TuneCraft/issues"
+  },
+  "homepage": "https://github.com/yarins0/TuneCraft#readme"
+}
