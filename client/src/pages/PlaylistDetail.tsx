@@ -180,7 +180,7 @@ export default function PlaylistDetail() {
     try {
       const { playlist: newPlaylist } = await copyPlaylist(
         getUserId(),
-        tracks,
+        tracks.map(t => ({ id: t.id })),
         copyName
       );
       setCopyModalOpen(false);
