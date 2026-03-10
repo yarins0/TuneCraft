@@ -2,6 +2,7 @@ import { Router } from 'express';
 import axios from 'axios';
 import { refreshTokenMiddleware } from '../middleware/refreshToken';
 import prisma from '../lib/prisma';
+import { applyShuffle } from '../lib/shuffleAlgorithms';
 
 const router = Router();
 
@@ -407,4 +408,164 @@ router.get('/:userId/:spotifyId/tracks', refreshTokenMiddleware, async (req, res
   }
 });
 
+
+// POST /playlists/:userId/:spotifyId/shuffle
+// Reorders a playlist on Spotify using the chosen shuffle algorithm
+// Sends the full new track order to Spotify using the reorder endpoint
+router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, res) => {
+  const { spotifyId } = req.params;
+  const { tracks, algorithms } = req.body;
+  const accessToken = (req as any).accessToken;
+
+  const shuffled = applyShuffle(tracks, algorithms);
+
+  try {
+    
+    const uris = shuffled.map((t: any) => `spotify:track:${t.id}`);
+
+    console.log('Shuffling playlist:', spotifyId);
+    console.log('Number of URIs:', uris.length);
+
+    // Spotify limits PUT /playlists/:id/items to 100 URIs per request
+    // First PUT replaces the entire playlist with the first 100 tracks
+    const firstChunk = uris.slice(0, 100);
+    const remainingChunks = chunkArray(uris.slice(100), 100);
+    console.log('Request body:', JSON.stringify({ uris: firstChunk }));
+    await axios.put(
+      `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
+      { uris: firstChunk },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    // Subsequent POSTs append the remaining tracks in batches of 100
+    for (const chunk of remainingChunks) {
+      await axios.post(
+        `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
+        { uris: chunk },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+    }
+
+    console.log('Shuffle complete!');
+    res.json({ success: true, shuffled });
+
+  } catch (error: any) {
+    console.error('Failed to shuffle playlist:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to shuffle playlist' });
+  }
+});
+
+// POST /playlists/:userId/copy
+// Creates a new playlist in the user's Spotify library as a copy of any playlist
+// Used when the user wants to shuffle a playlist they don't own
+router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
+  const { userId } = req.params;
+  const { tracks, name } = req.body;
+  const accessToken = (req as any).accessToken;
+
+  try {
+    // Create a new empty playlist using the current endpoint
+    const createResponse = await axios.post(
+      'https://api.spotify.com/v1/me/playlists',
+      {
+        name: `${name} (Tunecraft Copy)`,
+        description: 'Created by Tunecraft',
+        public: true,
+      },
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    const newPlaylistId = createResponse.data.id;
+
+    // Step 3 — Add tracks in batches of 100 (Spotify's limit per request)
+    const uris = tracks.map((t: any) => `spotify:track:${t.id}`);
+    const chunks = chunkArray(uris, 100);
+
+    for (const chunk of chunks) {
+      try {
+        await axios.post(
+          `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
+          { uris: chunk },
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        console.log('Added chunk of', chunk.length, 'tracks to', newPlaylistId);
+      } catch (err: any) {
+        console.error('Failed to add chunk:', err.response?.data || err.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      playlist: {
+        spotifyId: newPlaylistId,
+        name: `${name} (Tunecraft Copy)`,
+        ownerId: userId,
+      },
+    });
+
+  } catch (error: any) {
+    console.error('Failed to copy playlist:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to copy playlist' });
+  }
+});
+
+// PUT /playlists/:userId/:spotifyId/save
+// Saves the current track order to an owned Spotify playlist
+// Sends tracks in batches of 100 (Spotify's limit per request)
+router.put('/:userId/:spotifyId/save', refreshTokenMiddleware, async (req, res) => {
+  const { spotifyId } = req.params;
+  const { tracks } = req.body;
+  const accessToken = (req as any).accessToken;
+
+  console.log('Save route hit — tracks received:', tracks?.length);
+  console.log('SpotifyId:', spotifyId);
+
+  try {
+    const uris = tracks.map((t: any) => `spotify:track:${t.id}`);
+    const firstChunk = uris.slice(0, 100);
+    const remainingChunks = chunkArray(uris.slice(100), 100);
+
+    // First PUT replaces entire playlist with first 100 tracks
+    await axios.put(
+      `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
+      { uris: firstChunk },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    // Subsequent POSTs append remaining tracks
+    for (const chunk of remainingChunks) {
+      await axios.post(
+        `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
+        { uris: chunk },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+    }
+
+    res.json({ success: true });
+
+  } catch (error: any) {
+    console.error('Failed to save playlist:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to save playlist' });
+  }
+});
 export default router;

@@ -6,6 +6,10 @@ import { formatDuration } from '../api/tracks';
 import AudioFeatureChart from '../components/AudioFeatureChart';
 import { AUDIO_FEATURES } from '../constants/audioFeatures';
 import PlaylistCompositionCharts from '../components/PlaylistCompositionCharts';
+import ShuffleModal from '../components/ShuffleModal';
+import { shufflePlaylist, copyPlaylist, savePlaylist } from '../api/playlists';
+import { applyShuffle } from '../utils/shuffleAlgorithms';
+
 
 const getUserId = () => sessionStorage.getItem('userId') || '';
 const getSpotifyId = () => sessionStorage.getItem('spotifyId') || '';
@@ -52,6 +56,17 @@ export default function PlaylistDetail() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [insightsOpen, setInsightsOpen] = useState(false);
+
+  const [shuffleModalOpen, setShuffleModalOpen] = useState(false);
+  const [shuffleLoading, setShuffleLoading] = useState(false);
+  const [shuffleSuccess, setShuffleSuccess] = useState(false);
+
+  const [isShuffled, setIsShuffled] = useState(false);
+  const [originalTracks, setOriginalTracks] = useState<Track[]>([]);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
 
   // Ref to track if the component is still mounted during async background loading
   const isMounted = useRef(true);
@@ -119,6 +134,64 @@ export default function PlaylistDetail() {
     return () => { cancelled = true; };
   }, [spotifyId]);
 
+  const handleShuffle = (
+    algorithms: {
+      trueRandom: boolean;
+      artistSpread: boolean;
+      genreSpread: boolean;
+      chronological: boolean;
+    },
+  ) => {
+    // Save original order before first shuffle so user can undo
+    if (!isShuffled) setOriginalTracks([...tracks]);
+  
+    const shuffled = applyShuffle(tracks, algorithms);
+    setTracks(shuffled);
+    setIsShuffled(true);
+    setShuffleModalOpen(false);
+  };
+
+  const handleSave = async () => {
+    if (!spotifyId) return;
+    setSaveLoading(true);
+    setSaveError(null);
+  
+    try {
+      await savePlaylist(getUserId(), spotifyId, tracks);
+      setIsShuffled(false);
+      setSaveSuccess('Playlist saved successfully!');
+      setTimeout(() => setSaveSuccess(null), 3000);
+    } catch {
+      setSaveError("Spotify restricts playlist modifications in development mode. This will work once the app is published.");
+      setTimeout(() => setSaveError(null), 5000);
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+  
+  const handleSaveAsCopy = async () => {
+    if (!spotifyId) return;
+    setSaveLoading(true);
+    setSaveError(null);
+  
+    try {
+      const { playlist: newPlaylist } = await copyPlaylist(
+        getUserId(),
+        tracks,
+        name || 'My Playlist'
+      );
+      setIsShuffled(false);
+      setSaveSuccess('Copy saved to your library!');
+      setTimeout(() => setSaveSuccess(null), 3000);
+      window.open(`/playlist/${newPlaylist.spotifyId}`, '_blank');
+    } catch {
+      setSaveError("Spotify restricts playlist modifications in development mode. This will work once the app is published.");
+      setTimeout(() => setSaveError(null), 5000);
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
   if (loading) return (
     <div className="min-h-screen bg-bg-primary flex items-center justify-center">
       <div className="text-accent text-xl animate-pulse">Loading playlist...</div>
@@ -177,21 +250,48 @@ export default function PlaylistDetail() {
 
         {/* Action buttons */}
         <div className="flex items-center gap-3">
-          <button className="bg-accent hover:bg-accent-hover text-white font-semibold px-5 py-2 rounded-full transition-all duration-200 hover:scale-105 active:scale-95">
+        <button
+          onClick={() => setShuffleModalOpen(true)}
+          className="bg-accent hover:bg-accent-hover text-white font-semibold px-5 py-2 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
+        >
             🔀 Shuffle
           </button>
           {isOwner && spotifyId !== 'liked' && (
-            <button className="bg-bg-card hover:bg-bg-secondary text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50">
-              💾 Save
+            <button
+              onClick={handleSave}
+              disabled={saveLoading}
+              className="bg-bg-card hover:bg-bg-secondary disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50"
+            >
+              {saveLoading ? 'Saving...' : '💾 Save'}
             </button>
           )}
-          <button className="bg-bg-card hover:bg-bg-secondary text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50">
-            💾 Save as Copy
+          <button
+            onClick={handleSaveAsCopy}
+            disabled={saveLoading}
+            className="bg-bg-card hover:bg-bg-secondary disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50"
+          >
+            {saveLoading ? 'Saving...' : '💾 Save as Copy'}
           </button>
         </div>
+        
       </div>
-
-      <div className="px-8 py-8">
+      {/* Unsaved changes banner */}
+      {isShuffled && (
+        <div className="bg-accent/10 px-8 py-3 flex items-center justify-between">          <p className="text-accent text-sm font-medium">
+            ✨ Playlist shuffled — save to apply changes
+          </p>
+          <button
+            onClick={() => {
+              setTracks(originalTracks);
+              setIsShuffled(false);
+            }}
+            className="text-text-muted hover:text-text-primary text-sm transition-colors"
+          >
+            ↩ Undo
+          </button>
+        </div>
+      )}
+      <div className="px-8 py-2">
 
         {/* Collapsible Insights Section */}
         <div className="mb-8 bg-bg-card rounded-2xl border border-border-color overflow-hidden">
@@ -298,6 +398,28 @@ export default function PlaylistDetail() {
           </div>
         )}
       </div>
+      {/* Success toast */}
+      {(shuffleSuccess || saveSuccess) && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-accent text-white px-6 py-3 rounded-full shadow-lg z-50">
+          ✅ {saveSuccess || 'Playlist shuffled!'}
+        </div>
+      )}
+      {/* Failure toast */}
+      {saveError && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-6 py-3 rounded-full shadow-lg z-50 text-center max-w-md">
+          ⚠️ {saveError}
+        </div>
+      )}
+
+      {/* Shuffle modal */}
+      <ShuffleModal
+        isOpen={shuffleModalOpen}
+        isOwner={isOwner}
+        playlistName={name || 'Playlist'}
+        onClose={() => setShuffleModalOpen(false)}
+        onShuffle={handleShuffle}
+        isLoading={false}
+      />
     </div>
   );
 }

@@ -106,4 +106,12 @@ router.get('/callback', async (req, res) => {
   }
 });
 
+router.get('/scopes', async (req, res) => {
+  const token = req.query.token as string;
+  const response = await axios.get('https://api.spotify.com/v1/me', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  res.json(response.data);
+});
+
 export default router;

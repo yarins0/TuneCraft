@@ -65,3 +65,63 @@ export const discoverPlaylist = async (
 
   return response.json();
 };
+
+// Shuffles a playlist on Spotify using the chosen algorithms
+export const shufflePlaylist = async (
+  userId: string,
+  spotifyId: string,
+  tracks: { id: string; artist: string; genres: string[]; releaseYear: number | null }[],
+  algorithms: {
+    trueRandom: boolean;
+    artistSpread: boolean;
+    genreSpread: boolean;
+    chronological: boolean;
+  }
+): Promise<{ success: boolean }> => {
+  const response = await fetch(
+    `${API_BASE_URL}/playlists/${userId}/${spotifyId}/shuffle`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tracks, algorithms }),
+    }
+  );
+  if (!response.ok) throw new Error('Failed to shuffle playlist');
+  return response.json();
+};
+
+// Creates a shuffled copy of any playlist in the user's Spotify library
+export const copyPlaylist = async (
+  userId: string,
+  tracks: { id: string }[],
+  name: string
+): Promise<{ success: boolean; playlist: { spotifyId: string; name: string; ownerId: string } }> => {
+  const response = await fetch(
+    `${API_BASE_URL}/playlists/${userId}/copy`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tracks, name }),
+    }
+  );
+  if (!response.ok) throw new Error('Failed to copy playlist');
+  return response.json();
+};
+
+// Saves the current track order to an owned Spotify playlist
+export const savePlaylist = async (
+  userId: string,
+  spotifyId: string,
+  tracks: { id: string }[]
+): Promise<{ success: boolean }> => {
+  const response = await fetch(
+    `${API_BASE_URL}/playlists/${userId}/${spotifyId}/save`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tracks }),
+    }
+  );
+  if (!response.ok) throw new Error('Failed to save playlist');
+  return response.json();
+};
