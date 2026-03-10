@@ -2,7 +2,6 @@ import { Router } from 'express';
 import axios from 'axios';
 import { refreshTokenMiddleware } from '../middleware/refreshToken';
 import prisma from '../lib/prisma';
-import { applyShuffle } from '../lib/shuffleAlgorithms';
 
 const router = Router();
 
@@ -22,7 +21,6 @@ const fetchTrackEnrichment = async (
   audioFeaturesMap: Record<string, any>;
   artistGenreMap: Record<string, string[]>;
 }> => {
-  console.log('Total tracks to enrich:', tracks.length);
   const trackIds = tracks.map(t => t.id);
   const artistIds = [...new Set(tracks.map(t => t.artistId))];
 
@@ -31,9 +29,6 @@ const fetchTrackEnrichment = async (
     prisma.trackCache.findMany({ where: { spotifyId: { in: trackIds } } }),
     prisma.artistCache.findMany({ where: { artistId: { in: artistIds } } }),
   ]);
-
-  console.log('Cache hits — tracks:', cachedTracks.length, 'artists:', cachedArtists.length);
-  console.log('Cache misses — tracks:', trackIds.filter(id => !cachedTracks.find(t => t.spotifyId === id)).length);
 
   // Build lookup maps from cache results
   const audioFeaturesMap: Record<string, any> = {};
@@ -60,10 +55,7 @@ const fetchTrackEnrichment = async (
         axios.get('https://api.reccobeats.com/v1/track', {
           params: { ids: chunk.join(',') },
         })
-        .then(r => {
-          console.log('ReccoBeats batch size returned:', r.data.content?.length);
-          return r.data.content || [];
-        })
+        .then(r => r.data.content || [])
         .catch((err) => {
           console.error('ReccoBeats batch failed:', err.response?.status, err.response?.data);
           return [];
@@ -165,7 +157,7 @@ const formatTrack = (
     albumName: rawTrack.album.name,
     albumImageUrl: rawTrack.album.images[0]?.url ?? null,
     durationMs: rawTrack.duration_ms,
-    // Extract the decade from the release date (e.g. "2019-05-01" → 2010s)
+    // Extract the year from the release date string (e.g. "2019-05-01" → 2019)
     releaseYear: rawTrack.album.release_date
       ? parseInt(rawTrack.album.release_date.substring(0, 4))
       : null,
@@ -182,7 +174,7 @@ const formatTrack = (
   };
 };
 
-// Calculates the average value of an audio feature across all tracks
+// Calculates the average value of each audio feature across all tracks
 const calculateAverages = (tracks: any[]) => {
   const average = (key: string) => {
     const values = tracks
@@ -206,8 +198,7 @@ const calculateAverages = (tracks: any[]) => {
   };
 };
 
-// 1. user's playlists
-// GET /playlists/:userId 
+// GET /playlists/:userId
 // Fetches all Spotify playlists for a given Tunecraft user
 router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
   try {
@@ -236,7 +227,6 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
   }
 });
 
-// 2. discover
 // GET /playlists/:userId/discover/:playlistId
 // Fetches metadata for any public Spotify playlist by ID
 // Used when a user pastes a URL or ID they don't own
@@ -251,7 +241,7 @@ router.get('/:userId/discover/:playlistId', refreshTokenMiddleware, async (req, 
         headers: { Authorization: `Bearer ${accessToken}` },
       }
     );
-    
+
     const playlist = response.data;
 
     res.json({
@@ -274,7 +264,6 @@ router.get('/:userId/discover/:playlistId', refreshTokenMiddleware, async (req, 
   }
 });
 
-// 3. liked count
 // GET /playlists/:userId/liked
 // Fetches the Liked Songs count for the dashboard card
 // Liked Songs are not included in /me/playlists so they require a separate call
@@ -303,10 +292,9 @@ router.get('/:userId/liked', refreshTokenMiddleware, async (req, res) => {
   }
 });
 
-// 4. liked tracks
 // GET /playlists/:userId/liked/tracks
-// Streams tracks from the user's Liked Songs page by page
-// Uses SSE to send tracks to the frontend as each page loads
+// Fetches a single page of tracks from the user's Liked Songs
+// Supports pagination via ?page= query parameter
 router.get('/:userId/liked/tracks', refreshTokenMiddleware, async (req, res) => {
   const accessToken = (req as any).accessToken;
   const page = parseInt(req.query.page as string) || 0;
@@ -330,9 +318,9 @@ router.get('/:userId/liked/tracks', refreshTokenMiddleware, async (req, res) => 
       artistId: t.artists[0].id,
       artistName: t.artists[0].name,
     }));
-    
+
     const { audioFeaturesMap, artistGenreMap } = await fetchTrackEnrichment(trackEnrichmentInput);
-    
+
     const tracks = rawTracks.map((t: any) => formatTrack(t, audioFeaturesMap, artistGenreMap));
 
     res.json({
@@ -349,7 +337,6 @@ router.get('/:userId/liked/tracks', refreshTokenMiddleware, async (req, res) => 
   }
 });
 
-// 5. playlist tracks
 // GET /playlists/:userId/:spotifyId/tracks
 // Fetches a single page of tracks for a playlist with audio features and genres
 // Supports pagination via ?page= query parameter
@@ -381,9 +368,9 @@ router.get('/:userId/:spotifyId/tracks', refreshTokenMiddleware, async (req, res
       artistId: t.artists[0].id,
       artistName: t.artists[0].name,
     }));
-    
+
     const { audioFeaturesMap, artistGenreMap } = await fetchTrackEnrichment(trackEnrichmentInput);
-    
+
     const tracks = rawTracks.map((t: any) => formatTrack(t, audioFeaturesMap, artistGenreMap));
 
     res.json({
@@ -395,42 +382,34 @@ router.get('/:userId/:spotifyId/tracks', refreshTokenMiddleware, async (req, res
     });
 
   } catch (error: any) {
-    const status = error.response?.status;
-    console.error('Failed to fetch tracks:', error.response?.data || error.message, 'URL:', error.config?.url);
-    
-    if (status === 403) {
-      return res.status(403).json({ 
-        error: "This playlist can't be accessed. Spotify restricts access to playlists owned by other users in development mode." 
+    console.error('Failed to fetch tracks:', error.response?.data || error.message);
+
+    if (error.response?.status === 403) {
+      return res.status(403).json({
+        error: "This playlist can't be accessed. Spotify restricts access to playlists owned by other users in development mode."
       });
     }
-    
+
     res.status(500).json({ error: 'Failed to fetch playlist tracks' });
   }
 });
 
-
 // POST /playlists/:userId/:spotifyId/shuffle
-// Reorders a playlist on Spotify using the chosen shuffle algorithm
-// Sends the full new track order to Spotify using the reorder endpoint
+// Saves a pre-shuffled track order to an owned Spotify playlist
+// The shuffle algorithm runs on the frontend; this route just writes the result to Spotify
 router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, res) => {
   const { spotifyId } = req.params;
-  const { tracks, algorithms } = req.body;
+  const { tracks } = req.body;
   const accessToken = (req as any).accessToken;
 
-  const shuffled = applyShuffle(tracks, algorithms);
-
   try {
-    
-    const uris = shuffled.map((t: any) => `spotify:track:${t.id}`);
-
-    console.log('Shuffling playlist:', spotifyId);
-    console.log('Number of URIs:', uris.length);
+    const uris = tracks.map((t: any) => `spotify:track:${t.id}`);
 
     // Spotify limits PUT /playlists/:id/items to 100 URIs per request
     // First PUT replaces the entire playlist with the first 100 tracks
     const firstChunk = uris.slice(0, 100);
     const remainingChunks = chunkArray(uris.slice(100), 100);
-    console.log('Request body:', JSON.stringify({ uris: firstChunk }));
+
     await axios.put(
       `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
       { uris: firstChunk },
@@ -456,8 +435,7 @@ router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, r
       );
     }
 
-    console.log('Shuffle complete!');
-    res.json({ success: true, shuffled });
+    res.json({ success: true });
 
   } catch (error: any) {
     console.error('Failed to shuffle playlist:', error.response?.data || error.message);
@@ -469,12 +447,11 @@ router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, r
 // Creates a new playlist in the user's Spotify library as a copy of any playlist
 // Used when the user wants to shuffle a playlist they don't own
 router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
-  const { userId } = req.params;
   const { tracks, name } = req.body;
   const accessToken = (req as any).accessToken;
 
   try {
-    // Create a new empty playlist using the current endpoint
+    // Create a new empty playlist
     const createResponse = await axios.post(
       'https://api.spotify.com/v1/me/playlists',
       {
@@ -486,22 +463,20 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
     );
 
     const newPlaylistId = createResponse.data.id;
+    const newPlaylistOwnerId = createResponse.data.owner.id;
 
-    // Step 3 — Add tracks in batches of 100 (Spotify's limit per request)
+    // Add tracks in batches of 100 (Spotify's limit per request)
     const uris = tracks.map((t: any) => `spotify:track:${t.id}`);
     const chunks = chunkArray(uris, 100);
 
     for (const chunk of chunks) {
-      try {
-        await axios.post(
-          `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
-          { uris: chunk },
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        );
-        console.log('Added chunk of', chunk.length, 'tracks to', newPlaylistId);
-      } catch (err: any) {
+      await axios.post(
+        `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
+        { uris: chunk },
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      ).catch((err: any) => {
         console.error('Failed to add chunk:', err.response?.data || err.message);
-      }
+      });
     }
 
     res.json({
@@ -509,7 +484,7 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
       playlist: {
         spotifyId: newPlaylistId,
         name: `${name} (Tunecraft Copy)`,
-        ownerId: userId,
+        ownerId: newPlaylistOwnerId,
       },
     });
 
@@ -526,9 +501,6 @@ router.put('/:userId/:spotifyId/save', refreshTokenMiddleware, async (req, res) 
   const { spotifyId } = req.params;
   const { tracks } = req.body;
   const accessToken = (req as any).accessToken;
-
-  console.log('Save route hit — tracks received:', tracks?.length);
-  console.log('SpotifyId:', spotifyId);
 
   try {
     const uris = tracks.map((t: any) => `spotify:track:${t.id}`);
@@ -568,4 +540,5 @@ router.put('/:userId/:spotifyId/save', refreshTokenMiddleware, async (req, res) 
     res.status(500).json({ error: 'Failed to save playlist' });
   }
 });
+
 export default router;

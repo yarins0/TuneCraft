@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { fetchTracksPage } from '../api/tracks';
 import type { Track, PlaylistAverages } from '../api/tracks';
@@ -7,14 +7,14 @@ import AudioFeatureChart from '../components/AudioFeatureChart';
 import { AUDIO_FEATURES } from '../constants/audioFeatures';
 import PlaylistCompositionCharts from '../components/PlaylistCompositionCharts';
 import ShuffleModal from '../components/ShuffleModal';
-import { shufflePlaylist, copyPlaylist, savePlaylist } from '../api/playlists';
+import { copyPlaylist, savePlaylist } from '../api/playlists';
 import { applyShuffle } from '../utils/shuffleAlgorithms';
-
 
 const getUserId = () => sessionStorage.getItem('userId') || '';
 const getSpotifyId = () => sessionStorage.getItem('spotifyId') || '';
 
-// Calculates averages across all loaded tracks on the frontend
+// Recalculates playlist averages from the full set of loaded tracks
+// Called after each page loads so the charts stay up to date as tracks stream in
 const recalculateAverages = (tracks: Track[]): PlaylistAverages => {
   const avg = (key: keyof PlaylistAverages) => {
     const values = tracks
@@ -58,8 +58,6 @@ export default function PlaylistDetail() {
   const [insightsOpen, setInsightsOpen] = useState(false);
 
   const [shuffleModalOpen, setShuffleModalOpen] = useState(false);
-  const [shuffleLoading, setShuffleLoading] = useState(false);
-  const [shuffleSuccess, setShuffleSuccess] = useState(false);
 
   const [isShuffled, setIsShuffled] = useState(false);
   const [originalTracks, setOriginalTracks] = useState<Track[]>([]);
@@ -67,41 +65,35 @@ export default function PlaylistDetail() {
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-
-  // Ref to track if the component is still mounted during async background loading
-  const isMounted = useRef(true);
-  useEffect(() => {
-    isMounted.current = true;
-    return () => { isMounted.current = false; };
-  }, []);
-
   useEffect(() => {
     if (!spotifyId) return;
-  
+
     // Reset state when playlist changes
     setTracks([]);
     setAverages(null);
     setLoading(true);
     setLoadingMore(false);
-  
+
     let cancelled = false;
-  
+
+    // Loads all remaining pages after the first page has already been shown
+    // Runs in the background so the user isn't blocked waiting for large playlists
     const loadAllPages = async (startPage: number) => {
       let currentPage = startPage;
       let more = true;
       setLoadingMore(true);
-  
+
       while (more && !cancelled) {
         try {
           const data = await fetchTracksPage(getUserId(), spotifyId, currentPage);
           if (cancelled) break;
-  
+
           setTracks(prev => {
             const updated = [...prev, ...data.tracks];
             setAverages(recalculateAverages(updated));
             return updated;
           });
-  
+
           more = data.hasMore;
           currentPage = data.nextPage;
         } catch {
@@ -109,10 +101,11 @@ export default function PlaylistDetail() {
           break;
         }
       }
-  
+
       if (!cancelled) setLoadingMore(false);
     };
-  
+
+    // Load the first page immediately, then kick off background loading for the rest
     fetchTracksPage(getUserId(), spotifyId, 0)
       .then(data => {
         if (cancelled) return;
@@ -120,60 +113,59 @@ export default function PlaylistDetail() {
         setAverages(data.playlistAverages);
         setTotal(data.total);
         setLoading(false);
-  
+
         if (data.hasMore) loadAllPages(data.nextPage);
       })
-      .catch(async (err) => {
+      .catch(err => {
         if (cancelled) return;
-        const message = err.message || 'Failed to load tracks';
-        setError(message);
+        setError(err.message || 'Failed to load tracks');
         setLoading(false);
       });
-  
-    // When the effect re-runs, cancel the previous run immediately
+
+    // If spotifyId changes before loading finishes, cancel the in-flight requests
     return () => { cancelled = true; };
   }, [spotifyId]);
 
-  const handleShuffle = (
-    algorithms: {
-      trueRandom: boolean;
-      artistSpread: boolean;
-      genreSpread: boolean;
-      chronological: boolean;
-    },
-  ) => {
-    // Save original order before first shuffle so user can undo
+  // Applies the chosen shuffle algorithms to the current track list in memory
+  // Saves the original order on first shuffle so the user can undo
+  const handleShuffle = (algorithms: {
+    trueRandom: boolean;
+    artistSpread: boolean;
+    genreSpread: boolean;
+    chronological: boolean;
+  }) => {
     if (!isShuffled) setOriginalTracks([...tracks]);
-  
-    const shuffled = applyShuffle(tracks, algorithms);
-    setTracks(shuffled);
+    setTracks(applyShuffle(tracks, algorithms));
     setIsShuffled(true);
     setShuffleModalOpen(false);
   };
 
+  // Writes the current track order to the user's owned Spotify playlist
   const handleSave = async () => {
     if (!spotifyId) return;
     setSaveLoading(true);
     setSaveError(null);
-  
+
     try {
       await savePlaylist(getUserId(), spotifyId, tracks);
       setIsShuffled(false);
       setSaveSuccess('Playlist saved successfully!');
       setTimeout(() => setSaveSuccess(null), 3000);
     } catch {
-      setSaveError("Spotify restricts playlist modifications in development mode. This will work once the app is published.");
+      setSaveError('Spotify restricts playlist modifications in development mode. This will work once the app is published.');
       setTimeout(() => setSaveError(null), 5000);
     } finally {
       setSaveLoading(false);
     }
   };
-  
+
+  // Creates a new copy of the playlist in the user's Spotify library
+  // Used for playlists the user doesn't own, where saving in-place isn't allowed
   const handleSaveAsCopy = async () => {
     if (!spotifyId) return;
     setSaveLoading(true);
     setSaveError(null);
-  
+
     try {
       const { playlist: newPlaylist } = await copyPlaylist(
         getUserId(),
@@ -185,7 +177,7 @@ export default function PlaylistDetail() {
       setTimeout(() => setSaveSuccess(null), 3000);
       window.open(`/playlist/${newPlaylist.spotifyId}`, '_blank');
     } catch {
-      setSaveError("Spotify restricts playlist modifications in development mode. This will work once the app is published.");
+      setSaveError('Spotify restricts playlist modifications in development mode. This will work once the app is published.');
       setTimeout(() => setSaveError(null), 5000);
     } finally {
       setSaveLoading(false);
@@ -238,7 +230,7 @@ export default function PlaylistDetail() {
               Tune<span className="text-accent">craft</span>
             </h1>
             {name && <p className="text-lg font-semibold">{name}</p>}
-            {/* Shows live loading progress as pages arrive */}
+            {/* Shows live loading progress as pages stream in */}
             <p className="text-text-muted text-sm">
               {loadingMore
                 ? `Loading... ${tracks.length} of ${total} tracks`
@@ -250,10 +242,10 @@ export default function PlaylistDetail() {
 
         {/* Action buttons */}
         <div className="flex items-center gap-3">
-        <button
-          onClick={() => setShuffleModalOpen(true)}
-          className="bg-accent hover:bg-accent-hover text-white font-semibold px-5 py-2 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
-        >
+          <button
+            onClick={() => setShuffleModalOpen(true)}
+            className="bg-accent hover:bg-accent-hover text-white font-semibold px-5 py-2 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
+          >
             🔀 Shuffle
           </button>
           {isOwner && spotifyId !== 'liked' && (
@@ -273,11 +265,12 @@ export default function PlaylistDetail() {
             {saveLoading ? 'Saving...' : '💾 Save as Copy'}
           </button>
         </div>
-        
       </div>
+
       {/* Unsaved changes banner */}
       {isShuffled && (
-        <div className="bg-accent/10 px-8 py-3 flex items-center justify-between">          <p className="text-accent text-sm font-medium">
+        <div className="bg-accent/10 px-8 py-3 flex items-center justify-between">
+          <p className="text-accent text-sm font-medium">
             ✨ Playlist shuffled — save to apply changes
           </p>
           <button
@@ -291,6 +284,7 @@ export default function PlaylistDetail() {
           </button>
         </div>
       )}
+
       <div className="px-8 py-2">
 
         {/* Collapsible Insights Section */}
@@ -398,12 +392,14 @@ export default function PlaylistDetail() {
           </div>
         )}
       </div>
+
       {/* Success toast */}
-      {(shuffleSuccess || saveSuccess) && (
+      {saveSuccess && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-accent text-white px-6 py-3 rounded-full shadow-lg z-50">
-          ✅ {saveSuccess || 'Playlist shuffled!'}
+          ✅ {saveSuccess}
         </div>
       )}
+
       {/* Failure toast */}
       {saveError && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-6 py-3 rounded-full shadow-lg z-50 text-center max-w-md">
