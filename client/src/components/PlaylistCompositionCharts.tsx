@@ -7,6 +7,21 @@ interface Props {
   isLoading: boolean;
 }
 
+interface LoadingRingProps {
+  label: string;
+  color: string;
+}
+
+interface TooltipPayloadItem {
+  name: string;
+  value: number;
+}
+
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: TooltipPayloadItem[];
+}
+
 // Derives the decade label from a release year (e.g. 1985 → "80s")
 const getDecade = (year: number): string => {
   const decade = Math.floor(year / 10) * 10;
@@ -34,15 +49,18 @@ const buildChartData = (
 };
 
 // Spinning loading ring shown while tracks are still being fetched
-const LoadingRing = ({ label }: { label: string }) => (
+const LoadingRing = ({ label, color }: LoadingRingProps) => (
   <div className="flex flex-col items-center justify-center gap-3 h-64">
-    <div className="w-24 h-24 rounded-full border-4 border-border-color border-t-accent animate-spin" />
+    <div
+      className="w-24 h-24 rounded-full border-4 border-border-color animate-spin"
+      style={{ borderTopColor: color }}
+    />
     <p className="text-text-muted text-sm">{label}</p>
   </div>
 );
 
 // Custom tooltip shown when hovering over a pie slice
-const CustomTooltip = ({ active, payload }: any) => {
+const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
   if (active && payload && payload.length) {
     return (
       <div className="bg-bg-card border border-border-color rounded-xl px-3 py-2 text-sm">
@@ -72,7 +90,7 @@ export default function PlaylistCompositionCharts({ tracks, isLoading }: Props) 
           Genre Distribution
         </h3>
         {isLoading && genreData.length === 0 ? (
-          <LoadingRing label="Analyzing genres..." />
+          <LoadingRing label="Analyzing genres..." color={CHART_COLORS[0]} />
         ) : (
           <ResponsiveContainer width="100%" height={260}>
             <PieChart>
@@ -113,7 +131,7 @@ export default function PlaylistCompositionCharts({ tracks, isLoading }: Props) 
           Decades Distribution
         </h3>
         {isLoading && decadeData.length === 0 ? (
-          <LoadingRing label="Analyzing decades..." />
+          <LoadingRing label="Analyzing decades..." color={CHART_COLORS[1]} />
         ) : (
           <ResponsiveContainer width="100%" height={260}>
             <PieChart>

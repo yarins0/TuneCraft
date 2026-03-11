@@ -38,7 +38,10 @@ export default function AudioFeatureChart({
     <div className="flex flex-col items-center gap-2">
       <div className="relative w-24 h-24 flex items-center justify-center">
         {isLoading ? (
-          <div className="w-24 h-24 rounded-full border-4 border-border-color border-t-accent animate-spin" />
+          <div
+            className="w-24 h-24 rounded-full border-4 border-border-color animate-spin"
+            style={{ borderTopColor: color }}
+          />
         ) : (
           <div className="w-24 h-24 rounded-full border-4 border-border-color flex items-center justify-center">
             <span className="text-text-muted text-xs">N/A</span>
