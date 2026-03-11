@@ -5,6 +5,15 @@ import prisma from '../lib/prisma';
 
 const router = Router();
 
+const sanitizeAudioFeatures = (features: any) => {
+  if (!features || typeof features !== 'object') return {};
+  // ReccoBeats includes `href` (Spotify track link); we don't need to store/return it.
+  // Keep the rest of the payload untouched.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { href, ...rest } = features;
+  return rest;
+};
+
 // Splits an array into chunks of a given size
 // Used to batch API requests and avoid rate limiting
 const chunkArray = (arr: string[], size: number): string[][] =>
@@ -33,7 +42,7 @@ const fetchTrackEnrichment = async (
   // Build lookup maps from cache results
   const audioFeaturesMap: Record<string, any> = {};
   cachedTracks.forEach(entry => {
-    audioFeaturesMap[entry.spotifyId] = entry.audioFeatures;
+    audioFeaturesMap[entry.spotifyId] = sanitizeAudioFeatures(entry.audioFeatures);
   });
 
   const artistGenreMap: Record<string, string[]> = {};
@@ -48,21 +57,23 @@ const fetchTrackEnrichment = async (
 
   // Fetch audio features for missed tracks
   if (missedTrackIds.length > 0) {
-    const chunks = chunkArray(missedTrackIds, 50);
+    const chunks = chunkArray(missedTrackIds, 40);
 
     const batchResults = await Promise.all(
       chunks.map((chunk: string[]) =>
         axios.get('https://api.reccobeats.com/v1/track', {
           params: { ids: chunk.join(',') },
         })
-        .then(r => r.data.content || [])
+        .then(r => {
+          return r.data.content || [];
+        })
         .catch((err) => {
           console.error('ReccoBeats batch failed:', err.response?.status, err.response?.data);
           return [];
         })
       )
     );
-
+    
     const reccoBeatsIdMap: Record<string, string> = {};
     batchResults.flat().forEach((feature: any) => {
       if (feature?.href && feature?.id) {
@@ -74,8 +85,12 @@ const fetchTrackEnrichment = async (
     await Promise.all(
       Object.entries(reccoBeatsIdMap).map(([spotifyId, reccoId]) =>
         axios.get(`https://api.reccobeats.com/v1/track/${reccoId}/audio-features`)
-          .then(r => { audioFeaturesMap[spotifyId] = r.data; })
-          .catch(() => {})
+          .then(r => {
+            audioFeaturesMap[spotifyId] = sanitizeAudioFeatures(r.data);
+          })
+          .catch((err) => {
+            console.error('ReccoBeats audio features failed:', err.response?.status, err.response?.data);
+          })
       )
     );
 
@@ -150,14 +165,13 @@ const formatTrack = (
   const features = audioFeaturesMap[rawTrack.id] || {};
   const genres = artistGenreMap[rawTrack.artists[0].id] || [];
 
-  return {
+  const result = {
     id: rawTrack.id,
     name: rawTrack.name,
     artist: rawTrack.artists[0].name,
     albumName: rawTrack.album.name,
     albumImageUrl: rawTrack.album.images[0]?.url ?? null,
     durationMs: rawTrack.duration_ms,
-    // Extract the year from the release date string (e.g. "2019-05-01" → 2019)
     releaseYear: rawTrack.album.release_date
       ? parseInt(rawTrack.album.release_date.substring(0, 4))
       : null,
@@ -172,6 +186,8 @@ const formatTrack = (
       tempo: features.tempo ?? null,
     },
   };
+  
+  return result;
 };
 
 // Calculates the average value of each audio feature across all tracks
