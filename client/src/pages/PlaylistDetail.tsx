@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { fetchTracksPage } from '../api/tracks';
 import type { Track, PlaylistAverages } from '../api/tracks';
@@ -69,11 +69,14 @@ export default function PlaylistDetail() {
   const [shuffleModalOpen, setShuffleModalOpen] = useState(false);
   const [copyModalOpen, setCopyModalOpen] = useState(false);
 
-  const [isShuffled, setIsShuffled] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalTracks, setOriginalTracks] = useState<Track[]>([]);
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const dragFromIndexRef = useRef<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (!spotifyId) return;
@@ -83,6 +86,8 @@ export default function PlaylistDetail() {
     setAverages(null);
     setLoading(true);
     setLoadingMore(false);
+    setHasUnsavedChanges(false);
+    setOriginalTracks([]);
 
     let cancelled = false;
 
@@ -144,10 +149,26 @@ export default function PlaylistDetail() {
     genreSpread: boolean;
     chronological: boolean;
   }) => {
-    if (!isShuffled) setOriginalTracks([...tracks]);
+    if (!hasUnsavedChanges) setOriginalTracks([...tracks]);
     setTracks(applyShuffle(tracks, algorithms));
-    setIsShuffled(true);
+    setHasUnsavedChanges(true);
     setShuffleModalOpen(false);
+  };
+
+  const reorderTracks = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+
+    if (!hasUnsavedChanges) setOriginalTracks([...tracks]);
+
+    setTracks(prev => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      if (!moved) return prev;
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+
+    setHasUnsavedChanges(true);
   };
 
   // Writes the current track order to the user's owned Spotify playlist
@@ -158,7 +179,7 @@ export default function PlaylistDetail() {
 
     try {
       await savePlaylist(getUserId(), spotifyId, tracks);
-      setIsShuffled(false);
+      setHasUnsavedChanges(false);
       setSaveSuccess('Playlist saved successfully!');
       setTimeout(() => setSaveSuccess(null), 3000);
     } catch {
@@ -184,7 +205,7 @@ export default function PlaylistDetail() {
         copyName
       );
       setCopyModalOpen(false);
-      setIsShuffled(false);
+      setHasUnsavedChanges(false);
       setSaveSuccess('Copy saved to your library!');
       setTimeout(() => setSaveSuccess(null), 3000);
 
@@ -289,15 +310,15 @@ export default function PlaylistDetail() {
       </div>
 
       {/* Unsaved changes banner */}
-      {isShuffled && (
+      {hasUnsavedChanges && (
         <div className="bg-accent/10 px-8 py-3 flex items-center justify-between">
           <p className="text-accent text-sm font-medium">
-            ✨ Playlist shuffled — save to apply changes
+            ✨ Playlist order updated — save to apply changes
           </p>
           <button
             onClick={() => {
               setTracks(originalTracks);
-              setIsShuffled(false);
+              setHasUnsavedChanges(false);
             }}
             className="text-text-muted hover:text-text-primary text-sm transition-colors"
           >
@@ -359,10 +380,47 @@ export default function PlaylistDetail() {
           {tracks.map((track, index) => (
             <div
               key={track.id}
-              className="group flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-bg-card transition-colors duration-200"
+              draggable={!loadingMore && tracks.length > 1}
+              onDragStart={() => {
+                dragFromIndexRef.current = index;
+              }}
+              onDragEnd={() => {
+                dragFromIndexRef.current = null;
+                setDragOverIndex(null);
+              }}
+              onDragOver={(e) => {
+                if (loadingMore) return;
+                if (dragFromIndexRef.current === null) return;
+                e.preventDefault();
+                if (dragOverIndex !== index) setDragOverIndex(index);
+              }}
+              onDrop={(e) => {
+                if (loadingMore) return;
+                if (dragFromIndexRef.current === null) return;
+                e.preventDefault();
+                reorderTracks(dragFromIndexRef.current, index);
+                dragFromIndexRef.current = null;
+                setDragOverIndex(null);
+              }}
+              className={[
+                'group flex items-center gap-4 px-4 py-3 rounded-xl transition-colors duration-200',
+                'hover:bg-bg-card',
+                !loadingMore && tracks.length > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-default',
+                dragOverIndex === index ? 'bg-bg-card ring-1 ring-accent/30' : '',
+              ].filter(Boolean).join(' ')}
             >
               <span className="text-text-muted text-sm w-6 text-right shrink-0">
                 {index + 1}
+              </span>
+              <span
+                className={[
+                  'text-text-muted w-6 text-center shrink-0 select-none',
+                  !loadingMore && tracks.length > 1 ? 'opacity-60 group-hover:opacity-100' : 'opacity-30',
+                ].join(' ')}
+                title={loadingMore ? 'Wait for loading to finish to reorder' : 'Drag to reorder'}
+                aria-hidden="true"
+              >
+                ⋮⋮
               </span>
               <div className="w-10 h-10 rounded-md overflow-hidden bg-bg-secondary shrink-0">
                 {track.albumImageUrl ? (
