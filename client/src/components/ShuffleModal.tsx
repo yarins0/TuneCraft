@@ -45,7 +45,6 @@ const SHUFFLE_OPTIONS = [
 
 export default function ShuffleModal({
   isOpen,
-  isOwner,
   playlistName,
   onClose,
   onShuffle,
@@ -57,7 +56,6 @@ export default function ShuffleModal({
     genreSpread: false,
     chronological: false,
   });
-  const [saveAsCopy, setSaveAsCopy] = useState(!isOwner);
 
   if (!isOpen) return null;
 

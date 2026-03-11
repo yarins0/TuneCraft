@@ -8,9 +8,9 @@ interface AudioFeatureChartProps {
   isLoading?: boolean;
 }
 
-// Looks up the color for a given feature label from the centralized config
-const getColor = (label: string): string =>
-  AUDIO_FEATURES.find(f => f.label === label)?.color || '#a855f7';
+// Looks up display info for a given feature label from the centralized config
+const getFeatureMeta = (label: string) =>
+  AUDIO_FEATURES.find(f => f.label === label);
 
 export default function AudioFeatureChart({
   label,
@@ -18,7 +18,25 @@ export default function AudioFeatureChart({
   isTempo = false,
   isLoading = false,
 }: AudioFeatureChartProps) {
-  const color = getColor(label);
+  const meta = getFeatureMeta(label);
+  const color = meta?.color || '#a855f7';
+  const baseDescription = meta?.description || '';
+  const tooltip = (() => {
+    if (value === null) {
+      return baseDescription
+        ? `${label}\n${baseDescription}\n\nNo data available yet.`
+        : label;
+    }
+    if (isTempo) {
+      return baseDescription
+        ? `${label} · ${Math.round(value)} BPM\n${baseDescription}`
+        : `${label} · ${Math.round(value)} BPM`;
+    }
+    const pct = Math.round((value ?? 0) * 100);
+    return baseDescription
+      ? `${label} · ${pct}%\n${baseDescription}`
+      : `${label} · ${pct}%`;
+  })();
   const displayValue = value ?? 0;
   const percentage = isTempo ? 1 : displayValue;
 
@@ -35,7 +53,7 @@ export default function AudioFeatureChart({
 
   // Shows a spinning ring while loading, or N/A if data is unavailable
   if (value === null) return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-2" title={tooltip} aria-label={tooltip}>
       <div className="relative w-24 h-24 flex items-center justify-center">
         {isLoading ? (
           <div
@@ -53,7 +71,7 @@ export default function AudioFeatureChart({
   );
 
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-2" title={tooltip} aria-label={tooltip}>
       <div className="relative w-24 h-24">
         <PieChart width={96} height={96}>
           <Pie

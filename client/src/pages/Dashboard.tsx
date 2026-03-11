@@ -68,10 +68,6 @@ export default function Dashboard() {
     }
   };
 
-  // Determines if the current user owns a playlist
-  const isOwned = (playlist: Playlist) =>
-    playlist.ownerId === getSpotifyId();
-
   if (loading) return (
     <div className="min-h-screen bg-bg-primary flex items-center justify-center">
       <div className="text-accent text-xl animate-pulse">Loading your music...</div>

@@ -8,6 +8,7 @@ import { AUDIO_FEATURES } from '../constants/audioFeatures';
 import PlaylistCompositionCharts from '../components/PlaylistCompositionCharts';
 import ShuffleModal from '../components/ShuffleModal';
 import CopyModal from '../components/CopyModal';
+import TrackAudioFeaturesCollapse from '../components/TrackAudioFeaturesCollapse';
 import { copyPlaylist, savePlaylist } from '../api/playlists';
 import { applyShuffle } from '../utils/shuffleAlgorithms';
 
@@ -65,6 +66,7 @@ export default function PlaylistDetail() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [insightsOpen, setInsightsOpen] = useState(false);
+  const [openTrackIds, setOpenTrackIds] = useState<Set<string>>(() => new Set());
 
   const [shuffleModalOpen, setShuffleModalOpen] = useState(false);
   const [copyModalOpen, setCopyModalOpen] = useState(false);
@@ -88,6 +90,7 @@ export default function PlaylistDetail() {
     setLoadingMore(false);
     setHasUnsavedChanges(false);
     setOriginalTracks([]);
+    setOpenTrackIds(new Set());
 
     let cancelled = false;
 
@@ -152,6 +155,8 @@ export default function PlaylistDetail() {
     if (!hasUnsavedChanges) setOriginalTracks([...tracks]);
     setTracks(applyShuffle(tracks, algorithms));
     setHasUnsavedChanges(true);
+    setOpenTrackIds(new Set());
+    setInsightsOpen(false);
     setShuffleModalOpen(false);
   };
 
@@ -344,7 +349,7 @@ export default function PlaylistDetail() {
               )}
             </span>
             <span
-              className="text-text-muted transition-transform duration-300"
+              className="text-text-muted transition-transform duration-300 w-10 text-right"
               style={{ transform: insightsOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
             >
               ▼
@@ -376,89 +381,144 @@ export default function PlaylistDetail() {
         </div>
 
         {/* Track list */}
+        <div className="mb-2 px-4">
+          <button
+            type="button"
+            onClick={() => {
+              if (openTrackIds.size === 0) {
+                setOpenTrackIds(new Set(tracks.map(t => t.id)));
+              } else {
+                setOpenTrackIds(new Set());
+              }
+            }}
+            className="text-text-muted hover:text-text-primary transition-colors duration-200 text-sm w-full flex items-center justify-end gap-2"
+            title={openTrackIds.size === 0 ? 'Expand all tracks' : 'Collapse all tracks'}
+            aria-label={openTrackIds.size === 0 ? 'Expand all tracks' : 'Collapse all tracks'}
+          >
+            <span>{openTrackIds.size === 0 ? 'Expand all' : 'Collapse all'}</span>
+            <span className="inline-block w-10 text-right" aria-hidden="true">
+              {openTrackIds.size === 0 ? '▼' : '▲'}
+            </span>
+          </button>
+        </div>
+
         <div className="flex flex-col gap-2">
           {tracks.map((track, index) => (
+            (() => {
+              const isOpen = openTrackIds.has(track.id);
+              return (
             <div
               key={track.id}
-              draggable={!loadingMore && tracks.length > 1}
-              onDragStart={() => {
-                dragFromIndexRef.current = index;
-              }}
-              onDragEnd={() => {
-                dragFromIndexRef.current = null;
-                setDragOverIndex(null);
-              }}
-              onDragOver={(e) => {
-                if (loadingMore) return;
-                if (dragFromIndexRef.current === null) return;
-                e.preventDefault();
-                if (dragOverIndex !== index) setDragOverIndex(index);
-              }}
-              onDrop={(e) => {
-                if (loadingMore) return;
-                if (dragFromIndexRef.current === null) return;
-                e.preventDefault();
-                reorderTracks(dragFromIndexRef.current, index);
-                dragFromIndexRef.current = null;
-                setDragOverIndex(null);
-              }}
               className={[
-                'group flex items-center gap-4 px-4 py-3 rounded-xl transition-colors duration-200',
-                'hover:bg-bg-card',
-                !loadingMore && tracks.length > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-default',
-                dragOverIndex === index ? 'bg-bg-card ring-1 ring-accent/30' : '',
+                'group rounded-xl transition-colors duration-200',
+                dragOverIndex === index ? 'bg-bg-card ring-1 ring-accent/30' : 'hover:bg-bg-card',
               ].filter(Boolean).join(' ')}
             >
-              <span className="text-text-muted text-sm w-6 text-right shrink-0">
-                {index + 1}
-              </span>
-              <span
+              <div
+                draggable={!loadingMore && tracks.length > 1}
+                onDragStart={() => {
+                  dragFromIndexRef.current = index;
+                }}
+                onDragEnd={() => {
+                  dragFromIndexRef.current = null;
+                  setDragOverIndex(null);
+                }}
+                onDragOver={(e) => {
+                  if (loadingMore) return;
+                  if (dragFromIndexRef.current === null) return;
+                  e.preventDefault();
+                  if (dragOverIndex !== index) setDragOverIndex(index);
+                }}
+                onDrop={(e) => {
+                  if (loadingMore) return;
+                  if (dragFromIndexRef.current === null) return;
+                  e.preventDefault();
+                  reorderTracks(dragFromIndexRef.current, index);
+                  dragFromIndexRef.current = null;
+                  setDragOverIndex(null);
+                }}
                 className={[
-                  'text-text-muted w-6 text-center shrink-0 select-none',
-                  !loadingMore && tracks.length > 1 ? 'opacity-60 group-hover:opacity-100' : 'opacity-30',
-                ].join(' ')}
-                title={loadingMore ? 'Wait for loading to finish to reorder' : 'Drag to reorder'}
-                aria-hidden="true"
+                  'flex items-center gap-4 px-4 py-3',
+                  !loadingMore && tracks.length > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-default',
+                ].filter(Boolean).join(' ')}
               >
-                ⋮⋮
-              </span>
-              <div className="w-10 h-10 rounded-md overflow-hidden bg-bg-secondary shrink-0">
-                {track.albumImageUrl ? (
-                  <img
-                    src={track.albumImageUrl}
-                    alt={track.albumName}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-text-muted">
-                    🎵
-                  </div>
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{track.name}</p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <p className="text-text-muted text-xs truncate">{track.artist}</p>
-                  {track.genres.slice(0, 2).map(genre => (
-                    <span
-                      key={genre}
-                      className="text-accent text-xs bg-accent/10 px-2 py-0.5 rounded-full shrink-0"
-                    >
-                      {genre}
-                    </span>
-                  ))}
+                <span className="text-text-muted text-sm w-6 text-right shrink-0">
+                  {index + 1}
+                </span>
+                <span
+                  className={[
+                    'text-text-muted w-6 text-center shrink-0 select-none',
+                    !loadingMore && tracks.length > 1 ? 'opacity-60 group-hover:opacity-100' : 'opacity-30',
+                  ].join(' ')}
+                  title={loadingMore ? 'Wait for loading to finish to reorder' : 'Drag to reorder'}
+                  aria-hidden="true"
+                >
+                  ⋮⋮
+                </span>
+                <div className="w-10 h-10 rounded-md overflow-hidden bg-bg-secondary shrink-0">
+                  {track.albumImageUrl ? (
+                    <img
+                      src={track.albumImageUrl}
+                      alt={track.albumName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-text-muted">
+                      🎵
+                    </div>
+                  )}
                 </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{track.name}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className="text-text-muted text-xs truncate">{track.artist}</p>
+                    {track.genres.slice(0, 2).map(genre => (
+                      <span
+                        key={genre}
+                        className="text-accent text-xs bg-accent/10 px-2 py-0.5 rounded-full shrink-0"
+                      >
+                        {genre}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <span className="text-text-muted text-sm w-10 text-right shrink-0">
+                  {formatDuration(track.durationMs)}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setOpenTrackIds(prev => {
+                      const next = new Set(prev);
+                      if (next.has(track.id)) next.delete(track.id);
+                      else next.add(track.id);
+                      return next;
+                    });
+                  }}
+                  className="text-text-muted hover:text-text-primary transition-colors duration-200 shrink-0 w-10 text-right"
+                  aria-label={isOpen ? 'Hide audio features' : 'Show audio features'}
+                  title={isOpen ? 'Hide audio features' : 'Show audio features'}
+                >
+                  <span
+                    className="inline-block transition-transform duration-300"
+                    style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                    aria-hidden="true"
+                  >
+                    ▼
+                  </span>
+                </button>
               </div>
-              <div className="text-text-muted text-xs w-16 text-center shrink-0">
-                {track.audioFeatures.tempo
-                  ? `${Math.round(track.audioFeatures.tempo)} BPM`
-                  : '—'
-                }
-              </div>
-              <span className="text-text-muted text-sm w-10 text-right shrink-0">
-                {formatDuration(track.durationMs)}
-              </span>
+
+              {isOpen && (
+                <div className="pl-24 pr-4 pb-3 pt-0">
+                  <TrackAudioFeaturesCollapse track={track} />
+                </div>
+              )}
             </div>
+              );
+            })()
           ))}
         </div>
 
