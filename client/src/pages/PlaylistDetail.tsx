@@ -429,7 +429,7 @@ export default function PlaylistDetail() {
               ].filter(Boolean).join(' ')}
             >
               <div
-                draggable={!loadingMore && tracks.length > 1}
+                draggable={tracks.length > 1}
                 onDragStart={() => {
                   dragFromIndexRef.current = index;
                 }}
@@ -438,13 +438,11 @@ export default function PlaylistDetail() {
                   setDragOverIndex(null);
                 }}
                 onDragOver={(e) => {
-                  if (loadingMore) return;
                   if (dragFromIndexRef.current === null) return;
                   e.preventDefault();
                   if (dragOverIndex !== index) setDragOverIndex(index);
                 }}
                 onDrop={(e) => {
-                  if (loadingMore) return;
                   if (dragFromIndexRef.current === null) return;
                   e.preventDefault();
                   reorderTracks(dragFromIndexRef.current, index);
@@ -453,7 +451,7 @@ export default function PlaylistDetail() {
                 }}
                 className={[
                   'flex items-center gap-4 px-4 py-3',
-                  !loadingMore && tracks.length > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-default',
+                  tracks.length > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-default',
                 ].filter(Boolean).join(' ')}
               >
                 <span className="text-text-muted text-sm w-6 text-right shrink-0">
@@ -462,9 +460,9 @@ export default function PlaylistDetail() {
                 <span
                   className={[
                     'text-text-muted w-6 text-center shrink-0 select-none',
-                    !loadingMore && tracks.length > 1 ? 'opacity-60 group-hover:opacity-100' : 'opacity-30',
+                    tracks.length > 1 ? 'opacity-60 group-hover:opacity-100' : 'opacity-30',
                   ].join(' ')}
-                  title={loadingMore ? 'Wait for loading to finish to reorder' : 'Drag to reorder'}
+                  title="Drag to reorder"
                   aria-hidden="true"
                 >
                   ⋮⋮
