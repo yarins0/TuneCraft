@@ -264,9 +264,14 @@ export default function PlaylistDetail() {
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate('/dashboard')}
-            className="text-text-muted hover:text-text-primary transition-colors duration-200"
+            className="group inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-bg-card/40 hover:bg-accent/10 text-accent border border-accent hover:border-accent shadow-sm transition-all duration-200 hover:-translate-x-0.5"
           >
-            ← Back
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/10 text-accent group-hover:bg-accent group-hover:text-white transition-colors duration-200">
+              ←
+            </span>
+            <span className="text-sm font-semibold tracking-wide uppercase group-hover:text-accent">
+              Back
+            </span>
           </button>
           <div>
           <h1
