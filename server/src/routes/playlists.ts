@@ -21,6 +21,42 @@ const chunkArray = (arr: string[], size: number): string[][] =>
     arr.slice(i * size, i * size + size)
   );
 
+// Wraps any axios call to Spotify with automatic retry logic for rate limiting.
+// When Spotify responds with 429 (Too Many Requests), it reads the Retry-After
+// header and waits that many seconds before trying again.
+// Falls back to a 5 second wait if the header is missing.
+// Gives up and re-throws the error after maxRetries failed attempts.
+//
+// The `method` parameter accepts 'get', 'post', or 'put'.
+// The `data` parameter is the request body — only used for POST and PUT.
+const spotifyRequestWithRetry = async (
+  method: 'get' | 'post' | 'put',
+  url: string,
+  config: object,
+  data?: any,
+  maxRetries = 3
+): Promise<any> => {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      if (method === 'get') return await axios.get(url, config);
+      if (method === 'post') return await axios.post(url, data, config);
+      if (method === 'put') return await axios.put(url, data, config);
+    } catch (error: any) {
+      const status = error.response?.status;
+      const retryAfter = error.response?.headers?.['retry-after'];
+
+      if (status === 429 && attempt < maxRetries - 1) {
+        const waitSeconds = Math.min(retryAfter ? parseInt(retryAfter) : 5, 30);
+        console.warn(`Spotify rate limit hit. Waiting ${waitSeconds}s before retry ${attempt + 1} of ${maxRetries - 1}...`);
+        await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
+        continue;
+      }
+
+      throw error;
+    }
+  }
+};
+
 // Fetches audio features and genres for a list of tracks
 // Checks the database cache first — only calls external APIs for cache misses
 // Stores new results in the cache for future requests
@@ -220,7 +256,7 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
   try {
     const accessToken = (req as any).accessToken;
 
-    const response = await axios.get('https://api.spotify.com/v1/me/playlists', {
+    const response = await spotifyRequestWithRetry('get', 'https://api.spotify.com/v1/me/playlists', {
       headers: { Authorization: `Bearer ${accessToken}` },
       params: { limit: 50 },
     });
@@ -251,11 +287,10 @@ router.get('/:userId/discover/:playlistId', refreshTokenMiddleware, async (req, 
   const accessToken = (req as any).accessToken;
 
   try {
-    const response = await axios.get(
+    const response = await spotifyRequestWithRetry(
+      'get',
       `https://api.spotify.com/v1/playlists/${playlistId}`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }
+      { headers: { Authorization: `Bearer ${accessToken}` } }
     );
 
     const playlist = response.data;
@@ -287,7 +322,7 @@ router.get('/:userId/liked', refreshTokenMiddleware, async (req, res) => {
   const accessToken = (req as any).accessToken;
 
   try {
-    const response = await axios.get('https://api.spotify.com/v1/me/tracks', {
+    const response = await spotifyRequestWithRetry('get', 'https://api.spotify.com/v1/me/tracks', {
       headers: { Authorization: `Bearer ${accessToken}` },
       params: { limit: 1 },
     });
@@ -318,7 +353,7 @@ router.get('/:userId/liked/tracks', refreshTokenMiddleware, async (req, res) => 
   const offset = page * limit;
 
   try {
-    const tracksResponse = await axios.get('https://api.spotify.com/v1/me/tracks', {
+    const tracksResponse = await spotifyRequestWithRetry('get', 'https://api.spotify.com/v1/me/tracks', {
       headers: { Authorization: `Bearer ${accessToken}` },
       params: { limit, offset },
     });
@@ -364,7 +399,8 @@ router.get('/:userId/:spotifyId/tracks', refreshTokenMiddleware, async (req, res
   const offset = page * limit;
 
   try {
-    const tracksResponse = await axios.get(
+    const tracksResponse = await spotifyRequestWithRetry(
+      'get',
       `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -426,28 +462,30 @@ router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, r
     const firstChunk = uris.slice(0, 100);
     const remainingChunks = chunkArray(uris.slice(100), 100);
 
-    await axios.put(
+    await spotifyRequestWithRetry(
+      'put',
       `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
-      { uris: firstChunk },
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
-      }
+      },
+      { uris: firstChunk }
     );
 
     // Subsequent POSTs append the remaining tracks in batches of 100
     for (const chunk of remainingChunks) {
-      await axios.post(
+      await spotifyRequestWithRetry(
+        'post',
         `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
-        { uris: chunk },
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
-        }
+        },
+        { uris: chunk }
       );
     }
 
@@ -468,14 +506,15 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
 
   try {
     // Create a new empty playlist
-    const createResponse = await axios.post(
+    const createResponse = await spotifyRequestWithRetry(
+      'post',
       'https://api.spotify.com/v1/me/playlists',
+      { headers: { Authorization: `Bearer ${accessToken}` } },
       {
         name: name,
         description: 'Created by Tunecraft',
         public: true,
-      },
-      { headers: { Authorization: `Bearer ${accessToken}` } }
+      }
     );
 
     const newPlaylistId = createResponse.data.id;
@@ -486,10 +525,11 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
     const chunks = chunkArray(uris, 100);
 
     for (const chunk of chunks) {
-      await axios.post(
+      await spotifyRequestWithRetry(
+        'post',
         `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
-        { uris: chunk },
-        { headers: { Authorization: `Bearer ${accessToken}` } }
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+        { uris: chunk }
       ).catch((err: any) => {
         console.error('Failed to add chunk:', err.response?.data || err.message);
       });
@@ -524,28 +564,30 @@ router.put('/:userId/:spotifyId/save', refreshTokenMiddleware, async (req, res) 
     const remainingChunks = chunkArray(uris.slice(100), 100);
 
     // First PUT replaces entire playlist with first 100 tracks
-    await axios.put(
+    await spotifyRequestWithRetry(
+      'put',
       `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
-      { uris: firstChunk },
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
-      }
+      },
+      { uris: firstChunk }
     );
 
     // Subsequent POSTs append remaining tracks
     for (const chunk of remainingChunks) {
-      await axios.post(
+      await spotifyRequestWithRetry(
+        'post',
         `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
-        { uris: chunk },
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
-        }
+        },
+        { uris: chunk }
       );
     }
 
