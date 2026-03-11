@@ -197,7 +197,12 @@ export default function Dashboard() {
                 })}
                 className="group bg-bg-card rounded-2xl overflow-hidden border border-border-color hover:border-accent/50 transition-all duration-300 hover:bg-bg-secondary cursor-pointer opacity-75"
                 >
-                  <div className="aspect-square w-full bg-bg-secondary overflow-hidden">
+                  <div className="aspect-square w-full bg-bg-secondary overflow-hidden relative">
+                    <div className="absolute right-2 top-2 z-10 pointer-events-none">
+                    <div className="bg-bg-card text-accent text-[11px] font-semibold px-2.5 py-1 rounded-md shadow-lg">
+                      Following
+                    </div>
+                    </div>
                     {playlist.imageUrl ? (
                       <img
                         src={playlist.imageUrl}
@@ -213,7 +218,6 @@ export default function Dashboard() {
                   <div className="p-4">
                     <p className="font-semibold text-sm truncate">{playlist.name}</p>
                     <p className="text-text-muted text-xs mt-1">{playlist.trackCount} tracks</p>
-                    <p className="text-accent text-xs mt-1">Following</p>
                   </div>
                 </div>
               ))}
