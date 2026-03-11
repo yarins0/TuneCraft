@@ -275,7 +275,21 @@ export default function PlaylistDetail() {
           >
             Tune<span className="text-accent">Craft</span>
           </h1>
-            {name && <p className="text-lg font-semibold">{name}</p>}
+            {name && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!spotifyId) return;
+                  const url = spotifyId === 'liked'
+                    ? 'https://open.spotify.com/collection/tracks'
+                    : `https://open.spotify.com/playlist/${spotifyId}`;
+                  window.open(url, '_blank', 'noopener,noreferrer');
+                }}
+                className="text-lg font-semibold text-left text-text-primary hover:text-accent hover:underline cursor-pointer"
+              >
+                {name}
+              </button>
+            )}
             {/* Shows live loading progress as pages stream in */}
             <p className="text-text-muted text-sm">
               {loadingMore
@@ -469,7 +483,19 @@ export default function PlaylistDetail() {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{track.name}</p>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const url = `https://open.spotify.com/track/${track.id}`;
+                      window.open(url, '_blank', 'noopener,noreferrer');
+                    }}
+                    className="text-sm font-medium truncate text-left text-text-primary hover:text-accent hover:underline cursor-pointer"
+                    title="Open in Spotify"
+                  >
+                    {track.name}
+                  </button>
                   <div className="flex items-center gap-2 mt-0.5">
                     <p className="text-text-muted text-xs truncate">{track.artist}</p>
                     {track.genres.slice(0, 2).map(genre => (
