@@ -11,6 +11,8 @@ import CopyModal from '../components/CopyModal';
 import TrackAudioFeaturesCollapse from '../components/TrackAudioFeaturesCollapse';
 import { copyPlaylist, savePlaylist } from '../api/playlists';
 import { applyShuffle } from '../utils/shuffleAlgorithms';
+import { enableReshuffle, disableReshuffle, fetchReshuffleSchedule } from '../api/reshuffle';
+import type { ReshuffleSchedule } from '../api/reshuffle';
 
 const getUserId = () => sessionStorage.getItem('userId') || '';
 const getSpotifyId = () => sessionStorage.getItem('spotifyId') || '';
@@ -80,6 +82,22 @@ export default function PlaylistDetail() {
   const dragFromIndexRef = useRef<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
+  // Auto-reshuffle panel state
+  // reshuffleSchedule — the schedule currently saved in the DB (null if none exists)
+  // reshuffleOpen — whether the panel is expanded
+  // reshuffleInterval — the number of days between reshuffles (controlled input)
+  // reshuffleAlgorithms — which shuffle algorithms are selected in the panel
+  // reshuffleLoading — true while a save/delete API call is in flight
+  const [reshuffleSchedule, setReshuffleSchedule] = useState<ReshuffleSchedule | null>(null);
+  const [reshuffleInterval, setReshuffleInterval] = useState(7);
+  const [reshuffleAlgorithms, setReshuffleAlgorithms] = useState({
+    trueRandom: false,
+    artistSpread: true,
+    genreSpread: false,
+    chronological: false,
+  });
+  const [reshuffleLoading, setReshuffleLoading] = useState(false);
+
   useEffect(() => {
     if (!spotifyId) return;
 
@@ -144,6 +162,24 @@ export default function PlaylistDetail() {
     return () => { cancelled = true; };
   }, [spotifyId]);
 
+  // Fetches the existing auto-reshuffle schedule for this playlist when the page loads
+  // If one exists, pre-fills the panel inputs so the user can see/edit their current settings
+  useEffect(() => {
+    if (!spotifyId || spotifyId === 'liked' || !isOwner) return;
+
+    fetchReshuffleSchedule(getUserId(), spotifyId)
+      .then(schedule => {
+        setReshuffleSchedule(schedule);
+        // Pre-fill the inputs from the saved schedule so the user sees their current settings
+        if (schedule) {
+          setReshuffleInterval(schedule.intervalDays ?? 7);
+          if (schedule.algorithms) setReshuffleAlgorithms(schedule.algorithms);
+        }
+      })
+      .catch(() => {}); // Silently ignore — the panel just shows defaults
+  }, [spotifyId, isOwner]);
+
+
   // Applies the chosen shuffle algorithms to the current track list in memory
   // Saves the original order on first shuffle so the user can undo
   const handleShuffle = (algorithms: {
@@ -174,6 +210,51 @@ export default function PlaylistDetail() {
     });
 
     setHasUnsavedChanges(true);
+  };
+
+  // Saves the auto-reshuffle schedule to the database
+  // On success, updates local state so the "next reshuffle" date shows immediately
+  const handleSaveReshuffle = async (
+    intervalDays: number,
+    algorithms: { trueRandom: boolean; artistSpread: boolean; genreSpread: boolean; chronological: boolean }
+  ) => {
+    if (!spotifyId) return;
+    setReshuffleLoading(true);
+    try {
+      const { schedule } = await enableReshuffle(
+        getUserId(), spotifyId, name || '', intervalDays, algorithms
+      );
+      setReshuffleSchedule(schedule);
+      setReshuffleInterval(intervalDays);
+      setReshuffleAlgorithms(algorithms);
+      setSaveSuccess('Auto-reshuffle scheduled!');
+      setTimeout(() => setSaveSuccess(null), 3000);
+    } catch {
+      setSaveError('Failed to save auto-reshuffle settings.');
+      setTimeout(() => setSaveError(null), 4000);
+    } finally {
+      setReshuffleLoading(false);
+    }
+  };
+
+  // Deletes the auto-reshuffle schedule from the database
+  // Resets local state to defaults so the panel looks like a fresh setup
+  const handleDisableReshuffle = async () => {
+    if (!spotifyId) return;
+    setReshuffleLoading(true);
+    try {
+      await disableReshuffle(getUserId(), spotifyId);
+      setReshuffleSchedule(null);
+      setReshuffleInterval(7);
+      setReshuffleAlgorithms({ trueRandom: false, artistSpread: true, genreSpread: false, chronological: false });
+      setSaveSuccess('Auto-reshuffle disabled.');
+      setTimeout(() => setSaveSuccess(null), 3000);
+    } catch {
+      setSaveError('Failed to disable auto-reshuffle.');
+      setTimeout(() => setSaveError(null), 4000);
+    } finally {
+      setReshuffleLoading(false);
+    }
   };
 
   // Writes the current track order to the user's owned Spotify playlist
@@ -362,7 +443,7 @@ export default function PlaylistDetail() {
             <span className="text-sm font-semibold uppercase tracking-widest text-text-muted">
               Playlist Insights
               {loadingMore && (
-                <span className="ml-2 text-accent/60 normal-case tracking-normal font-normal">
+                <span className="ml-2 text-accent/60 normal-case enableReshuffle-normal font-normal">
                   — updating as tracks load
                 </span>
               )}
@@ -583,6 +664,14 @@ export default function PlaylistDetail() {
         onClose={() => setShuffleModalOpen(false)}
         onShuffle={handleShuffle}
         isLoading={false}
+        canScheduleReshuffle={isOwner && spotifyId !== 'liked'}
+        reshuffleSchedule={reshuffleSchedule}
+        reshuffleInterval={reshuffleInterval}
+        setReshuffleInterval={setReshuffleInterval}
+        initialAlgorithms={reshuffleAlgorithms}
+        onSaveReshuffle={handleSaveReshuffle}
+        onDisableReshuffle={handleDisableReshuffle}
+        reshuffleLoading={reshuffleLoading}
       />
 
       {/* Copy modal — lets the user rename the playlist before saving */}

@@ -31,18 +31,23 @@ model User {
 }
 
 model Playlist {
-  id                 String    @id @default(cuid())
-  spotifyPlaylistId  String    @unique
-  name               String
-  autoReshuffle      Boolean   @default(false)
-  reshuffleInterval  String?                      // "daily" | "weekly" | "monthly"
-  lastReshuffledAt   DateTime?
+  id                String    @id @default(cuid())
+  spotifyPlaylistId String                         // not unique — multiple users can track same playlist
+  name              String
+  autoReshuffle     Boolean   @default(false)
+  intervalDays      Int?                           // every N days (null = not set)
+  algorithms        Json?                          // which shuffle algorithms to apply
+  lastReshuffledAt  DateTime?
+  nextReshuffleAt   DateTime?                      // pre-computed, used by cron job to find due playlists
 
-  createdAt          DateTime  @default(now())
+  createdAt         DateTime  @default(now())
 
   // Every playlist belongs to one user
-  userId             String
-  user               User      @relation(fields: [userId], references: [id])
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+
+  // Prevent duplicate entries — one user can only track one auto-reshuffle per playlist
+  @@unique([userId, spotifyPlaylistId])
 }
 
 model TrackCache {
