@@ -93,8 +93,11 @@ router.delete('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) =>
 // GET /reshuffle/:userId
 // Returns all active auto-reshuffle settings for a user.
 // Used to display the auto-reshuffle status on the playlist detail page.
+// Also performs light cleanup: if Spotify reports that a scheduled playlist
+// is gone or inaccessible (404/403), the corresponding DB record is removed.
 router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
   const userId = req.params.userId as string;
+  const accessToken = (req as any).accessToken;
 
   try {
     const playlists = await prisma.playlist.findMany({
@@ -112,7 +115,64 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
       },
     });
 
-    res.json({ playlists });
+    const validPlaylists: typeof playlists = [];
+
+    for (const playlist of playlists) {
+      try {
+        // Verify the playlist still exists on Spotify and refresh its name
+        const spotifyResponse: any = await axios.get(
+          `https://api.spotify.com/v1/playlists/${playlist.spotifyPlaylistId}`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            params: { fields: 'id,name' },
+          }
+        );
+
+        const spotifyName = spotifyResponse.data.name as string | undefined;
+        let updatedPlaylist = playlist;
+
+        if (spotifyName && spotifyName !== playlist.name) {
+          await prisma.playlist
+            .updateMany({
+              where: {
+                userId,
+                spotifyPlaylistId: playlist.spotifyPlaylistId,
+              },
+              data: {
+                name: spotifyName,
+              },
+            })
+            .catch(() => {});
+
+          updatedPlaylist = {
+            ...playlist,
+            name: spotifyName,
+          };
+        }
+
+        validPlaylists.push(updatedPlaylist);
+      } catch (error: any) {
+        const status = error.response?.status;
+
+        if (status === 404 || status === 403) {
+          // Playlist was deleted or is no longer accessible on Spotify — remove its auto-reshuffle entry
+          await prisma.playlist
+            .deleteMany({
+              where: {
+                userId,
+                spotifyPlaylistId: playlist.spotifyPlaylistId,
+              },
+            })
+            .catch(() => {});
+          continue;
+        }
+
+        // On other errors (e.g. transient network issues), keep the entry
+        validPlaylists.push(playlist);
+      }
+    }
+
+    res.json({ playlists: validPlaylists });
   } catch (error: any) {
     console.error('Failed to fetch auto-reshuffles:', error);
     res.status(500).json({ error: 'Failed to fetch auto-reshuffles' });

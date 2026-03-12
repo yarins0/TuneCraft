@@ -68,22 +68,29 @@ const fetchAllTracks = async (
       `https://api.spotify.com/v1/playlists/${spotifyPlaylistId}/items`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
-        params: { limit, offset, fields: 'items(track(id,type,artists,album(release_date))),total' },
+        params: { limit, offset },
       }
     );
 
-    const items = response.data.items.filter(
-      (item: any) => item !== null && item.track !== null && item.track !== undefined && item.track.type === 'track'
-    );
+    const rawItems = response.data.items || [];
+    const items = rawItems.filter((item: any) => {
+      const track = item?.item ?? item?.track;
+      return track && track.type === 'track';
+    });
 
-    tracks.push(...items.map((item: any) => ({
-      id: item.track.id,
-      artist: item.track.artists[0].name,
-      genres: [],  // genres not needed for cron reshuffle
-      releaseYear: item.track.album.release_date
-        ? parseInt(item.track.album.release_date.substring(0, 4))
-        : null,
-    })));
+    tracks.push(
+      ...items.map((item: any) => {
+        const track = item.item ?? item.track;
+        return {
+          id: track.id,
+          artist: track.artists[0].name,
+          genres: [], // genres not needed for cron reshuffle
+          releaseYear: track.album.release_date
+            ? parseInt(track.album.release_date.substring(0, 4))
+            : null,
+        };
+      })
+    );
 
     // If we've fetched all tracks, stop paginating
     if (offset + limit >= response.data.total) break;
@@ -169,6 +176,7 @@ const reshufflePlaylist = async (playlist: any): Promise<void> => {
     });
 
     console.log(`✅ Reshuffled: ${playlist.name}, next at ${nextReshuffleAt.toISOString()}`);
+  
   } catch (error: any) {
     // If Spotify returns 404, the playlist was deleted — clean up the orphaned schedule
     if (error.response?.status === 404) {
