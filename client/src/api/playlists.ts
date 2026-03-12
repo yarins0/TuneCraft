@@ -108,6 +108,25 @@ export const copyPlaylist = async (
   return response.json();
 };
 
+// Creates a new playlist by merging tracks from multiple playlists
+// The frontend handles fetching + deduplication; this just sends the final track list to the backend
+export const mergePlaylist = async (
+  userId: string,
+  tracks: { id: string }[],
+  name: string
+): Promise<{ success: boolean; playlist: { spotifyId: string; name: string; ownerId: string } }> => {
+  const response = await fetch(
+    `${API_BASE_URL}/playlists/${userId}/merge`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tracks, name }),
+    }
+  );
+  if (!response.ok) throw new Error('Failed to merge playlists');
+  return response.json();
+};
+
 // Saves the current track order to an owned Spotify playlist
 export const savePlaylist = async (
   userId: string,

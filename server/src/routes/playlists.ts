@@ -47,12 +47,13 @@ const spotifyRequestWithRetry = async (
 
       if (status === 429 && attempt < maxRetries - 1) {
         const waitSeconds = Math.min(retryAfter ? parseInt(retryAfter) : 5, 30);
-        console.warn(`Spotify rate limit hit. Waiting ${waitSeconds}s before retry ${attempt + 1} of ${maxRetries - 1}...`);
+        console.warn(`Spotify rate limit hit (status: 429) - Blocked for ${retryAfter} seconds.`);
+        console.warn(`Waiting ${waitSeconds}s before retry ${attempt + 1} of ${maxRetries - 1}...`);
         await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
         continue;
       }
-
-      throw error;
+      if (status !== 429) 
+        throw error;
     }
   }
 };
@@ -547,6 +548,60 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
   } catch (error: any) {
     console.error('Failed to copy playlist:', error.response?.data || error.message);
     res.status(500).json({ error: 'Failed to copy playlist' });
+  }
+});
+
+// POST /playlists/:userId/merge
+// Creates a new playlist from a pre-built merged track list
+// The frontend is responsible for fetching all tracks and deduplicating before calling this route
+// This endpoint only handles creating the Spotify playlist and adding the tracks in batches
+router.post('/:userId/merge', refreshTokenMiddleware, async (req, res) => {
+  const { tracks, name } = req.body;
+  const accessToken = (req as any).accessToken;
+
+  try {
+    // Create a new empty playlist in the user's Spotify account
+    const createResponse = await spotifyRequestWithRetry(
+      'post',
+      'https://api.spotify.com/v1/me/playlists',
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+      {
+        name,
+        description: 'Merged by Tunecraft',
+        public: true,
+      }
+    );
+
+    const newPlaylistId = createResponse.data.id;
+    const newPlaylistOwnerId = createResponse.data.owner.id;
+
+    // Add tracks in batches of 100 (Spotify's per-request limit)
+    const uris = tracks.map((t: any) => `spotify:track:${t.id}`);
+    const chunks = chunkArray(uris, 100);
+
+    for (const chunk of chunks) {
+      await spotifyRequestWithRetry(
+        'post',
+        `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+        { uris: chunk }
+      ).catch((err: any) => {
+        console.error('Failed to add chunk to merged playlist:', err.response?.data || err.message);
+      });
+    }
+
+    res.json({
+      success: true,
+      playlist: {
+        spotifyId: newPlaylistId,
+        name,
+        ownerId: newPlaylistOwnerId,
+      },
+    });
+
+  } catch (error: any) {
+    console.error('Failed to merge playlists:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to merge playlists' });
   }
 });
 
