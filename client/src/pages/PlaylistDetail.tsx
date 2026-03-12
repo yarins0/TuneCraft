@@ -89,7 +89,6 @@ export default function PlaylistDetail() {
   // reshuffleAlgorithms — which shuffle algorithms are selected in the panel
   // reshuffleLoading — true while a save/delete API call is in flight
   const [reshuffleSchedule, setReshuffleSchedule] = useState<ReshuffleSchedule | null>(null);
-  const [reshuffleOpen, setReshuffleOpen] = useState(false);
   const [reshuffleInterval, setReshuffleInterval] = useState(7);
   const [reshuffleAlgorithms, setReshuffleAlgorithms] = useState({
     trueRandom: false,
@@ -213,29 +212,21 @@ export default function PlaylistDetail() {
     setHasUnsavedChanges(true);
   };
 
-  // Toggles a reshuffle algorithm checkbox
-  // True Random is mutually exclusive with all other options (same logic as ShuffleModal)
-  const toggleReshuffleAlgorithm = (key: keyof typeof reshuffleAlgorithms) => {
-    if (key === 'trueRandom') {
-      setReshuffleAlgorithms(prev => prev.trueRandom
-        ? { ...prev, trueRandom: false }
-        : { trueRandom: true, artistSpread: false, genreSpread: false, chronological: false }
-      );
-      return;
-    }
-    setReshuffleAlgorithms(prev => ({ ...prev, trueRandom: false, [key]: !prev[key] }));
-  };
-
   // Saves the auto-reshuffle schedule to the database
   // On success, updates local state so the "next reshuffle" date shows immediately
-  const handleSaveReshuffle = async () => {
+  const handleSaveReshuffle = async (
+    intervalDays: number,
+    algorithms: { trueRandom: boolean; artistSpread: boolean; genreSpread: boolean; chronological: boolean }
+  ) => {
     if (!spotifyId) return;
     setReshuffleLoading(true);
     try {
       const { schedule } = await enableReshuffle(
-        getUserId(), spotifyId, name || '', reshuffleInterval, reshuffleAlgorithms
+        getUserId(), spotifyId, name || '', intervalDays, algorithms
       );
       setReshuffleSchedule(schedule);
+      setReshuffleInterval(intervalDays);
+      setReshuffleAlgorithms(algorithms);
       setSaveSuccess('Auto-reshuffle scheduled!');
       setTimeout(() => setSaveSuccess(null), 3000);
     } catch {
@@ -442,143 +433,6 @@ export default function PlaylistDetail() {
       )}
 
       <div className="px-8 py-2">
-
-        {/* Auto-Reshuffle Panel — only shown to the playlist owner, not on Liked Songs */}
-        {isOwner && spotifyId !== 'liked' && (
-          <div className="mb-4 bg-bg-card rounded-2xl border border-border-color overflow-hidden">
-
-            {/* Collapsible header — shows active badge when a schedule exists */}
-            <button
-              onClick={() => setReshuffleOpen(!reshuffleOpen)}
-              className="w-full px-6 py-4 flex items-center justify-between hover:bg-bg-secondary transition-colors duration-200"
-            >
-              <span className="flex items-center gap-3 text-sm font-semibold uppercase tracking-widest text-text-muted">
-                ⏰ Auto-Reshuffle
-                {reshuffleSchedule && (
-                  <span className="normal-case tracking-normal font-medium text-xs bg-accent/20 text-accent px-2 py-0.5 rounded-full">
-                    Active
-                  </span>
-                )}
-              </span>
-              <span
-                className="text-text-muted transition-transform duration-300 w-10 text-right"
-                style={{ transform: reshuffleOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
-              >
-                ▼
-              </span>
-            </button>
-
-            {reshuffleOpen && (
-              <div className="px-6 pb-6 flex flex-col gap-5">
-
-                {/* Status row — shows next scheduled reshuffle date if active */}
-                {reshuffleSchedule ? (
-                  <div className="bg-accent/10 rounded-xl px-4 py-3 flex items-center justify-between">
-                    <div>
-                      <p className="text-accent text-sm font-semibold">Schedule active</p>
-                      <p className="text-text-muted text-xs mt-0.5">
-                        Next reshuffle:{' '}
-                        {reshuffleSchedule.nextReshuffleAt
-                          ? new Date(reshuffleSchedule.nextReshuffleAt).toLocaleDateString(undefined, {
-                              weekday: 'short', month: 'short', day: 'numeric',
-                            })
-                          : '—'}
-                      </p>
-                      {reshuffleSchedule.lastReshuffledAt && (
-                        <p className="text-text-muted text-xs">
-                          Last reshuffled:{' '}
-                          {new Date(reshuffleSchedule.lastReshuffledAt).toLocaleDateString(undefined, {
-                            weekday: 'short', month: 'short', day: 'numeric',
-                          })}
-                        </p>
-                      )}
-                    </div>
-                    <button
-                      onClick={handleDisableReshuffle}
-                      disabled={reshuffleLoading}
-                      className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors"
-                    >
-                      Disable
-                    </button>
-                  </div>
-                ) : (
-                  <p className="text-text-muted text-sm">
-                    Tunecraft will automatically reshuffle this playlist on a schedule and save it to Spotify.
-                  </p>
-                )}
-
-                {/* Interval picker */}
-                <div>
-                  <p className="text-text-muted text-xs uppercase tracking-widest mb-3">
-                    Reshuffle every
-                  </p>
-                  <div className="flex gap-2 flex-wrap">
-                    {[1, 3, 7, 14, 30].map(days => (
-                      <button
-                        key={days}
-                        onClick={() => setReshuffleInterval(days)}
-                        className={`px-4 py-2 rounded-full text-sm font-semibold border transition-all duration-200 ${
-                          reshuffleInterval === days
-                            ? 'bg-accent border-accent text-white'
-                            : 'bg-bg-secondary border-border-color text-text-muted hover:border-accent/40'
-                        }`}
-                      >
-                        {days === 1 ? 'Daily' : days === 7 ? 'Weekly' : days === 14 ? 'Bi-weekly' : days === 30 ? 'Monthly' : `${days} days`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Algorithm picker — same options as ShuffleModal */}
-                <div>
-                  <p className="text-text-muted text-xs uppercase tracking-widest mb-3">
-                    Shuffle style
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {([
-                      { key: 'artistSpread', emoji: '🎤', label: 'Artist Spread' },
-                      { key: 'genreSpread',  emoji: '🎨', label: 'Genre Spread' },
-                      { key: 'chronological', emoji: '📅', label: 'Chronological' },
-                      { key: 'trueRandom',   emoji: '🎲', label: 'True Random' },
-                    ] as const).map(option => {
-                      const isChecked = reshuffleAlgorithms[option.key];
-                      const isDisabled = option.key !== 'trueRandom' && reshuffleAlgorithms.trueRandom;
-                      return (
-                        <button
-                          key={option.key}
-                          onClick={() => toggleReshuffleAlgorithm(option.key)}
-                          disabled={isDisabled}
-                          className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all duration-200 ${
-                            isChecked ? 'border-accent bg-accent/10' : 'border-border-color hover:border-accent/40'
-                          } ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
-                        >
-                          <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
-                            isChecked ? 'bg-accent border-accent' : 'border-border-color'
-                          }`}>
-                            {isChecked && <span className="text-white text-xs leading-none">✓</span>}
-                          </div>
-                          <span className="text-sm font-medium text-text-primary">
-                            {option.emoji} {option.label}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Save button */}
-                <button
-                  onClick={handleSaveReshuffle}
-                  disabled={reshuffleLoading || !Object.values(reshuffleAlgorithms).some(Boolean)}
-                  className="self-start bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-6 py-2.5 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
-                >
-                  {reshuffleLoading ? 'Saving...' : reshuffleSchedule ? 'Update Schedule' : 'Activate Schedule'}
-                </button>
-
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Collapsible Insights Section */}
         <div className="mb-8 bg-bg-card rounded-2xl border border-border-color overflow-hidden">
@@ -810,6 +664,14 @@ export default function PlaylistDetail() {
         onClose={() => setShuffleModalOpen(false)}
         onShuffle={handleShuffle}
         isLoading={false}
+        canScheduleReshuffle={isOwner && spotifyId !== 'liked'}
+        reshuffleSchedule={reshuffleSchedule}
+        reshuffleInterval={reshuffleInterval}
+        setReshuffleInterval={setReshuffleInterval}
+        initialAlgorithms={reshuffleAlgorithms}
+        onSaveReshuffle={handleSaveReshuffle}
+        onDisableReshuffle={handleDisableReshuffle}
+        reshuffleLoading={reshuffleLoading}
       />
 
       {/* Copy modal — lets the user rename the playlist before saving */}

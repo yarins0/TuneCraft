@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { ReshuffleSchedule } from '../api/reshuffle';
 
 interface ShuffleAlgorithms {
   trueRandom: boolean;
@@ -14,6 +15,15 @@ interface Props {
   onClose: () => void;
   onShuffle: (algorithms: ShuffleAlgorithms) => void;
   isLoading: boolean;
+
+  canScheduleReshuffle?: boolean;
+  reshuffleSchedule?: ReshuffleSchedule | null;
+  reshuffleInterval?: number;
+  setReshuffleInterval?: (days: number) => void;
+  initialAlgorithms?: ShuffleAlgorithms;
+  onSaveReshuffle?: (intervalDays: number, algorithms: ShuffleAlgorithms) => void | Promise<void>;
+  onDisableReshuffle?: () => void | Promise<void>;
+  reshuffleLoading?: boolean;
 }
 
 const SHUFFLE_OPTIONS = [
@@ -45,17 +55,29 @@ const SHUFFLE_OPTIONS = [
 
 export default function ShuffleModal({
   isOpen,
+  isOwner,
   playlistName,
   onClose,
   onShuffle,
   isLoading,
+  canScheduleReshuffle = false,
+  reshuffleSchedule = null,
+  reshuffleInterval = 7,
+  setReshuffleInterval,
+  initialAlgorithms,
+  onSaveReshuffle,
+  onDisableReshuffle,
+  reshuffleLoading = false,
 }: Props) {
-  const [algorithms, setAlgorithms] = useState<ShuffleAlgorithms>({
-    trueRandom: false,
-    artistSpread: true,
-    genreSpread: false,
-    chronological: false,
-  });
+  const [algorithms, setAlgorithms] = useState<ShuffleAlgorithms>(
+    initialAlgorithms ?? {
+      trueRandom: false,
+      artistSpread: true,
+      genreSpread: false,
+      chronological: false,
+    }
+  );
+  const [autoEnabled, setAutoEnabled] = useState<boolean>(Boolean(reshuffleSchedule));
 
   if (!isOpen) return null;
 
@@ -87,6 +109,7 @@ export default function ShuffleModal({
   };
 
   const noneSelected = !Object.values(algorithms).some(Boolean);
+  const showReshuffle = Boolean(isOwner && canScheduleReshuffle);
 
   return (
     // Backdrop — clicking outside closes the modal
@@ -96,13 +119,13 @@ export default function ShuffleModal({
     >
       {/* Modal panel — stop click from bubbling to backdrop */}
       <div
-        className="bg-bg-card border border-border-color rounded-2xl p-6 w-full max-w-md"
+        className="bg-bg-card border border-border-color rounded-2xl p-6 w-full max-w-3xl"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-lg font-bold text-text-primary">🔀 Shuffle</h2>
-            <p className="text-text-muted text-sm truncate max-w-[280px]">{playlistName}</p>
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold text-text-primary truncate">{playlistName}</h2>
+            <p className="text-text-muted text-sm">Your shuffler controller</p>
           </div>
           <button
             onClick={onClose}
@@ -112,56 +135,190 @@ export default function ShuffleModal({
           </button>
         </div>
 
-        {/* Shuffle options */}
-        <div className="flex flex-col gap-3 mb-6">
-          {SHUFFLE_OPTIONS.map(option => {
-            const isChecked = algorithms[option.key];
-            const isDisabled = option.key !== 'trueRandom' && algorithms.trueRandom;
-            
-            return (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Left: existing shuffle modal content */}
+          <div className="min-w-0 flex flex-col h-full">
+            <div className="flex items-center justify-between mb-4">
+              <span className="flex items-center gap-3 text-sm font-semibold uppercase tracking-widest text-text-muted">
+                🔀 Shuffle
+              </span>
+            </div>
+
+            {/* Shuffle options */}
+            <div className="flex flex-col gap-3 mb-6 flex-1">
+              {SHUFFLE_OPTIONS.map(option => {
+                const isChecked = algorithms[option.key];
+                const isDisabled = option.key !== 'trueRandom' && algorithms.trueRandom;
+
+                return (
+                  <button
+                    key={option.key}
+                    onClick={() => toggleOption(option.key)}
+                    className={`flex items-start gap-4 p-4 rounded-xl border transition-all duration-200 text-left ${
+                      isChecked
+                        ? 'border-accent bg-accent/10'
+                        : 'border-border-color hover:border-accent/40'
+                    } ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+                    disabled={isDisabled}
+                  >
+                    {/* Checkbox */}
+                    <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5 border-2 transition-colors ${
+                      isChecked ? 'bg-accent border-accent' : 'border-border-color'
+                    }`}>
+                      {isChecked && <span className="text-white text-xs">✓</span>}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-text-primary">
+                        {option.emoji} {option.label}
+                      </p>
+                      <p className="text-text-muted text-xs mt-0.5">{option.description}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex gap-3 mt-auto">
               <button
-                key={option.key}
-                onClick={() => toggleOption(option.key)}
-                className={`flex items-start gap-4 p-4 rounded-xl border transition-all duration-200 text-left ${
-                  isChecked
-                    ? 'border-accent bg-accent/10'
-                    : 'border-border-color hover:border-accent/40'
-                } ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
-                disabled={isDisabled}
+                onClick={onClose}
+                className="flex-1 bg-bg-secondary hover:bg-bg-primary text-text-muted font-semibold py-3 rounded-full border border-border-color transition-all duration-200"
               >
-                {/* Checkbox */}
-                <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5 border-2 transition-colors ${
-                  isChecked ? 'bg-accent border-accent' : 'border-border-color'
-                }`}>
-                  {isChecked && <span className="text-white text-xs">✓</span>}
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-text-primary">
-                    {option.emoji} {option.label}
-                  </p>
-                  <p className="text-text-muted text-xs mt-0.5">{option.description}</p>
-                </div>
+                Cancel
               </button>
-            );
-          })}
-        </div>
+              <button
+                onClick={() => onShuffle(algorithms)}
+                disabled={noneSelected || isLoading}
+                className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
+              >
+                {isLoading ? 'Shuffling...' : 'Shuffle'}
+              </button>
+            </div>
+          </div>
 
+          {/* Right: auto-reshuffle scheduler */}
+          <div className="min-w-0 md:border-l md:border-border-color md:pl-6 flex flex-col h-full">
+            <div className="flex items-center justify-between mb-4">
+              <span className="flex items-center gap-3 text-sm font-semibold uppercase tracking-widest text-text-muted">
+                ⏰ Auto-Reshuffle
+                {reshuffleSchedule && (
+                  <span className="normal-case tracking-normal font-medium text-xs bg-accent/20 text-accent px-2 py-0.5 rounded-full">
+                    Active
+                  </span>
+                )}
+              </span>
+              {showReshuffle && (
+                <div className="flex items-center gap-3">
+                  {reshuffleSchedule && (
+                    <button
+                      onClick={onDisableReshuffle}
+                      disabled={reshuffleLoading}
+                      className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors"
+                    >
+                      Disable
+                    </button>
+                  )}
+                  {/* Enable toggle aligned with headline */}
+                  <button
+                    type="button"
+                    onClick={() => setAutoEnabled(v => !v)}
+                    disabled={Boolean(reshuffleSchedule)} // when active, use "Disable" instead
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all duration-200 ${
+                      autoEnabled ? 'border-accent bg-accent/10 text-accent' : 'border-border-color text-text-muted hover:border-accent/40'
+                    } ${reshuffleSchedule ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  >
+                    <span>Enable</span>
+                    <span
+                      className={`w-9 h-5 rounded-full relative transition-colors duration-200 ${
+                        autoEnabled ? 'bg-accent' : 'bg-bg-secondary'
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform duration-200 ${
+                          autoEnabled ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
 
-        {/* Action buttons */}
-        <div className="flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 bg-bg-secondary hover:bg-bg-primary text-text-muted font-semibold py-3 rounded-full border border-border-color transition-all duration-200"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onShuffle(algorithms)}
-            disabled={noneSelected || isLoading}
-            className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
-          >
-            {isLoading ? 'Shuffling...' : 'Shuffle'}
-          </button>
+            {!showReshuffle ? (
+              <div className="text-text-muted text-sm">
+                Auto-reshuffle is only available for playlists you own.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-5 flex-1">
+                {/* Interval picker */}
+                <div className={autoEnabled ? '' : 'opacity-50 pointer-events-none'}>
+                  <p className="text-text-muted text-xs uppercase tracking-widest mb-3">
+                    Reshuffle every
+                  </p>
+                  <div className="flex gap-2 flex-wrap">
+                    {[1, 3, 7, 14, 30].map(days => (
+                      <button
+                        key={days}
+                        onClick={() => setReshuffleInterval?.(days)}
+                        disabled={!setReshuffleInterval}
+                        className={`px-4 py-2 rounded-full text-sm font-semibold border transition-all duration-200 ${
+                          reshuffleInterval === days
+                            ? 'bg-accent border-accent text-white'
+                            : 'bg-bg-secondary border-border-color text-text-muted hover:border-accent/40'
+                        } ${!setReshuffleInterval ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        {days === 1 ? 'Daily' : days === 7 ? 'Weekly' : days === 14 ? 'Bi-weekly' : days === 30 ? 'Monthly' : `${days} days`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Middle: Active schedule row (pill centered horizontally when present) */}
+                <div className={reshuffleSchedule ? 'flex-1 flex items-center' : 'flex-1'}>
+                  {reshuffleSchedule ? (
+                    <div className="w-full flex justify-center">
+                      <div className="inline-flex max-w-full bg-accent/10 border border-accent/30 rounded-full px-4 py-3 items-center justify-between gap-3">
+                        <div className="min-w-0">
+                        <p className="text-accent text-sm font-semibold truncate">Schedule active</p>
+                        <p className="text-text-muted text-xs truncate">
+                          Next:{' '}
+                          {reshuffleSchedule.nextReshuffleAt
+                            ? new Date(reshuffleSchedule.nextReshuffleAt).toLocaleDateString(undefined, {
+                                weekday: 'short', month: 'short', day: 'numeric',
+                              })
+                            : '—'}
+                          {reshuffleSchedule.lastReshuffledAt && (
+                            <>
+                              {' '}· Last:{' '}
+                              {new Date(reshuffleSchedule.lastReshuffledAt).toLocaleDateString(undefined, {
+                                weekday: 'short', month: 'short', day: 'numeric',
+                              })}
+                            </>
+                          )}
+                        </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-text-muted text-sm">
+                      Enable auto-reshuffle to reshuffle this playlist on a schedule and save it to Spotify.
+                      The schedule will use the shuffle style you selected on the left.
+                    </p>
+                  )}
+                </div>
+
+                {/* Bottom: Save button */}
+                <button
+                  onClick={() => void onSaveReshuffle?.(reshuffleInterval, algorithms)}
+                  disabled={reshuffleLoading || noneSelected || !onSaveReshuffle || !autoEnabled}
+                  className="self-center mt-auto bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-6 py-2.5 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
+                >
+                  {reshuffleLoading ? 'Saving...' : reshuffleSchedule ? 'Update Schedule' : 'Activate Schedule'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
