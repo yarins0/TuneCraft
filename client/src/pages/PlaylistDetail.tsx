@@ -425,18 +425,18 @@ export default function PlaylistDetail() {
           {isOwner && spotifyId !== 'liked' && (
             <>
               <button
+                onClick={() => setSplitModalOpen(true)}
+                disabled={loadingMore}
+                className="bg-accent hover:bg-bg-secondary disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50"
+              >
+                ✂️ Split
+              </button>
+              <button
                 onClick={handleSave}
                 disabled={saveLoading || loadingMore}
                 className="bg-bg-card hover:bg-bg-secondary disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50"
               >
                 {saveLoading ? 'Saving...' : '💾 Save'}
-              </button>
-              <button
-                onClick={() => setSplitModalOpen(true)}
-                disabled={loadingMore}
-                className="bg-bg-card hover:bg-bg-secondary disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50"
-              >
-                ✂️ Split
               </button>
             </>
           )}
