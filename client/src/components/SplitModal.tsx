@@ -107,6 +107,23 @@ export default function SplitModal({
     }
   }, [isOpen]);
 
+  const [splitLabelIndex, setSplitLabelIndex] = useState(0);
+
+  const splitLabels = ['Splitting.', 'Splitting..', 'Splitting...'];
+
+  useEffect(() => {
+    if (!isLoading) {
+      setSplitLabelIndex(0);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setSplitLabelIndex(prev => (prev + 1) % splitLabels.length);
+    }, 500);
+
+    return () => window.clearInterval(intervalId);
+  }, [isLoading]);
+
   if (!isOpen) return null;
 
   // Only groups with at least 1 track are included
@@ -248,7 +265,7 @@ export default function SplitModal({
             disabled={isLoading || validGroups.length === 0}
             className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
           >
-            {isLoading ? 'Splitting...' : `Create ${validGroups.length} Playlists`}
+            {isLoading ? splitLabels[splitLabelIndex] : `Create ${validGroups.length} Playlists`}
           </button>
         </div>
       </div>
