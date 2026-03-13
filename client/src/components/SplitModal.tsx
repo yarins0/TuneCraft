@@ -88,6 +88,8 @@ export default function SplitModal({
   const [strategy, setStrategy] = useState<SplitStrategy>('genre');
   // groups is recomputed every time the strategy changes — it's the live preview
   const [groups, setGroups] = useState<SplitGroup[]>([]);
+  const [customNames, setCustomNames] = useState<Record<string, string>>({});
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
 
   // Recompute the groups whenever the modal opens or the strategy changes
   useEffect(() => {
@@ -98,21 +100,18 @@ export default function SplitModal({
 
   // Reset strategy to default when modal opens
   useEffect(() => {
-    if (isOpen) setStrategy('genre');
+    if (isOpen) {
+      setStrategy('genre');
+      setCustomNames({});
+      setEditingGroupId(null);
+    }
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  // Prefixes each group name with the source playlist name
-  // e.g. strategy = genre, group = "Rock" → "My Playlist — Rock"
-  const namedGroups = groups.map(g => ({
-    ...g,
-    name: `${playlistName} — ${g.name}`,
-  }));
-
   // Only groups with at least 1 track are included
   // (edge case: a strategy bucket could theoretically be empty)
-  const validGroups = namedGroups.filter(g => g.tracks.length > 0);
+  const validGroups = groups.filter(g => g.tracks.length > 0);
 
   return (
     // Backdrop
@@ -178,11 +177,50 @@ export default function SplitModal({
               <div
                 key={group.name}
                 className={[
-                  'flex items-center justify-between px-4 py-3',
+                  'flex items-center justify-between px-4 py-3 gap-4',
                   index < validGroups.length - 1 ? 'border-b border-border-color' : '',
                 ].join(' ')}
               >
-                <p className="text-sm text-text-primary font-medium truncate pr-4">{group.name}</p>
+                <div className="flex items-center gap-2 pr-4 flex-1 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingGroupId(group.name);
+                      setCustomNames(prev => ({
+                        ...prev,
+                        [group.name]: prev[group.name] ?? `${playlistName} — ${group.name}`,
+                      }));
+                    }}
+                    className="text-xs text-text-muted hover:text-text-primary shrink-0"
+                    title="Edit name"
+                    aria-label="Edit playlist name"
+                  >
+                    ✏️
+                  </button>
+                  {editingGroupId === group.name ? (
+                    <input
+                      type="text"
+                      value={customNames[group.name] ?? `${playlistName} — ${group.name}`}
+                      onChange={e =>
+                        setCustomNames(prev => ({
+                          ...prev,
+                          [group.name]: e.target.value,
+                        }))
+                      }
+                      onBlur={() => setEditingGroupId(null)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      className="flex-1 min-w-0 bg-transparent border-b border-border-color text-sm text-text-primary focus:outline-none"
+                    />
+                  ) : (
+                    <p className="text-sm text-text-primary font-medium truncate">
+                      {customNames[group.name] ?? `${playlistName} — ${group.name}`}
+                    </p>
+                  )}
+                </div>
                 <p className="text-xs text-text-muted shrink-0">{group.tracks.length} tracks</p>
               </div>
             ))
@@ -199,7 +237,14 @@ export default function SplitModal({
             Cancel
           </button>
           <button
-            onClick={() => onConfirm(validGroups)}
+            onClick={() =>
+              onConfirm(
+                validGroups.map(g => ({
+                  ...g,
+                  name: customNames[g.name] ?? `${playlistName} — ${g.name}`,
+                }))
+              )
+            }
             disabled={isLoading || validGroups.length === 0}
             className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
           >
