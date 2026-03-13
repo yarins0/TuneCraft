@@ -113,12 +113,10 @@ export default function Dashboard() {
       setMergeModalOpen(false);
       exitSelectMode();
 
-      // Open the newly created playlist in a new tab so the user can see the result immediately
-      const params = new URLSearchParams({
-        name: newPlaylist.name,
-        ownerId: newPlaylist.ownerId,
+      // Navigate to the newly created playlist so the user can see the result immediately
+      navigate(`/playlist/${newPlaylist.spotifyId}`, {
+        state: { ownerId: newPlaylist.ownerId, name: newPlaylist.name },
       });
-      window.open(`/playlist/${newPlaylist.spotifyId}?${params}`, '_blank');
 
       setMergeSuccess('Playlists merged! Opening new playlist...');
       setTimeout(() => setMergeSuccess(null), 4000);
@@ -360,14 +358,18 @@ export default function Dashboard() {
               {followingPlaylists.map(playlist => (
                 <div
                   key={playlist.spotifyId}
-                  onClick={() => !selectMode && navigate(`/playlist/${playlist.spotifyId}`, {
-                    state: { ownerId: playlist.ownerId, name: playlist.name }
-                  })}
+                  onClick={() => {
+                    if (!selectMode) {
+                      navigate(`/playlist/${playlist.spotifyId}`, {
+                        state: { ownerId: playlist.ownerId, name: playlist.name },
+                      });
+                    }
+                  }}
                   className={[
                     'group bg-bg-card rounded-2xl overflow-hidden border border-border-color transition-all duration-300 opacity-75',
                     selectMode
-                      // In select mode: block interaction and show a not-allowed cursor
-                      ? 'opacity-30 cursor-not-allowed pointer-events-none'
+                      // In select mode: dim and show a not-allowed cursor, but keep hover feedback consistent
+                      ? 'opacity-30 cursor-not-allowed'
                       : 'hover:border-accent/50 hover:bg-bg-secondary cursor-pointer',
                   ].join(' ')}
                 >

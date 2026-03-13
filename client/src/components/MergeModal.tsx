@@ -1,5 +1,5 @@
 // client/src/components/MergeModal.tsx
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { Playlist } from '../api/playlists';
 
 type MergeModalProps = {
@@ -23,12 +23,28 @@ const MergeModal: React.FC<MergeModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [removeDuplicates, setRemoveDuplicates] = useState(true);
+  const [mergeLabelIndex, setMergeLabelIndex] = useState(0);
+
+  const mergeLabels = ['Merging.', 'Merging..', 'Merging...'];
+
+  useEffect(() => {
+    if (!isLoading) {
+      setMergeLabelIndex(0);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setMergeLabelIndex(prev => (prev + 1) % mergeLabels.length);
+    }, 500);
+
+    return () => window.clearInterval(intervalId);
+  }, [isLoading]);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onConfirm(name.trim() || 'Merged Playlist', removeDuplicates);
+    onConfirm(name.trim() || 'Merged Playlist (By TuneCraft)', removeDuplicates);
   };
 
   const selectionSummary = [
@@ -86,9 +102,9 @@ const MergeModal: React.FC<MergeModalProps> = ({
             <button
               type="submit"
               disabled={isLoading}
-              className="px-5 py-2 text-sm rounded-full bg-accent text-white font-semibold hover:bg-accent-hover disabled:opacity-60"
+              className="px-5 py-2 text-sm rounded-full bg-accent text-white font-semibold hover:bg-accent-hover disabled:opacity-60 disabled:cursor-wait"
             >
-              {isLoading ? 'Merging…' : 'Merge playlists'}
+              {isLoading ? mergeLabels[mergeLabelIndex] : 'Merge playlists'}
             </button>
           </div>
         </form>
