@@ -17,27 +17,63 @@ interface Props {
 const STRATEGIES: { value: SplitStrategy; label: string; description: string; emoji: string }[] = [
   {
     value: 'genre',
-    label: 'By Genre',
+    label: 'Genre',
     description: 'One playlist per genre tag',
     emoji: '🎸',
   },
   {
     value: 'artist',
-    label: 'By Artist',
+    label: 'Artist',
     description: 'One playlist per artist',
     emoji: '🎤',
   },
   {
     value: 'era',
-    label: 'By Era',
+    label: 'Era',
     description: 'One playlist per decade',
     emoji: '📅',
   },
   {
-    value: 'mood',
-    label: 'By Mood',
-    description: 'High energy vs low energy',
+    value: 'energy',
+    label: 'Energy',
+    description: 'low / medium / high',
     emoji: '⚡',
+  },
+  {
+    value: 'danceability',
+    label: 'Danceability',
+    description: 'low / medium / high',
+    emoji: '💃',
+  },
+  {
+    value: 'valence',
+    label: 'Valence',
+    description: 'low / medium / high',
+    emoji: '😊',
+  },
+  {
+    value: 'acousticness',
+    label: 'Acousticness',
+    description: 'low / medium / high',
+    emoji: '🎻',
+  },
+  {
+    value: 'instrumentalness',
+    label: 'Instrumentalness',
+    description: 'low / medium / high',
+    emoji: '🎼',
+  },
+  {
+    value: 'speechiness',
+    label: 'Speechiness',
+    description: 'low / medium / high',
+    emoji: '🗣️',
+  },
+  {
+    value: 'tempo',
+    label: 'Tempo',
+    description: 'chill / groove / upbeat / high',
+    emoji: '⏱️',
   },
 ];
 
@@ -86,7 +122,7 @@ export default function SplitModal({
     >
       {/* Modal panel */}
       <div
-        className="bg-bg-card border border-border-color rounded-2xl p-6 w-full max-w-lg max-h-[85vh] flex flex-col"
+        className="bg-bg-card border border-border-color rounded-2xl p-6 w-full max-w-5xl max-h-[85vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -106,7 +142,7 @@ export default function SplitModal({
         <p className="text-text-muted text-xs uppercase tracking-widest font-semibold mb-3 shrink-0">
           Split by
         </p>
-        <div className="grid grid-cols-2 gap-2 mb-5 shrink-0">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-5 shrink-0">
           {STRATEGIES.map(s => (
             <button
               key={s.value}

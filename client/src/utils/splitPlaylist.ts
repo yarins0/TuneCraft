@@ -1,7 +1,17 @@
-import type { Track } from '../api/tracks';
+import type { Track, AudioFeatures } from '../api/tracks';
 
-// The four strategies the user can choose from in the SplitModal
-export type SplitStrategy = 'genre' | 'artist' | 'era' | 'mood';
+// The strategies the user can choose from in the SplitModal
+export type SplitStrategy =
+  | 'genre'
+  | 'artist'
+  | 'era'
+  | 'energy'
+  | 'danceability'
+  | 'valence'
+  | 'acousticness'
+  | 'instrumentalness'
+  | 'speechiness'
+  | 'tempo';
 
 // Represents one output group — a named bucket of tracks that will become its own playlist
 export interface SplitGroup {
@@ -70,29 +80,75 @@ const splitByEra = (tracks: Track[]): SplitGroup[] => {
     });
 };
 
-// Groups tracks into "High Energy" and "Low Energy" using the energy audio feature
-// The 0.6 threshold splits the 0–1 scale roughly at the upper third
-// Tracks with no energy data go into an "Unknown Mood" group
-const splitByMood = (tracks: Track[]): SplitGroup[] => {
-  const high: Track[] = [];
-  const low: Track[] = [];
+type AudioFeatureKey = keyof AudioFeatures;
+
+const AUDIO_FEATURE_DISPLAY_NAME: Record<AudioFeatureKey, string> = {
+  energy: 'Energy',
+  danceability: 'Danceability',
+  valence: 'Valence',
+  acousticness: 'Acousticness',
+  instrumentalness: 'Instrumentalness',
+  speechiness: 'Speechiness',
+  tempo: 'Tempo',
+};
+
+interface BucketDefinition {
+  name: string;
+  matches: (value: number) => boolean;
+}
+
+const threeLevelBuckets = (lowLabel: string, midLabel: string, highLabel: string): BucketDefinition[] => [
+  { name: lowLabel, matches: v => v < 0.33 },
+  { name: midLabel, matches: v => v >= 0.33 && v < 0.66 },
+  { name: highLabel, matches: v => v >= 0.66 },
+];
+
+const AUDIO_FEATURE_BUCKETS: Record<AudioFeatureKey, BucketDefinition[]> = {
+  energy: threeLevelBuckets('Low Energy', 'Medium Energy', 'High Energy'),
+  danceability: threeLevelBuckets('Low Danceability', 'Medium Danceability', 'High Danceability'),
+  valence: threeLevelBuckets('Low Valence', 'Medium Valence', 'High Valence'),
+  acousticness: threeLevelBuckets('Low Acousticness', 'Medium Acousticness', 'High Acousticness'),
+  instrumentalness: threeLevelBuckets('Low Instrumentalness', 'Medium Instrumentalness', 'High Instrumentalness'),
+  speechiness: threeLevelBuckets('Low Speechiness', 'Medium Speechiness', 'High Speechiness'),
+  tempo: [
+    { name: 'Chill (< 90 BPM)', matches: v => v < 90 },
+    { name: 'Groove (90–120 BPM)', matches: v => v >= 90 && v < 120 },
+    { name: 'Upbeat (120–140 BPM)', matches: v => v >= 120 && v < 140 },
+    { name: 'High Tempo (≥ 140 BPM)', matches: v => v >= 140 },
+  ],
+};
+
+const splitByAudioFeature = (tracks: Track[], feature: AudioFeatureKey): SplitGroup[] => {
+  const buckets = AUDIO_FEATURE_BUCKETS[feature];
+  const groupsMap = new Map<string, Track[]>();
   const unknown: Track[] = [];
 
   tracks.forEach(track => {
-    const energy = track.audioFeatures.energy;
-    if (energy === null) {
+    const value = track.audioFeatures[feature];
+    if (value === null) {
       unknown.push(track);
-    } else if (energy >= 0.6) {
-      high.push(track);
-    } else {
-      low.push(track);
+      return;
     }
+
+    const bucket = buckets.find(b => b.matches(value));
+    const bucketName = bucket?.name ?? 'Other';
+    if (!groupsMap.has(bucketName)) groupsMap.set(bucketName, []);
+    groupsMap.get(bucketName)!.push(track);
   });
 
-  const groups: SplitGroup[] = [];
-  if (high.length > 0) groups.push({ name: 'High Energy', tracks: high });
-  if (low.length > 0) groups.push({ name: 'Low Energy', tracks: low });
-  if (unknown.length > 0) groups.push({ name: 'Unknown Mood', tracks: unknown });
+  const displayName = AUDIO_FEATURE_DISPLAY_NAME[feature];
+
+  const groups: SplitGroup[] = Array.from(groupsMap.entries())
+    .map(([name, tracks]) => ({ name, tracks }))
+    .sort((a, b) => b.tracks.length - a.tracks.length);
+
+  if (unknown.length > 0) {
+    groups.push({
+      name: `Unknown ${displayName}`,
+      tracks: unknown,
+    });
+  }
+
   return groups;
 };
 
@@ -100,9 +156,25 @@ const splitByMood = (tracks: Track[]): SplitGroup[] => {
 // Each group will become one new Spotify playlist
 export const splitTracks = (tracks: Track[], strategy: SplitStrategy): SplitGroup[] => {
   switch (strategy) {
-    case 'genre':  return splitByGenre(tracks);
-    case 'artist': return splitByArtist(tracks);
-    case 'era':    return splitByEra(tracks);
-    case 'mood':   return splitByMood(tracks);
+    case 'genre':
+      return splitByGenre(tracks);
+    case 'artist':
+      return splitByArtist(tracks);
+    case 'era':
+      return splitByEra(tracks);
+    case 'energy':
+      return splitByAudioFeature(tracks, 'energy');
+    case 'danceability':
+      return splitByAudioFeature(tracks, 'danceability');
+    case 'valence':
+      return splitByAudioFeature(tracks, 'valence');
+    case 'acousticness':
+      return splitByAudioFeature(tracks, 'acousticness');
+    case 'instrumentalness':
+      return splitByAudioFeature(tracks, 'instrumentalness');
+    case 'speechiness':
+      return splitByAudioFeature(tracks, 'speechiness');
+    case 'tempo':
+      return splitByAudioFeature(tracks, 'tempo');
   }
 };
