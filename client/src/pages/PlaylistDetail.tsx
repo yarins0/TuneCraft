@@ -8,9 +8,11 @@ import { AUDIO_FEATURES } from '../constants/audioFeatures';
 import PlaylistCompositionCharts from '../components/PlaylistCompositionCharts';
 import ShuffleModal from '../components/ShuffleModal';
 import CopyModal from '../components/CopyModal';
+import SplitModal from '../components/SplitModal';
 import TrackAudioFeaturesCollapse from '../components/TrackAudioFeaturesCollapse';
-import { copyPlaylist, savePlaylist } from '../api/playlists';
+import { copyPlaylist, savePlaylist, splitPlaylist } from '../api/playlists';
 import { applyShuffle } from '../utils/shuffleAlgorithms';
+import type { SplitGroup } from '../utils/splitPlaylist';
 import { enableReshuffle, disableReshuffle, fetchReshuffleSchedule } from '../api/reshuffle';
 import type { ReshuffleSchedule } from '../api/reshuffle';
 
@@ -72,6 +74,8 @@ export default function PlaylistDetail() {
 
   const [shuffleModalOpen, setShuffleModalOpen] = useState(false);
   const [copyModalOpen, setCopyModalOpen] = useState(false);
+  const [splitModalOpen, setSplitModalOpen] = useState(false);
+  const [splitLoading, setSplitLoading] = useState(false);
 
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalTracks, setOriginalTracks] = useState<Track[]>([]);
@@ -308,11 +312,34 @@ export default function PlaylistDetail() {
     }
   };
 
-  if (loading) return (
+  // Called when the user confirms the split strategy in SplitModal
+  // Sends the pre-grouped tracks to the backend which creates one Spotify playlist per group
+  const handleConfirmSplit = async (groups: SplitGroup[]) => {
+    setSplitLoading(true);
+    setSaveError(null);
+
+    try {
+      // Convert full Track objects to the minimal { id } shape the backend expects
+      const payload = groups.map(g => ({
+        name: g.name,
+        tracks: g.tracks.map(t => ({ id: t.id })),
+      }));
+
+      await splitPlaylist(getUserId(), payload);
+      setSplitModalOpen(false);
+      setSaveSuccess(`Split into ${groups.length} playlists — check your Spotify library!`);
+      setTimeout(() => setSaveSuccess(null), 5000);
+    } catch {
+      setSaveError('Failed to split playlist. Please try again.');
+      setTimeout(() => setSaveError(null), 5000);
+    } finally {
+      setSplitLoading(false);
+    }
+  };
     <div className="min-h-screen bg-bg-primary flex items-center justify-center">
       <div className="text-accent text-xl animate-pulse">Loading playlist...</div>
     </div>
-  );
+  ;
 
   if (error) return (
     <div className="min-h-screen bg-bg-primary flex items-center justify-center px-8">
@@ -396,13 +423,22 @@ export default function PlaylistDetail() {
             🔀 Shuffle
           </button>
           {isOwner && spotifyId !== 'liked' && (
-            <button
-              onClick={handleSave}
-              disabled={saveLoading || loadingMore}
-              className="bg-bg-card hover:bg-bg-secondary disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50"
-            >
-              {saveLoading ? 'Saving...' : '💾 Save'}
-            </button>
+            <>
+              <button
+                onClick={handleSave}
+                disabled={saveLoading || loadingMore}
+                className="bg-bg-card hover:bg-bg-secondary disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50"
+              >
+                {saveLoading ? 'Saving...' : '💾 Save'}
+              </button>
+              <button
+                onClick={() => setSplitModalOpen(true)}
+                disabled={loadingMore}
+                className="bg-bg-card hover:bg-bg-secondary disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50"
+              >
+                ✂️ Split
+              </button>
+            </>
           )}
           <button
             onClick={() => setCopyModalOpen(true)}
@@ -681,6 +717,16 @@ export default function PlaylistDetail() {
         isLoading={saveLoading}
         onClose={() => setCopyModalOpen(false)}
         onConfirm={handleConfirmCopy}
+      />
+
+      {/* Split modal — lets the user pick a strategy and preview the resulting groups */}
+      <SplitModal
+        isOpen={splitModalOpen}
+        playlistName={name || 'My Playlist'}
+        tracks={tracks}
+        isLoading={splitLoading}
+        onClose={() => setSplitModalOpen(false)}
+        onConfirm={handleConfirmSplit}
       />
     </div>
   );

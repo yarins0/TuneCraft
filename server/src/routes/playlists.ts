@@ -605,6 +605,66 @@ router.post('/:userId/merge', refreshTokenMiddleware, async (req, res) => {
   }
 });
 
+// POST /playlists/:userId/split
+// Receives an array of named groups, each containing a list of track IDs
+// Creates one new Spotify playlist per group and populates each with its tracks
+router.post('/:userId/split', refreshTokenMiddleware, async (req, res) => {
+  const { groups } = req.body as {
+    groups: { name: string; tracks: { id: string }[] }[];
+  };
+  const accessToken = (req as any).accessToken;
+
+  try {
+    // Process each group sequentially to avoid hammering the Spotify API
+    // Each group becomes its own playlist in the user's library
+    const created = [];
+
+    for (const group of groups) {
+      // Create an empty playlist for this group
+      const createResponse = await spotifyRequestWithRetry(
+        'post',
+        'https://api.spotify.com/v1/me/playlists',
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+        {
+          name: group.name,
+          description: 'Created by Tunecraft Split',
+          public: true,
+        }
+      );
+
+      const newPlaylistId = createResponse.data.id;
+      const newPlaylistOwnerId = createResponse.data.owner.id;
+
+      // Add this group's tracks in batches of 100 (Spotify's per-request limit)
+      const uris = group.tracks.map((t: any) => `spotify:track:${t.id}`);
+      const chunks = chunkArray(uris, 100);
+
+      for (const chunk of chunks) {
+        await spotifyRequestWithRetry(
+          'post',
+          `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+          { uris: chunk }
+        ).catch((err: any) => {
+          console.error(`Failed to add chunk to split playlist "${group.name}":`, err.response?.data || err.message);
+        });
+      }
+
+      created.push({
+        spotifyId: newPlaylistId,
+        name: group.name,
+        ownerId: newPlaylistOwnerId,
+      });
+    }
+
+    res.json({ success: true, playlists: created });
+
+  } catch (error: any) {
+    console.error('Failed to split playlist:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to split playlist' });
+  }
+});
+
 // PUT /playlists/:userId/:spotifyId/save
 // Saves the current track order to an owned Spotify playlist
 // Sends tracks in batches of 100 (Spotify's limit per request)

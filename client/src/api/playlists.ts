@@ -127,6 +127,23 @@ export const mergePlaylist = async (
   return response.json();
 };
 
+// Sends pre-grouped tracks to the backend to create one new Spotify playlist per group
+export const splitPlaylist = async (
+  userId: string,
+  groups: { name: string; tracks: { id: string }[] }[]
+): Promise<{ success: boolean; playlists: { spotifyId: string; name: string; ownerId: string }[] }> => {
+  const response = await fetch(
+    `${API_BASE_URL}/playlists/${userId}/split`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groups }),
+    }
+  );
+  if (!response.ok) throw new Error('Failed to split playlist');
+  return response.json();
+};
+
 // Saves the current track order to an owned Spotify playlist
 export const savePlaylist = async (
   userId: string,
