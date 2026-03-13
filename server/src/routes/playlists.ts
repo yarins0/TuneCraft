@@ -45,10 +45,10 @@ const spotifyRequestWithRetry = async (
       const status = error.response?.status;
       const retryAfter = error.response?.headers?.['retry-after'];
 
-      if (status === 429 && attempt < maxRetries - 1) {
+      if (status === 429 && attempt < maxRetries) {
         const waitSeconds = Math.min(retryAfter ? parseInt(retryAfter) : 5, 30);
         console.warn(`Spotify rate limit hit (status: 429) - Blocked for ${retryAfter} seconds.`);
-        console.warn(`Waiting ${waitSeconds}s before retry ${attempt + 1} of ${maxRetries - 1}...`);
+        console.warn(`Waiting ${waitSeconds}s before retry ${attempt + 1} of ${maxRetries}...`);
         await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
         continue;
       }
