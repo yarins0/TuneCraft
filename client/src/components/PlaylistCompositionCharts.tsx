@@ -22,10 +22,14 @@ interface CustomTooltipProps {
   payload?: TooltipPayloadItem[];
 }
 
-// Derives the decade label from a release year (e.g. 1985 → "80s")
-const getDecade = (year: number): string => {
-  const decade = Math.floor(year / 10) * 10;
-  return `${decade.toString().slice(-2)}s`;
+// Derives the decade start year from a release year (e.g. 1985 → 1980)
+const getDecadeStartYear = (year: number): number => {
+  return Math.floor(year / 10) * 10;
+};
+
+// Formats a decade start year as a short label for display (e.g. 1980 → "80s")
+const formatDecadeLabel = (decadeStartYear: number): string => {
+  return `${decadeStartYear.toString().slice(-2)}s`;
 };
 
 // Aggregates track data into a sorted pie chart data array
@@ -46,6 +50,27 @@ const buildChartData = (
   const result = top.map(([name, value]) => ({ name, value }));
   if (othersCount > 0) result.push({ name: 'Others', value: othersCount });
   return result;
+};
+
+// Builds decade chart data in true chronological order using full decade years
+// (e.g. 1930, 1940, …, 2010) and only shortens them for display.
+const buildDecadeChartData = (tracks: Track[]): { name: string; value: number }[] => {
+  const counts: Record<number, number> = {};
+
+  tracks.forEach(t => {
+    if (!t.releaseYear) return;
+    const decadeStart = getDecadeStartYear(t.releaseYear);
+    counts[decadeStart] = (counts[decadeStart] || 0) + 1;
+  });
+
+  const sortedDecades = Object.keys(counts)
+    .map(key => parseInt(key, 10))
+    .sort((a, b) => a - b);
+
+  return sortedDecades.map(decadeStart => ({
+    name: formatDecadeLabel(decadeStart),
+    value: counts[decadeStart]
+  }));
 };
 
 // Spinning loading ring shown while tracks are still being fetched
@@ -76,10 +101,21 @@ export default function PlaylistCompositionCharts({ tracks, isLoading }: Props) 
   const allGenres = tracks.flatMap(t => t.genres).filter(Boolean);
   const genreData = buildChartData(allGenres, 6);
 
-  const allDecades = tracks
-    .map(t => t.releaseYear ? getDecade(t.releaseYear) : null)
-    .filter(Boolean) as string[];
-  const decadeData = buildChartData(allDecades, 10);
+  const decadeData = buildDecadeChartData(tracks);
+
+  const renderDecadeLegend = () => (
+    <ul className="flex flex-wrap gap-2 justify-center mt-4">
+      {decadeData.map((entry, index) => (
+        <li key={entry.name} className="flex items-center gap-2 text-xs text-text-muted">
+          <span
+            className="w-2.5 h-2.5 rounded-full"
+            style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+          />
+          <span>{entry.name}</span>
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-6">
@@ -149,13 +185,7 @@ export default function PlaylistCompositionCharts({ tracks, isLoading }: Props) 
                 ))}
               </Pie>
               <Tooltip content={<CustomTooltip />} />
-              <Legend
-                iconType="circle"
-                iconSize={8}
-                formatter={(value) => (
-                  <span className="text-text-muted text-xs">{value}</span>
-                )}
-              />
+              <Legend content={renderDecadeLegend} />
             </PieChart>
           </ResponsiveContainer>
         )}
