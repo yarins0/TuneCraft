@@ -349,6 +349,7 @@ export default function PlaylistDetail() {
       const payload = groups.map(g => ({
         name: g.name,
         tracks: g.tracks.map(t => ({ id: t.id })),
+        description: g.description ?? '',
       }));
 
       await splitPlaylist(getUserId(), payload);

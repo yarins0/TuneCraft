@@ -166,8 +166,28 @@ export default function SplitModal({
   // The user can add/remove tracks and merge groups — all changes live here.
   const [groups, setGroups] = useState<SplitGroup[]>([]);
 
-  // customNames maps group.name → the user's custom display name for that group
-  const [customNames, setCustomNames] = useState<Record<string, string>>({});
+  // groupMeta is the single source of truth for each group's naming state.
+  // It replaces the old customNames / shortLabels / userRenamedGroups tangle.
+  //
+  // Each entry holds:
+  //   labels      — the ordered list of original algorithm bucket names that have been
+  //                 merged into this group (e.g. ["Rock"] or ["Rock", "Blues", "Jazz"]).
+  //                 Never modified by the user. Drives both the merge name formula and
+  //                 the Spotify description.
+  //   displayName — what is shown in the UI and written to Spotify as the playlist name.
+  //                 Starts as the auto-generated default and can be edited by the user.
+  //   changed     — true once the user has committed a rename via the ✏️ input.
+  //                 Used by mergeGroups to decide which naming formula to apply.
+  //   description — the Spotify playlist description. Always built from labels, never
+  //                 affected by user renames:
+  //                 "[playlistName] — Label1 + Label2 - Created by TuneCraft Split"
+  interface GroupMeta {
+    labels: string[];
+    displayName: string;
+    changed: boolean;
+    description: string;
+  }
+  const [groupMeta, setGroupMeta] = useState<Record<string, GroupMeta>>({});
 
   // editingGroupId tracks which group name input is currently being edited
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -192,6 +212,16 @@ export default function SplitModal({
     if (isOpen && tracks.length > 0) {
       const computed = splitTracks(tracks, strategy);
       setGroups(computed);
+      // Seed groupMeta from the fresh algorithm output.
+      // Each group starts with a single label, an auto-generated displayName, and changed=false.
+      setGroupMeta(Object.fromEntries(
+        computed.map(g => [g.name, {
+          labels: [g.name],
+          displayName: `${playlistName} — ${g.name}`,
+          changed: false,
+          description: `${playlistName} — ${g.name} - Created by TuneCraft Split`,
+        }])
+      ));
       // Default: all groups are checked
       setEnabledGroups(new Set(computed.map(g => g.name)));
       // Collapse all groups on strategy change
@@ -205,7 +235,7 @@ export default function SplitModal({
   useEffect(() => {
     if (isOpen) {
       setStrategy('genre');
-      setCustomNames({});
+      setGroupMeta({});
       setEditingGroupId(null);
       setMergeTarget(null);
       setOpenPopover(null);
@@ -238,7 +268,30 @@ export default function SplitModal({
   // Unassigned always renders as "Unassigned" — it cannot be renamed.
   const resolvedName = (groupName: string) => {
     if (groupName === UNASSIGNED) return 'Unassigned';
-    return customNames[groupName] ?? `${playlistName} — ${groupName}`;
+    return groupMeta[groupName]?.displayName ?? `${playlistName} — ${groupName}`;
+  };
+
+  // Builds the merged display name after combining target + partner.
+  // Formula: changed parts come first, then unchanged parts are grouped under the playlist prefix.
+  //   All changed  → "ChangedName1 + ChangedName2"
+  //   All pristine → "My Playlist — Rock + Blues + Jazz"
+  //   Mixed        → "ChangedName + My Playlist — Rock + Blues"
+  const buildMergedDisplayName = (targetMeta: GroupMeta, partnerMeta: GroupMeta): string => {
+    const parts = [
+      { displayName: targetMeta.displayName, changed: targetMeta.changed, labels: targetMeta.labels },
+      { displayName: partnerMeta.displayName, changed: partnerMeta.changed, labels: partnerMeta.labels },
+    ];
+    const changed = parts.filter(p => p.changed);
+    const unchanged = parts.filter(p => !p.changed);
+
+    const changedStr = changed.map(p => p.displayName).join(' + ');
+    const unchangedStr = unchanged.length > 0
+      ? `${playlistName} — ${unchanged.flatMap(p => p.labels).join(' + ')}`
+      : '';
+
+    if (changedStr && unchangedStr) return `${changedStr} + ${unchangedStr}`;
+    if (changedStr) return changedStr;
+    return unchangedStr;
   };
 
   // --- Track mutation helpers ---
@@ -342,8 +395,30 @@ export default function SplitModal({
       next.delete(partnerGroupName);
       return next;
     });
-    setCustomNames(prev => {
+    setGroupMeta(prev => {
+      const targetM = prev[targetGroupName];
+      const partnerM = prev[partnerGroupName];
+      if (!targetM || !partnerM) return prev;
+
+      // Merge the labels lists — used for description and future merges
+      const mergedLabels = [...targetM.labels, ...partnerM.labels];
+
+      // Build the new display name using the changed/unchanged formula
+      const newDisplayName = buildMergedDisplayName(targetM, partnerM);
+
+      // Description always accumulates all original labels, ignoring any renames.
+      // Format: "My Playlist — Rock + Blues + Jazz - Created by TuneCraft Split"
+      const newDescription = `${playlistName} — ${mergedLabels.join(' + ')} - Created by TuneCraft Split`;
+
       const next = { ...prev };
+      next[targetGroupName] = {
+        labels: mergedLabels,
+        displayName: newDisplayName,
+        // The merged group is considered "changed" only if BOTH sides were user-renamed,
+        // so that further merges with pristine groups still use the clean prefix formula.
+        changed: targetM.changed && partnerM.changed,
+        description: newDescription,
+      };
       delete next[partnerGroupName];
       return next;
     });
@@ -484,10 +559,6 @@ export default function SplitModal({
                         type="button"
                         onClick={() => {
                           setEditingGroupId(group.name);
-                          setCustomNames(prev => ({
-                            ...prev,
-                            [group.name]: prev[group.name] ?? `${playlistName} — ${group.name}`,
-                          }));
                         }}
                         className="text-xs text-text-muted hover:text-text-primary shrink-0"
                         title="Edit name"
@@ -501,11 +572,22 @@ export default function SplitModal({
                     {!isUnassigned && editingGroupId === group.name ? (
                       <input
                         type="text"
-                        value={customNames[group.name] ?? `${playlistName} — ${group.name}`}
+                        value={groupMeta[group.name]?.displayName ?? `${playlistName} — ${group.name}`}
                         onChange={e =>
-                          setCustomNames(prev => ({ ...prev, [group.name]: e.target.value }))
+                          setGroupMeta(prev => ({
+                            ...prev,
+                            [group.name]: { ...prev[group.name], displayName: e.target.value },
+                          }))
                         }
-                        onBlur={() => setEditingGroupId(null)}
+                        onBlur={() => {
+                          // Mark as changed when the user commits a rename so merge logic
+                          // treats it as a user-defined name rather than an auto-generated one.
+                          setGroupMeta(prev => ({
+                            ...prev,
+                            [group.name]: { ...prev[group.name], changed: true },
+                          }));
+                          setEditingGroupId(null);
+                        }}
                         onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                         className="flex-1 min-w-0 bg-transparent border-b border-border-color text-sm text-text-primary focus:outline-none"
                       />
@@ -663,6 +745,10 @@ export default function SplitModal({
                   .map(g => ({
                     ...g,
                     name: resolvedName(g.name),
+                    
+                    // Pass the accumulated description so the backend can write it to Spotify
+                    description: groupMeta[g.name]?.description
+                      ?? `${playlistName} — ${g.name}`,
                   }))
               )
             }

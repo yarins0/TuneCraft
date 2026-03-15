@@ -15,8 +15,9 @@ export type SplitStrategy =
 
 // Represents one output group — a named bucket of tracks that will become its own playlist
 export interface SplitGroup {
-  name: string;       // The generated playlist name e.g. "Rock", "The Beatles", "90s"
+  name: string;      // The generated playlist name e.g. "Rock", "The Beatles", "90s"
   tracks: Track[];    // The tracks that belong to this group
+  description?: string; // Optional Spotify playlist description, set by SplitModal before passing to onConfirm
 }
 
 // Converts a release year into a decade label e.g. 1994 → "90s", 2003 → "00s"

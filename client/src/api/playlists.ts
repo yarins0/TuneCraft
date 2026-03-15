@@ -130,7 +130,7 @@ export const mergePlaylist = async (
 // Sends pre-grouped tracks to the backend to create one new Spotify playlist per group
 export const splitPlaylist = async (
   userId: string,
-  groups: { name: string; tracks: { id: string }[] }[]
+  groups: { name: string; tracks: { id: string }[]; description: string }[]
 ): Promise<{ success: boolean; playlists: { spotifyId: string; name: string; ownerId: string }[] }> => {
   const response = await fetch(
     `${API_BASE_URL}/playlists/${userId}/split`,

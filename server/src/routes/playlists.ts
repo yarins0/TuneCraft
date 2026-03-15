@@ -610,7 +610,7 @@ router.post('/:userId/merge', refreshTokenMiddleware, async (req, res) => {
 // Creates one new Spotify playlist per group and populates each with its tracks
 router.post('/:userId/split', refreshTokenMiddleware, async (req, res) => {
   const { groups } = req.body as {
-    groups: { name: string; tracks: { id: string }[] }[];
+    groups: { name: string; tracks: { id: string }[]; description: string}[];
   };
   const accessToken = (req as any).accessToken;
 
@@ -627,7 +627,7 @@ router.post('/:userId/split', refreshTokenMiddleware, async (req, res) => {
         { headers: { Authorization: `Bearer ${accessToken}` } },
         {
           name: group.name,
-          description: 'Created by Tunecraft Split',
+          description: `${group.description}  - Created by TuneCraft Split`,
           public: true,
         }
       );
