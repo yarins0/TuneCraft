@@ -26,17 +26,29 @@ const toDecadeLabel = (year: number): string => {
   return suffix;
 };
 
-// Groups tracks by their first genre tag (from Last.fm)
-// Tracks with no genre data are placed into an "Other" bucket
+// Groups tracks by genre tag (from Last.fm).
+// A track is added to EVERY bucket matching one of its genre tags, not just the first.
+// This means a track tagged ["rock", "classic rock"] will appear in both the Rock
+// and Classic Rock splits — reflecting how genre-tagged music actually works.
+// Tracks with no genre data at all are placed into an "Other" bucket.
 const splitByGenre = (tracks: Track[]): SplitGroup[] => {
   const map = new Map<string, Track[]>();
 
   tracks.forEach(track => {
-    const genre = track.genres[0] ?? 'Other';
-    // Capitalise the first letter for cleaner playlist names
-    const label = genre.charAt(0).toUpperCase() + genre.slice(1);
-    if (!map.has(label)) map.set(label, []);
-    map.get(label)!.push(track);
+    // If the track has no genres, put it in Other and move on
+    if (track.genres.length === 0) {
+      if (!map.has('Other')) map.set('Other', []);
+      map.get('Other')!.push(track);
+      return;
+    }
+
+    // Add the track to every genre bucket it belongs to
+    track.genres.forEach(genre => {
+      // Capitalise the first letter for cleaner playlist names e.g. "rock" → "Rock"
+      const label = genre.charAt(0).toUpperCase() + genre.slice(1);
+      if (!map.has(label)) map.set(label, []);
+      map.get(label)!.push(track);
+    });
   });
 
   return Array.from(map.entries())
