@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { splitTracks } from '../utils/splitPlaylist';
 import type { SplitStrategy, SplitGroup } from '../utils/splitPlaylist';
 import type { Track } from '../api/tracks';
@@ -9,73 +9,148 @@ interface Props {
   tracks: Track[];        // The full loaded track list from PlaylistDetail
   isLoading: boolean;
   onClose: () => void;
-  // Called when the user confirms — receives the computed groups with a prefix applied to each name
+  // Called when the user confirms — receives only the checked groups, with final names applied
   onConfirm: (groups: SplitGroup[]) => void;
 }
 
 // Describes each strategy option shown in the picker
 const STRATEGIES: { value: SplitStrategy; label: string; description: string; emoji: string }[] = [
-  {
-    value: 'genre',
-    label: 'Genre',
-    description: 'One playlist per genre tag',
-    emoji: '🎸',
-  },
-  {
-    value: 'artist',
-    label: 'Artist',
-    description: 'One playlist per artist',
-    emoji: '🎤',
-  },
-  {
-    value: 'era',
-    label: 'Era',
-    description: 'One playlist per decade',
-    emoji: '📅',
-  },
-  {
-    value: 'energy',
-    label: 'Energy',
-    description: 'low / medium / high',
-    emoji: '⚡',
-  },
-  {
-    value: 'danceability',
-    label: 'Danceability',
-    description: 'low / medium / high',
-    emoji: '💃',
-  },
-  {
-    value: 'valence',
-    label: 'Valence',
-    description: 'low / medium / high',
-    emoji: '😊',
-  },
-  {
-    value: 'acousticness',
-    label: 'Acousticness',
-    description: 'low / medium / high',
-    emoji: '🎻',
-  },
-  {
-    value: 'instrumentalness',
-    label: 'Instrumentalness',
-    description: 'low / medium / high',
-    emoji: '🎼',
-  },
-  {
-    value: 'speechiness',
-    label: 'Speechiness',
-    description: 'low / medium / high',
-    emoji: '🗣️',
-  },
-  {
-    value: 'tempo',
-    label: 'Tempo',
-    description: 'chill / groove / upbeat / high',
-    emoji: '⏱️',
-  },
+  { value: 'genre',            label: 'Genre',            description: 'One playlist per genre tag',         emoji: '🎸' },
+  { value: 'artist',           label: 'Artist',           description: 'One playlist per artist',            emoji: '🎤' },
+  { value: 'era',              label: 'Era',              description: 'One playlist per decade',            emoji: '📅' },
+  { value: 'energy',           label: 'Energy',           description: 'low / medium / high',                emoji: '⚡' },
+  { value: 'danceability',     label: 'Danceability',     description: 'low / medium / high',                emoji: '💃' },
+  { value: 'valence',          label: 'Valence',          description: 'low / medium / high',                emoji: '😊' },
+  { value: 'acousticness',     label: 'Acousticness',     description: 'low / medium / high',                emoji: '🎻' },
+  { value: 'instrumentalness', label: 'Instrumentalness', description: 'low / medium / high',                emoji: '🎼' },
+  { value: 'speechiness',      label: 'Speechiness',      description: 'low / medium / high',                emoji: '🗣️' },
+  { value: 'tempo',            label: 'Tempo',            description: 'chill / groove / upbeat / high',     emoji: '⏱️' },
 ];
+
+// The action popover that appears on a track row inside an expanded group.
+// Uses a two-level drill-down pattern:
+//   Level 1 ("main"): shows Remove, Copy to…, Transfer to…
+//   Level 2 ("copy" or "transfer"): shows the list of target groups + a Back button
+// This keeps the initial menu compact and only reveals the group list when needed.
+interface TrackActionPopoverProps {
+  trackId: string;
+  currentGroupName: string;
+  otherGroups: SplitGroup[];
+  onRemove: () => void;
+  onCopy: (targetGroupName: string) => void;
+  onTransfer: (targetGroupName: string) => void;
+  onClose: () => void;
+}
+
+function TrackActionPopover({
+  otherGroups,
+  onRemove,
+  onCopy,
+  onTransfer,
+  onClose,
+}: TrackActionPopoverProps) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // 'main' shows the three top-level actions.
+  // 'copy' and 'transfer' show the group picker for the respective action.
+  const [view, setView] = useState<'main' | 'copy' | 'transfer'>('main');
+
+  // Close when clicking outside the popover
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      className={[
+        'absolute right-0 top-8 z-20 bg-bg-card border border-border-color rounded-xl shadow-xl p-3',
+        // Widen the popover on level 2 so the grid columns have enough room
+        view === 'main' ? 'w-52' : otherGroups.length <= 3 ? 'w-52' : otherGroups.length <= 6 ? 'w-64' : 'w-80',
+      ].join(' ')}
+    >
+      {/* Level 1 — main actions */}
+      {view === 'main' && (
+        <>
+          {/* Remove — sends the track to the Unassigned bucket */}
+          <button
+            type="button"
+            onClick={() => { onRemove(); onClose(); }}
+            className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+          >
+            🗑️ Remove
+          </button>
+
+          {otherGroups.length > 0 && (
+            <>
+              <div className="border-t border-border-color my-2" />
+
+              {/* Copy to… — drills into the copy group picker */}
+              <button
+                type="button"
+                onClick={() => setView('copy')}
+                className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-secondary rounded-lg transition-colors flex items-center justify-between"
+              >
+                <span>📋 Copy to…</span>
+                <span className="text-text-muted">›</span>
+              </button>
+
+              {/* Transfer to… — drills into the transfer group picker */}
+              <button
+                type="button"
+                onClick={() => setView('transfer')}
+                className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-secondary rounded-lg transition-colors flex items-center justify-between"
+              >
+                <span>➡️ Transfer to…</span>
+                <span className="text-text-muted">›</span>
+              </button>
+            </>
+          )}
+        </>
+      )}
+
+      {/* Level 2 — group picker for Copy or Transfer */}
+      {(view === 'copy' || view === 'transfer') && (
+        <>
+          {/* Back button returns to the main action list */}
+          <button
+            type="button"
+            onClick={() => setView('main')}
+            className="w-full text-left px-3 py-2 text-sm text-text-muted hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors flex items-center gap-2 mb-1"
+          >
+            <span>‹</span>
+            <span>{view === 'copy' ? 'Copy to…' : 'Transfer to…'}</span>
+          </button>
+
+          <div className="border-t border-border-color my-2" />
+
+          {/* Group grid — 1 col for ≤3, 2 cols for ≤6, 3 cols for 7+ */}
+          <div className={otherGroups.length <= 3 ? 'flex flex-col' : otherGroups.length <= 6 ? 'grid grid-cols-2 gap-1' : 'grid grid-cols-3 gap-1'}>
+            {otherGroups.map(g => (
+              <button
+                key={g.name}
+                type="button"
+                onClick={() => {
+                  if (view === 'copy') onCopy(g.name);
+                  else onTransfer(g.name);
+                  onClose();
+                }}
+                className="text-left px-2 py-1.5 text-xs text-text-primary hover:bg-bg-secondary rounded-lg transition-colors truncate"
+                title={g.name}
+              >
+                {g.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function SplitModal({
   isOpen,
@@ -86,49 +161,200 @@ export default function SplitModal({
   onConfirm,
 }: Props) {
   const [strategy, setStrategy] = useState<SplitStrategy>('genre');
-  // groups is recomputed every time the strategy changes — it's the live preview
+
+  // groups holds the live, mutable state of the split preview.
+  // The user can add/remove tracks and merge groups — all changes live here.
   const [groups, setGroups] = useState<SplitGroup[]>([]);
+
+  // customNames maps group.name → the user's custom display name for that group
   const [customNames, setCustomNames] = useState<Record<string, string>>({});
+
+  // editingGroupId tracks which group name input is currently being edited
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
 
-  // Recompute the groups whenever the modal opens or the strategy changes
+  // enabledGroups is the set of group names whose checkbox is checked.
+  // Only checked groups are passed to onConfirm.
+  const [enabledGroups, setEnabledGroups] = useState<Set<string>>(new Set());
+
+  // expandedGroups is the set of group names that are currently showing their track list
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  // mergeTarget is the name of the group currently in "pick merge partners" mode.
+  // When set, every other group row shows a "Merge into [target]" button.
+  const [mergeTarget, setMergeTarget] = useState<string | null>(null);
+
+  // openPopover tracks which [groupName, trackId] combo has its action popover open.
+  // Stored as a string key "groupName::trackId" for simplicity.
+  const [openPopover, setOpenPopover] = useState<string | null>(null);
+
+  // Recompute groups (and reset all interaction state) when the strategy changes or the modal opens
   useEffect(() => {
     if (isOpen && tracks.length > 0) {
-      setGroups(splitTracks(tracks, strategy));
+      const computed = splitTracks(tracks, strategy);
+      setGroups(computed);
+      // Default: all groups are checked
+      setEnabledGroups(new Set(computed.map(g => g.name)));
+      // Collapse all groups on strategy change
+      setExpandedGroups(new Set());
+      setMergeTarget(null);
+      setOpenPopover(null);
     }
   }, [isOpen, strategy, tracks]);
 
-  // Reset strategy to default when modal opens
+  // Reset UI state when modal opens fresh
   useEffect(() => {
     if (isOpen) {
       setStrategy('genre');
       setCustomNames({});
       setEditingGroupId(null);
+      setMergeTarget(null);
+      setOpenPopover(null);
     }
   }, [isOpen]);
 
+  // Animated "Splitting..." label while the API call is in flight
   const [splitLabelIndex, setSplitLabelIndex] = useState(0);
-
   const splitLabels = ['Splitting.', 'Splitting..', 'Splitting...'];
-
   useEffect(() => {
-    if (!isLoading) {
-      setSplitLabelIndex(0);
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      setSplitLabelIndex(prev => (prev + 1) % splitLabels.length);
-    }, 500);
-
-    return () => window.clearInterval(intervalId);
+    if (!isLoading) { setSplitLabelIndex(0); return; }
+    const id = window.setInterval(() => setSplitLabelIndex(prev => (prev + 1) % splitLabels.length), 500);
+    return () => window.clearInterval(id);
   }, [isLoading]);
 
   if (!isOpen) return null;
 
-  // Only groups with at least 1 track are included
-  // (edge case: a strategy bucket could theoretically be empty)
-  const validGroups = groups.filter(g => g.tracks.length > 0);
+  // The reserved internal key for the Unassigned overflow bucket.
+  // Double-underscore prefix prevents collision with real split group names.
+  const UNASSIGNED = '__unassigned__';
+
+  // Only groups with at least one track are shown.
+  // The Unassigned bucket is always pinned to the end of the list.
+  const validGroups = [
+    ...groups.filter(g => g.tracks.length > 0 && g.name !== UNASSIGNED),
+    ...groups.filter(g => g.name === UNASSIGNED && g.tracks.length > 0),
+  ];
+
+  // Returns the resolved display name for a group.
+  // Unassigned always renders as "Unassigned" — it cannot be renamed.
+  const resolvedName = (groupName: string) => {
+    if (groupName === UNASSIGNED) return 'Unassigned';
+    return customNames[groupName] ?? `${playlistName} — ${groupName}`;
+  };
+
+  // --- Track mutation helpers ---
+
+  // Removes a track from a group and routes it to the Unassigned bucket.
+  // If the Unassigned group doesn't exist yet, it is created on the fly.
+  // If the track is already in Unassigned, it is not duplicated.
+  const removeTrack = (groupName: string, trackId: string) => {
+    setGroups(prev => {
+      const sourceGroup = prev.find(g => g.name === groupName);
+      const track = sourceGroup?.tracks.find(t => t.id === trackId);
+      if (!track) return prev;
+
+      // Remove the track from its source group
+      const withoutTrack = prev.map(g =>
+        g.name === groupName
+          ? { ...g, tracks: g.tracks.filter(t => t.id !== trackId) }
+          : g
+      );
+
+      const existingUnassigned = withoutTrack.find(g => g.name === UNASSIGNED);
+
+      if (existingUnassigned) {
+        if (existingUnassigned.tracks.some(t => t.id === track.id)) return withoutTrack;
+        return withoutTrack.map(g =>
+          g.name === UNASSIGNED ? { ...g, tracks: [...g.tracks, track] } : g
+        );
+      } else {
+        // First removal ever — create the Unassigned group at the bottom of the list
+        return [...withoutTrack, { name: UNASSIGNED, tracks: [track] }];
+      }
+    });
+  };
+
+  // Copies a track from its current group into a target group.
+  // The track stays in the source group and also appears in the target.
+  // Skips the copy if the track already exists in the target (avoids duplicates).
+  const copyTrack = (sourceGroupName: string, trackId: string, targetGroupName: string) => {
+    setGroups(prev => {
+      const sourceGroup = prev.find(g => g.name === sourceGroupName);
+      const track = sourceGroup?.tracks.find(t => t.id === trackId);
+      if (!track) return prev;
+
+      return prev.map(g => {
+        if (g.name !== targetGroupName) return g;
+        // Guard: don't add a duplicate
+        if (g.tracks.some(t => t.id === track.id)) return g;
+        return { ...g, tracks: [...g.tracks, track] };
+      });
+    });
+  };
+
+  // Moves a track from its current group into a target group.
+  // Equivalent to copy + remove in a single state update.
+  const transferTrack = (sourceGroupName: string, trackId: string, targetGroupName: string) => {
+    setGroups(prev => {
+      const sourceGroup = prev.find(g => g.name === sourceGroupName);
+      const track = sourceGroup?.tracks.find(t => t.id === trackId);
+      if (!track) return prev;
+
+      return prev.map(g => {
+        if (g.name === sourceGroupName) {
+          return { ...g, tracks: g.tracks.filter(t => t.id !== trackId) };
+        }
+        if (g.name === targetGroupName) {
+          if (g.tracks.some(t => t.id === track.id)) return g;
+          return { ...g, tracks: [...g.tracks, track] };
+        }
+        return g;
+      });
+    });
+  };
+
+  // Merges the partnerGroup into targetGroup:
+  //   - All tracks from partnerGroup are appended to targetGroup (deduped)
+  //   - partnerGroup is removed from the list entirely
+  //   - The partner's checkbox and expand state are also cleaned up
+  const mergeGroups = (targetGroupName: string, partnerGroupName: string) => {
+    setGroups(prev => {
+      const partner = prev.find(g => g.name === partnerGroupName);
+      if (!partner) return prev;
+
+      return prev
+        .map(g => {
+          if (g.name !== targetGroupName) return g;
+          const existingIds = new Set(g.tracks.map(t => t.id));
+          const newTracks = partner.tracks.filter(t => !existingIds.has(t.id));
+          return { ...g, tracks: [...g.tracks, ...newTracks] };
+        })
+        .filter(g => g.name !== partnerGroupName);
+    });
+
+    // Clean up the partner's UI state
+    setEnabledGroups(prev => {
+      const next = new Set(prev);
+      next.delete(partnerGroupName);
+      return next;
+    });
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      next.delete(partnerGroupName);
+      return next;
+    });
+    setCustomNames(prev => {
+      const next = { ...prev };
+      delete next[partnerGroupName];
+      return next;
+    });
+
+    setMergeTarget(null);
+  };
+
+  // How many checked groups will actually be saved.
+  // Unassigned is excluded from the count — it's an overflow bucket, not a real playlist destination.
+  const realGroups = validGroups.filter(g => g.name !== UNASSIGNED);
+  const checkedCount = realGroups.filter(g => enabledGroups.has(g.name)).length;
 
   return (
     // Backdrop
@@ -180,67 +406,242 @@ export default function SplitModal({
           ))}
         </div>
 
-        {/* Group preview — scrollable so large splits don't overflow the modal */}
-        <p className="text-text-muted text-xs uppercase tracking-widest font-semibold mb-2 shrink-0">
-          Preview — {validGroups.length} playlists will be created
-        </p>
+        {/* Preview header row with select-all toggle */}
+        <div className="flex items-center justify-between mb-2 shrink-0">
+          <p className="text-text-muted text-xs uppercase tracking-widest font-semibold">
+            Preview — {checkedCount} of {realGroups.length} playlists selected
+          </p>
+          {/* Select all / deselect all shortcut */}
+          <button
+            type="button"
+            onClick={() => {
+              if (checkedCount === realGroups.length) {
+                // All real groups checked → uncheck all (leave Unassigned as-is)
+                setEnabledGroups(new Set());
+              } else {
+                // Some or none checked → check all real groups
+                setEnabledGroups(new Set(realGroups.map(g => g.name)));
+              }
+            }}
+            className="text-xs text-accent hover:underline"
+          >
+            {checkedCount === realGroups.length ? 'Deselect all' : 'Select all'}
+          </button>
+        </div>
+
+        {/* Group list — scrollable */}
         <div className="overflow-y-auto flex-1 rounded-xl border border-border-color bg-bg-secondary">
           {validGroups.length === 0 ? (
             <p className="text-text-muted text-sm p-4 text-center">
               No groups found for this strategy
             </p>
           ) : (
-            validGroups.map((group, index) => (
-              <div
-                key={group.name}
-                className={[
-                  'flex items-center justify-between px-4 py-3 gap-4',
-                  index < validGroups.length - 1 ? 'border-b border-border-color' : '',
-                ].join(' ')}
-              >
-                <div className="flex items-center gap-2 pr-4 flex-1 min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingGroupId(group.name);
-                      setCustomNames(prev => ({
-                        ...prev,
-                        [group.name]: prev[group.name] ?? `${playlistName} — ${group.name}`,
-                      }));
-                    }}
-                    className="text-xs text-text-muted hover:text-text-primary shrink-0"
-                    title="Edit name"
-                    aria-label="Edit playlist name"
-                  >
-                    ✏️
-                  </button>
-                  {editingGroupId === group.name ? (
+            validGroups.map((group, index) => {
+              const isExpanded = expandedGroups.has(group.name);
+              const isEnabled = enabledGroups.has(group.name);
+              const isMergeMode = mergeTarget !== null;
+              const isTheMergeTarget = mergeTarget === group.name;
+              // Unassigned is excluded from the "other groups" list shown in track popovers
+              // and from merge targets — it's an overflow bucket, not a real destination
+              const isUnassigned = group.name === UNASSIGNED;
+              const otherGroups = validGroups.filter(g => g.name !== group.name && g.name !== UNASSIGNED);
+
+              return (
+                <div
+                  key={group.name}
+                  className={[
+                    'border-border-color',
+                    index < validGroups.length - 1 ? 'border-b' : '',
+                    // Unassigned gets a distinct amber tint so it stands out as a special bucket
+                    isUnassigned ? 'bg-amber-500/5' : '',
+                    // Dim groups that are not the merge target while in merge mode
+                    isMergeMode && !isTheMergeTarget ? 'opacity-60' : '',
+                  ].join(' ')}
+                >
+                  {/* Group header row */}
+                  <div className="flex items-center gap-3 px-4 py-3">
+
+                    {/* Checkbox — controls whether this group is included in onConfirm.
+                        Unassigned starts unchecked; it's an overflow bucket, not a real playlist. */}
                     <input
-                      type="text"
-                      value={customNames[group.name] ?? `${playlistName} — ${group.name}`}
-                      onChange={e =>
-                        setCustomNames(prev => ({
-                          ...prev,
-                          [group.name]: e.target.value,
-                        }))
-                      }
-                      onBlur={() => setEditingGroupId(null)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.currentTarget.blur();
-                        }
+                      type="checkbox"
+                      checked={isEnabled}
+                      onChange={() => {
+                        setEnabledGroups(prev => {
+                          const next = new Set(prev);
+                          if (next.has(group.name)) next.delete(group.name);
+                          else next.add(group.name);
+                          return next;
+                        });
                       }}
-                      className="flex-1 min-w-0 bg-transparent border-b border-border-color text-sm text-text-primary focus:outline-none"
+                      className="w-4 h-4 accent-accent shrink-0 cursor-pointer"
+                      aria-label={`Include "${resolvedName(group.name)}" in export`}
                     />
-                  ) : (
-                    <p className="text-sm text-text-primary font-medium truncate">
-                      {customNames[group.name] ?? `${playlistName} — ${group.name}`}
-                    </p>
+
+                    {/* Edit name pencil — hidden for Unassigned since its name is fixed */}
+                    {!isUnassigned && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingGroupId(group.name);
+                          setCustomNames(prev => ({
+                            ...prev,
+                            [group.name]: prev[group.name] ?? `${playlistName} — ${group.name}`,
+                          }));
+                        }}
+                        className="text-xs text-text-muted hover:text-text-primary shrink-0"
+                        title="Edit name"
+                        aria-label="Edit playlist name"
+                      >
+                        ✏️
+                      </button>
+                    )}
+
+                    {/* Name — inline editable for normal groups, fixed label for Unassigned */}
+                    {!isUnassigned && editingGroupId === group.name ? (
+                      <input
+                        type="text"
+                        value={customNames[group.name] ?? `${playlistName} — ${group.name}`}
+                        onChange={e =>
+                          setCustomNames(prev => ({ ...prev, [group.name]: e.target.value }))
+                        }
+                        onBlur={() => setEditingGroupId(null)}
+                        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                        className="flex-1 min-w-0 bg-transparent border-b border-border-color text-sm text-text-primary focus:outline-none"
+                      />
+                    ) : (
+                      <p
+                        className={[
+                          'flex-1 min-w-0 text-sm font-medium truncate',
+                          isUnassigned ? 'text-amber-400' : isEnabled ? 'text-text-primary' : 'text-text-muted line-through',
+                        ].join(' ')}
+                      >
+                        {isUnassigned ? '📥 Unassigned' : resolvedName(group.name)}
+                      </p>
+                    )}
+
+                    {/* Track count */}
+                    <p className="text-xs text-text-muted shrink-0">{group.tracks.length} tracks</p>
+
+                    {/* Merge button — hidden for Unassigned, which can't be a merge target */}
+                    {!isMergeMode && !isUnassigned && (
+                      <button
+                        type="button"
+                        onClick={() => setMergeTarget(group.name)}
+                        className="text-xs text-text-muted hover:text-accent px-2 py-1 rounded-lg border border-border-color hover:border-accent/40 transition-colors shrink-0"
+                        title="Merge another split into this one"
+                      >
+                        ⊕ Merge
+                      </button>
+                    )}
+
+                    {/* While in merge mode: show "Merge into this" on the target row */}
+                    {isTheMergeTarget && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-xs text-accent font-semibold">← pick a split to absorb</span>
+                        <button
+                          type="button"
+                          onClick={() => setMergeTarget(null)}
+                          className="text-xs text-text-muted hover:text-text-primary"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+
+                    {/* While in merge mode: every non-target row gets an "Absorb" button */}
+                    {isMergeMode && !isTheMergeTarget && mergeTarget && (
+                      <button
+                        type="button"
+                        onClick={() => mergeGroups(mergeTarget, group.name)}
+                        className="text-xs bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 px-2 py-1 rounded-lg transition-colors shrink-0"
+                      >
+                        Absorb into {resolvedName(mergeTarget).split('—')[1]?.trim() || resolvedName(mergeTarget)}
+                      </button>
+                    )}
+
+                    {/* Expand/collapse chevron */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExpandedGroups(prev => {
+                          const next = new Set(prev);
+                          if (next.has(group.name)) next.delete(group.name);
+                          else next.add(group.name);
+                          return next;
+                        });
+                      }}
+                      className="text-text-muted hover:text-text-primary shrink-0 w-6 text-center transition-transform duration-200"
+                      style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                      aria-label={isExpanded ? 'Collapse tracks' : 'Expand tracks'}
+                    >
+                      ▼
+                    </button>
+                  </div>
+
+                  {/* Expanded track list */}
+                  {isExpanded && (
+                    <div className="border-t border-border-color bg-bg-primary/40">
+                      {group.tracks.length === 0 ? (
+                        <p className="text-text-muted text-xs px-10 py-3 italic">No tracks left in this split</p>
+                      ) : (
+                        group.tracks.map(track => {
+                          const popoverKey = `${group.name}::${track.id}`;
+                          const isPopoverOpen = openPopover === popoverKey;
+
+                          return (
+                            <div
+                              key={track.id}
+                              className="flex items-center gap-3 px-10 py-2 hover:bg-bg-card/50 transition-colors border-b border-border-color last:border-b-0"
+                            >
+                              {/* Album art thumbnail */}
+                              <div className="w-7 h-7 rounded overflow-hidden bg-bg-secondary shrink-0">
+                                {track.albumImageUrl ? (
+                                  <img src={track.albumImageUrl} alt={track.albumName} className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-xs">🎵</div>
+                                )}
+                              </div>
+
+                              {/* Track name + artist */}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium text-text-primary truncate">{track.name}</p>
+                                <p className="text-xs text-text-muted truncate">{track.artist}</p>
+                              </div>
+
+                              {/* Three-dot action button + popover */}
+                              <div className="relative shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenPopover(isPopoverOpen ? null : popoverKey)}
+                                  className="text-text-muted hover:text-text-primary text-sm px-1 rounded transition-colors"
+                                  aria-label="Track actions"
+                                  title="Track actions"
+                                >
+                                  ⋯
+                                </button>
+
+                                {isPopoverOpen && (
+                                  <TrackActionPopover
+                                    trackId={track.id}
+                                    currentGroupName={group.name}
+                                    otherGroups={otherGroups}
+                                    onRemove={() => removeTrack(group.name, track.id)}
+                                    onCopy={(target) => copyTrack(group.name, track.id, target)}
+                                    onTransfer={(target) => transferTrack(group.name, track.id, target)}
+                                    onClose={() => setOpenPopover(null)}
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
                   )}
                 </div>
-                <p className="text-xs text-text-muted shrink-0">{group.tracks.length} tracks</p>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -256,16 +657,19 @@ export default function SplitModal({
           <button
             onClick={() =>
               onConfirm(
-                validGroups.map(g => ({
-                  ...g,
-                  name: customNames[g.name] ?? `${playlistName} — ${g.name}`,
-                }))
+                // Only pass groups that are checked AND have at least one track
+                validGroups
+                  .filter(g => enabledGroups.has(g.name))
+                  .map(g => ({
+                    ...g,
+                    name: resolvedName(g.name),
+                  }))
               )
             }
-            disabled={isLoading || validGroups.length === 0}
+            disabled={isLoading || checkedCount === 0}
             className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
           >
-            {isLoading ? splitLabels[splitLabelIndex] : `Create ${validGroups.length} Playlists`}
+            {isLoading ? splitLabels[splitLabelIndex] : `Create ${checkedCount} Playlist${checkedCount !== 1 ? 's' : ''}`}
           </button>
         </div>
       </div>
