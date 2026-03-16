@@ -219,7 +219,7 @@ export default function SplitModal({
           labels: [g.name],
           displayName: `${playlistName} — ${g.name}`,
           changed: false,
-          description: `${playlistName} — ${g.name} - Created by TuneCraft Split`,
+          description: `${playlistName} — ${g.name}`,
         }])
       ));
       // Default: all groups are checked
@@ -408,7 +408,7 @@ export default function SplitModal({
 
       // Description always accumulates all original labels, ignoring any renames.
       // Format: "My Playlist — Rock + Blues + Jazz - Created by TuneCraft Split"
-      const newDescription = `${playlistName} — ${mergedLabels.join(' + ')} - Created by TuneCraft Split`;
+      const newDescription = `${playlistName} — ${mergedLabels.join(' + ')}`;
 
       const next = { ...prev };
       next[targetGroupName] = {
