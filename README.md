@@ -1,53 +1,98 @@
-# Tunecraft
+# TuneCraft
 
-Tunecraft is a full-stack app for smarter Spotify playlist control: analyze tracks (audio features + genres), apply composable shuffle algorithms, and optionally auto-reshuffle playlists on a schedule.
+> Smarter Spotify playlist management. Analyze, shuffle, organize, and automate your music library beyond what Spotify natively offers.
 
-## Tech stack
+---
 
-- **Client**: React + TypeScript + Vite
-- **Server**: Node.js + Express + TypeScript
-- **DB**: PostgreSQL via Prisma
-- **Integrations**: Spotify OAuth + Spotify Web API, Last.fm (genres), ReccoBeats (audio features)
+## Features
+
+### Smart Shuffle
+Apply composable shuffle algorithms to any playlist before saving:
+
+- **True Random** — Fisher-Yates equal-probability shuffle
+- **Artist Spread** — no two tracks by the same artist play back-to-back
+- **Genre Spread** — groups similar genres together for smoother listening flow
+- **Chronological Mix** — interleaves tracks from different eras
+
+Algorithms are composable — combine Genre Spread + Artist Spread in a single pass.
+
+### Auto-Reshuffle
+Set a playlist to automatically reshuffle on a daily, weekly, or monthly schedule. A background cron job handles reshuffling server-side without any manual action.
+
+### Playlist Organizer
+- **Merge** — combine multiple playlists into one, with optional duplicate removal
+- **Split** — divide a playlist by genre, artist, era/decade, or audio feature (energy, danceability, valence, tempo, and more). Preview, rename, and rearrange groups before saving
+- **Duplicate Finder** — scan a playlist for duplicate tracks and remove them inline
+
+### Track Analysis
+Every track is enriched with:
+- **Audio features** — energy, danceability, valence, tempo, acousticness, instrumentalness, speechiness (via ReccoBeats)
+- **Genres** — artist-level genre tags (via Last.fm)
+- Visualized as donut charts on the playlist detail page
+
+### Playlist Discovery
+Paste any public Spotify playlist URL to open and analyze it, even if it's not in your library.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React, TypeScript, Vite, Tailwind CSS |
+| Backend | Node.js, Express, TypeScript |
+| Database | PostgreSQL via Prisma ORM |
+| Auth | Spotify OAuth 2.0 with automatic token refresh |
+| External APIs | Spotify Web API, Last.fm, ReccoBeats |
+| Background jobs | node-cron |
+
+---
 
 ## Prerequisites
 
-- **Node.js** (recommended: latest LTS)
-- **PostgreSQL** database (local or hosted)
-- **Spotify Developer App** (Client ID/Secret + redirect URI)
-- **Last.fm API key/secret**
+- **Node.js** — latest LTS recommended
+- **PostgreSQL** — local or hosted instance
+- **Spotify Developer App** — create one at [developer.spotify.com](https://developer.spotify.com/dashboard). You will need a Client ID, Client Secret, and a configured redirect URI
+- **Last.fm API key** — register at [last.fm/api](https://www.last.fm/api/account/create)
+- **ReccoBeats API key** — for audio features (replaces Spotify's deprecated audio features endpoint)
 
-## Repo layout
-
-- `client/`: frontend (Vite dev server)
-- `server/`: backend API + Prisma + cron-based auto-reshuffle
+---
 
 ## Setup
 
-1) Install dependencies:
+### 1. Install dependencies
+
+From the repo root:
 
 ```bash
 npm install
 ```
 
-2) Configure environment variables:
+### 2. Configure environment variables
 
-- Copy `server/.env.example` → `server/.env`
-- Fill in values, and add **DATABASE_URL** (required by Prisma)
-
-Example (`server/.env`):
+Copy the example file and fill in your values:
 
 ```bash
-SPOTIFY_CLIENT_ID=...
-SPOTIFY_CLIENT_SECRET=...
-LASTFM_API_KEY=...
-LASTFM_SECRET=...
+cp server/.env.example server/.env
+```
+
+`server/.env`:
+
+```env
+SPOTIFY_CLIENT_ID=your_spotify_client_id
+SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+LASTFM_API_KEY=your_lastfm_api_key
+LASTFM_SECRET=your_lastfm_secret
+RECCOBEATS_API_KEY=your_reccobeats_api_key
 REDIRECT_URI=http://127.0.0.1:3000/auth/callback
 FRONTEND_URL=http://127.0.0.1:5173
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DB_NAME?schema=public
 PORT=3000
 ```
 
-3) Initialize the database (from `server/`):
+> **Important:** `REDIRECT_URI` must exactly match the redirect URI registered in your Spotify Developer Dashboard.
+
+### 3. Initialize the database
 
 ```bash
 cd server
@@ -55,7 +100,9 @@ npx prisma generate
 npx prisma migrate dev
 ```
 
-## Run locally
+---
+
+## Running Locally
 
 From the repo root:
 
@@ -63,41 +110,59 @@ From the repo root:
 npm run dev
 ```
 
-This starts:
+This starts all three processes concurrently:
 
-- **Server**: `http://127.0.0.1:3000`
-- **Client**: `http://127.0.0.1:5173`
-- **Prisma Studio**: launches via `npx prisma studio` (from `server/`)
+| Process | URL |
+|---|---|
+| Backend API | `http://127.0.0.1:3000` |
+| Frontend | `http://127.0.0.1:5173` |
+| Prisma Studio | launched automatically |
 
-Health check:
+Health check: `GET http://127.0.0.1:3000/health`
 
-- `GET /health` → `http://127.0.0.1:3000/health`
+---
 
-## Useful scripts
+## Project Structure
 
-From repo root:
+```
+tunecraft/
+├── client/          # React frontend (Vite)
+│   └── src/
+│       ├── components/   # Reusable UI components
+│       └── pages/        # Route-level page components
+└── server/          # Express backend
+    └── src/
+        ├── lib/          # Shuffle algorithms, cron job, Prisma client
+        ├── middleware/   # Token refresh middleware
+        └── routes/       # API route handlers
+```
 
-- **dev**: runs client + server + Prisma Studio concurrently (`npm run dev`)
+---
 
-From `server/`:
+## Available Scripts
 
-- **dev**: `npm run dev` (nodemon + ts-node)
-- **build**: `npm run build` (TypeScript compile)
-- **start**: `npm start` (runs `dist/`)
+**Repo root:**
+```bash
+npm run dev        # Start client + server + Prisma Studio concurrently
+```
 
-From `client/`:
+**`server/`:**
+```bash
+npm run dev        # Start server with hot reload (ts-node + nodemon)
+npm run build      # Compile TypeScript to dist/
+npm start          # Run compiled dist/
+```
 
-- **dev**: `npm run dev`
-- **build**: `npm run build`
-- **lint**: `npm run lint`
-- **preview**: `npm run preview`
+**`client/`:**
+```bash
+npm run dev        # Start Vite dev server
+npm run build      # Production build
+npm run lint       # ESLint
+npm run preview    # Preview production build locally
+```
 
-## Notes
-
-- **OAuth redirect**: `REDIRECT_URI` must match the redirect URI configured in your Spotify Developer Dashboard.
-- **Auto-reshuffle**: the server starts a cron task on boot (see `server/src/lib/reshuffleCron.ts`) to process due playlists.
+---
 
 ## Roadmap
 
-See `TUNECRAFT_ROADMAP.md`.
-
+See [TUNECRAFT_ROADMAP.md](./TUNECRAFT_ROADMAP.md) for the full feature roadmap, current progress, and technical notes.
