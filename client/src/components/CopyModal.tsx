@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
 
 interface Props {
   isOpen: boolean;
@@ -11,6 +12,9 @@ interface Props {
 export default function CopyModal({ isOpen, defaultName, isLoading, onClose, onConfirm }: Props) {
   const [name, setName] = useState(defaultName);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Animates the confirm button label while the copy request is in flight
+  const saveLabel = useAnimatedLabel(isLoading, 'Saveing');
 
   // Sync the input value whenever the modal opens with a new default name
   useEffect(() => {
@@ -78,7 +82,7 @@ export default function CopyModal({ isOpen, defaultName, isLoading, onClose, onC
             disabled={isLoading || !name.trim()}
             className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
           >
-            {isLoading ? 'Saving...' : 'Save Copy'}
+            {saveLabel}
           </button>
         </div>
       </div>

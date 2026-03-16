@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { splitTracks } from '../utils/splitPlaylist';
 import type { SplitStrategy, SplitGroup } from '../utils/splitPlaylist';
 import type { Track } from '../api/tracks';
+import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
 
 interface Props {
   isOpen: boolean;
@@ -207,6 +208,9 @@ export default function SplitModal({
   // Stored as a string key "groupName::trackId" for simplicity.
   const [openPopover, setOpenPopover] = useState<string | null>(null);
 
+  // Animates the confirm button label while the API call is in flight
+  const splitLabel = useAnimatedLabel(isLoading, 'Splitting');
+
   // Recompute groups (and reset all interaction state) when the strategy changes or the modal opens
   useEffect(() => {
     if (isOpen && tracks.length > 0) {
@@ -241,15 +245,6 @@ export default function SplitModal({
       setOpenPopover(null);
     }
   }, [isOpen]);
-
-  // Animated "Splitting..." label while the API call is in flight
-  const [splitLabelIndex, setSplitLabelIndex] = useState(0);
-  const splitLabels = ['Splitting.', 'Splitting..', 'Splitting...'];
-  useEffect(() => {
-    if (!isLoading) { setSplitLabelIndex(0); return; }
-    const id = window.setInterval(() => setSplitLabelIndex(prev => (prev + 1) % splitLabels.length), 500);
-    return () => window.clearInterval(id);
-  }, [isLoading]);
 
   if (!isOpen) return null;
 
@@ -590,6 +585,7 @@ export default function SplitModal({
                         }}
                         onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                         className="flex-1 min-w-0 bg-transparent border-b border-border-color text-sm text-text-primary focus:outline-none"
+                        autoFocus
                       />
                     ) : (
                       <p
@@ -755,7 +751,7 @@ export default function SplitModal({
             disabled={isLoading || checkedCount === 0}
             className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
           >
-            {isLoading ? splitLabels[splitLabelIndex] : `Create ${checkedCount} Playlist${checkedCount !== 1 ? 's' : ''}`}
+            {isLoading ? splitLabel : `Create ${checkedCount} Playlist${checkedCount !== 1 ? 's' : ''}`}
           </button>
         </div>
       </div>

@@ -1,6 +1,7 @@
 // client/src/components/MergeModal.tsx
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import type { Playlist } from '../api/playlists';
+import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
 
 type MergeModalProps = {
   isOpen: boolean;
@@ -21,24 +22,11 @@ const MergeModal: React.FC<MergeModalProps> = ({
   onClose,
   onConfirm,
 }) => {
-  const [name, setName] = useState('');
-  const [removeDuplicates, setRemoveDuplicates] = useState(true);
-  const [mergeLabelIndex, setMergeLabelIndex] = useState(0);
+  const [name, setName] = React.useState('');
+  const [removeDuplicates, setRemoveDuplicates] = React.useState(true);
 
-  const mergeLabels = ['Merging.', 'Merging..', 'Merging...'];
-
-  useEffect(() => {
-    if (!isLoading) {
-      setMergeLabelIndex(0);
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      setMergeLabelIndex(prev => (prev + 1) % mergeLabels.length);
-    }, 500);
-
-    return () => window.clearInterval(intervalId);
-  }, [isLoading]);
+  // Animates the confirm button label while the merge request is in flight
+  const mergeLabel = useAnimatedLabel(isLoading, 'Merging');
 
   if (!isOpen) return null;
 
@@ -104,7 +92,7 @@ const MergeModal: React.FC<MergeModalProps> = ({
               disabled={isLoading}
               className="px-5 py-2 text-sm rounded-full bg-accent text-white font-semibold hover:bg-accent-hover disabled:opacity-60 disabled:cursor-wait"
             >
-              {isLoading ? mergeLabels[mergeLabelIndex] : 'Merge playlists'}
+              {isLoading ? mergeLabel : 'Merge playlists'}
             </button>
           </div>
         </form>

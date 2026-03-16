@@ -16,6 +16,7 @@ import type { SplitGroup } from '../utils/splitPlaylist';
 import { enableReshuffle, disableReshuffle, fetchReshuffleSchedule } from '../api/reshuffle';
 import type { ReshuffleSchedule } from '../api/reshuffle';
 import { findDuplicates } from '../utils/findDuplicates';
+import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
 
 const getUserId = () => sessionStorage.getItem('userId') || '';
 const getSpotifyId = () => sessionStorage.getItem('spotifyId') || '';
@@ -83,6 +84,10 @@ export default function PlaylistDetail() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Animated labels for the Save and Save as Copy buttons while saveLoading is true
+  const saveLabel = useAnimatedLabel(saveLoading, '💾 Saving');
+  const copyLabel = useAnimatedLabel(saveLoading, '💾 Saving as Copy');
 
   const dragFromIndexRef = useRef<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -447,7 +452,9 @@ export default function PlaylistDetail() {
           <button
             onClick={() => setShuffleModalOpen(true)}
             disabled={loadingMore}
-            className="bg-accent hover:bg-bg-secondary disabled:opacity-50  text-white font-semibold px-5 py-2 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
+            className="bg-accent hover:bg-bg-secondary
+            disabled:opacity-50  text-white font-semibold px-5 py-2 rounded-full
+            transition-all duration-200 hover:scale-105 active:scale-95"
           >
             🔀 Shuffle
           </button>
@@ -456,7 +463,10 @@ export default function PlaylistDetail() {
               <button
                 onClick={() => setSplitModalOpen(true)}
                 disabled={loadingMore}
-                className="bg-accent hover:bg-bg-secondary disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50"
+                className="bg-accent hover:bg-bg-secondary
+                disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full
+                border border-border-color transition-all duration-200
+                hover:border-accent/50"
               >
                 ✂️ Split
               </button>
@@ -465,9 +475,12 @@ export default function PlaylistDetail() {
                   <button
                     onClick={handleSave}
                     disabled={saveLoading || loadingMore}
-                    className="bg-bg-card hover:bg-bg-secondary disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50"
+                    className="bg-bg-card hover:bg-bg-secondary
+                    disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full
+                    border border-border-color transition-all duration-200
+                    hover:border-accent/50"
                   >
-                    {saveLoading ? 'Saving...' : '💾 Save'}
+                    <span className="inline-block min-w-[90px] text-center">{saveLoading ? saveLabel : '💾 Save'}</span>
                   </button>
                 </>
               )}
@@ -476,9 +489,15 @@ export default function PlaylistDetail() {
           <button
             onClick={() => setCopyModalOpen(true)}
             disabled={saveLoading || loadingMore}
-            className="bg-bg-card hover:bg-bg-secondary disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full border border-border-color transition-all duration-200 hover:border-accent/50"
+            className="bg-bg-card hover:bg-bg-secondary 
+                      disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full
+                      border border-border-color transition-all duration-200
+                      hover:border-accent/50"
           >
-            💾 Save as Copy
+             <span className="inline-block min-w-[150px] text-center">
+                  {saveLoading ? copyLabel : '💾 Save as copy'}
+              </span>
+
           </button>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ReshuffleSchedule } from '../api/reshuffle';
+import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
 
 interface ShuffleAlgorithms {
   trueRandom: boolean;
@@ -78,6 +79,15 @@ export default function ShuffleModal({
     }
   );
   const [autoEnabled, setAutoEnabled] = useState<boolean>(Boolean(reshuffleSchedule));
+
+  // Animates the Shuffle button label while a shuffle is in flight
+  const shuffleLabel = useAnimatedLabel(isLoading, 'Shuffling');
+
+  // Animates the schedule save button label while the DB write is in flight
+  const scheduleLabel = useAnimatedLabel(
+    reshuffleLoading,
+    reshuffleSchedule ? 'Update Schedule' : 'Activate Schedule'
+  );
 
   if (!isOpen) return null;
 
@@ -191,7 +201,7 @@ export default function ShuffleModal({
                 disabled={noneSelected || isLoading}
                 className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
               >
-                {isLoading ? 'Shuffling...' : 'Shuffle'}
+                {reshuffleLoading ? shuffleLabel : 'Shuffle'}
               </button>
             </div>
           </div>
@@ -314,7 +324,7 @@ export default function ShuffleModal({
                   disabled={reshuffleLoading || noneSelected || !onSaveReshuffle || !autoEnabled}
                   className="self-center mt-auto bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-6 py-2.5 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
                 >
-                  {reshuffleLoading ? 'Saving...' : reshuffleSchedule ? 'Update Schedule' : 'Activate Schedule'}
+                  {scheduleLabel}
                 </button>
               </div>
             )}
