@@ -2,16 +2,8 @@ import { Router } from 'express';
 import axios from 'axios';
 import prisma from '../lib/prisma';
 import { refreshTokenMiddleware } from '../middleware/refreshToken';
-import { applyShuffle } from '../lib/shuffleAlgorithms';
 
 const router = Router();
-
-// Splits an array into chunks of a given size.
-// Reused here to batch Spotify API calls when writing reshuffled track order.
-const chunkArray = (arr: string[], size: number): string[][] =>
-  Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>
-    arr.slice(i * size, i * size + size)
-  );
 
 // POST /reshuffle/:userId/:spotifyId
 // Enables auto-reshuffle for a playlist, or updates existing settings.
@@ -20,15 +12,17 @@ router.post('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
   const userId = req.params.userId as string;
   const spotifyId = req.params.spotifyId as string;
   const { intervalDays, algorithms, playlistName } = req.body;
-
   // Validate that intervalDays is a positive number
   if (!intervalDays || intervalDays < 1) {
     return res.status(400).json({ error: 'intervalDays must be at least 1' });
   }
 
   try {
-    // Calculate when the first auto-reshuffle should happen
-    const nextReshuffleAt = new Date();
+    // The frontend applies and saves the shuffle itself using the already-loaded enriched
+    // track list (genres + audio features), so there's no need to re-fetch tracks here.
+    // This route only persists the schedule and stamps lastReshuffledAt = now.
+    const now = new Date();
+    const nextReshuffleAt = new Date(now);
     nextReshuffleAt.setDate(nextReshuffleAt.getDate() + intervalDays);
 
     // upsert: update if a record already exists for this user+playlist, create if not
@@ -43,6 +37,7 @@ router.post('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
         autoReshuffle: true,
         intervalDays,
         algorithms,
+        lastReshuffledAt: now,
         nextReshuffleAt,
         name: playlistName,
       },
@@ -53,11 +48,12 @@ router.post('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
         autoReshuffle: true,
         intervalDays,
         algorithms,
+        lastReshuffledAt: now,
         nextReshuffleAt,
       },
     });
 
-    res.json({ success: true, playlist });
+    res.json({ success: true, schedule: playlist });
   } catch (error: any) {
     console.error('Failed to enable auto-reshuffle:', error);
     res.status(500).json({ error: 'Failed to enable auto-reshuffle' });
@@ -172,7 +168,7 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
       }
     }
 
-    res.json({ playlists: validPlaylists });
+    res.json({ schedules: validPlaylists });
   } catch (error: any) {
     console.error('Failed to fetch auto-reshuffles:', error);
     res.status(500).json({ error: 'Failed to fetch auto-reshuffles' });
