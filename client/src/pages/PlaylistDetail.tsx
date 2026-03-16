@@ -95,6 +95,14 @@ export default function PlaylistDetail() {
   // Controls whether the duplicate warning section is expanded beyond the first 3 rows
   const [isDupesExpanded, setIsDupesExpanded] = useState(false);
 
+  // jumpingTrackIndex — the index of the track whose position number is currently being edited.
+  // null means no row is in edit mode.
+  const [jumpingTrackIndex, setJumpingTrackIndex] = useState<number | null>(null);
+
+  // jumpInputValue — the raw string the user is typing in the position input.
+  // Kept as a string while editing so partial input (e.g. "") doesn't force a number immediately.
+  const [jumpInputValue, setJumpInputValue] = useState('');
+
   // Auto-reshuffle panel state
   // reshuffleSchedule — the schedule currently saved in the DB (null if none exists)
   // reshuffleOpen — whether the panel is expanded
@@ -224,6 +232,21 @@ export default function PlaylistDetail() {
     });
 
     setHasUnsavedChanges(true);
+  };
+
+  // Confirms a position jump when the user presses Enter or blurs the input.
+  // fromIndex is 0-based (array index); the input value is 1-based (display position).
+  // Clamps out-of-range values to the nearest valid position rather than showing an error,
+  // keeping the interaction forgiving — a playlist of 50 tracks won't reject "99", it moves to 50.
+  const confirmJump = (fromIndex: number) => {
+    const parsed = parseInt(jumpInputValue, 10);
+    const toIndex = isNaN(parsed)
+      ? fromIndex                                      // unparseable input — stay in place
+      : Math.min(Math.max(parsed - 1, 0), tracks.length - 1); // clamp to valid 0-based range
+
+    if (toIndex !== fromIndex) reorderTracks(fromIndex, toIndex);
+    setJumpingTrackIndex(null);
+    setJumpInputValue('');
   };
 
   // Derives the list of duplicate entries every time the tracks array changes.
@@ -701,9 +724,41 @@ export default function PlaylistDetail() {
                   tracks.length > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-default',
                 ].filter(Boolean).join(' ')}
               >
-                <span className="text-text-muted text-sm w-6 text-right shrink-0">
-                  {index + 1}
-                </span>
+                {jumpingTrackIndex === index ? (
+                  // Edit mode — shown after a double-click on the position number.
+                  // onBlur and Enter both confirm the jump so the user can use either.
+                  <input
+                    type="number"
+                    value={jumpInputValue}
+                    min={1}
+                    max={tracks.length}
+                    onChange={e => setJumpInputValue(e.target.value)}
+                    onBlur={() => confirmJump(index)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') e.currentTarget.blur();
+                      if (e.key === 'Escape') {
+                        // Cancel without moving — just exit edit mode
+                        setJumpingTrackIndex(null);
+                        setJumpInputValue('');
+                      }
+                    }}
+                    className="w-10 text-right text-sm bg-transparent border-b border-accent text-accent focus:outline-none shrink-0"
+                    autoFocus
+                  />
+                ) : (
+                  // Static mode — double-click to enter edit mode.
+                  // title gives a hint on hover so the interaction is discoverable.
+                  <span
+                    className="text-text-muted text-sm w-6 text-right shrink-0 cursor-pointer select-none"
+                    title="Double-click to jump to position"
+                    onDoubleClick={() => {
+                      setJumpingTrackIndex(index);
+                      setJumpInputValue(String(index + 1));
+                    }}
+                  >
+                    {index + 1}
+                  </span>
+                )}
                 <span
                   className={[
                     'text-text-muted w-6 text-center shrink-0 select-none',
