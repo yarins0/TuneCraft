@@ -11,6 +11,7 @@ const router = Router();
 const SPOTIFY_SCOPES = [
   'playlist-read-private',
   'playlist-read-collaborative',
+  //'user-read-recently-played', //requiered for history fetuare
   'playlist-modify-public',
   'playlist-modify-private',
   'user-read-private',        // required for user profile
