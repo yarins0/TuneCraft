@@ -2,16 +2,8 @@ import { Router } from 'express';
 import axios from 'axios';
 import prisma from '../lib/prisma';
 import { refreshTokenMiddleware } from '../middleware/refreshToken';
-import { applyShuffle } from '../lib/shuffleAlgorithms';
 
 const router = Router();
-
-// Splits an array into chunks of a given size.
-// Reused here to batch Spotify API calls when writing reshuffled track order.
-const chunkArray = (arr: string[], size: number): string[][] =>
-  Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>
-    arr.slice(i * size, i * size + size)
-  );
 
 // POST /reshuffle/:userId/:spotifyId
 // Enables auto-reshuffle for a playlist, or updates existing settings.
@@ -57,7 +49,7 @@ router.post('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
       },
     });
 
-    res.json({ success: true, playlist });
+    res.json({ success: true, schedule: playlist });
   } catch (error: any) {
     console.error('Failed to enable auto-reshuffle:', error);
     res.status(500).json({ error: 'Failed to enable auto-reshuffle' });
@@ -172,7 +164,7 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
       }
     }
 
-    res.json({ playlists: validPlaylists });
+    res.json({ schedules: validPlaylists });
   } catch (error: any) {
     console.error('Failed to fetch auto-reshuffles:', error);
     res.status(500).json({ error: 'Failed to fetch auto-reshuffles' });
