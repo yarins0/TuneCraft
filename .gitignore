@@ -5,5 +5,7 @@ Thumbs.db
 # Editor
 .vscode/
 .curser/
+.claude/
 
+CLAUDE.md
 TUNECRAFT_ROADMAP.md
