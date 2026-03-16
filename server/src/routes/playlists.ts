@@ -62,6 +62,19 @@ const spotifyRequestWithRetry = async (
   }
 };
 
+// A serial queue for all Spotify write requests (POST/PUT).
+// Spotify's rate limit applies per rolling 30-second window across the entire app —
+// if two write routes fire simultaneously they both hit 429 at once and retry
+// simultaneously, causing a cascade. This queue ensures only one write sequence
+// runs at a time by chaining each caller onto the previous one's Promise tail.
+let spotifyWriteQueue = Promise.resolve();
+
+const enqueueSpotifyWrite = <T>(fn: () => Promise<T>): Promise<T> => {
+  const result = spotifyWriteQueue.then(fn);
+  // Replace the queue tail — even if fn rejects, the queue must continue for future callers
+  spotifyWriteQueue = result.then(() => {}, () => {});
+  return result;
+};
 
 // Fetches audio features and genres for a list of tracks
 // Checks the database cache first — only calls external APIs for cache misses
@@ -518,22 +531,9 @@ router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, r
     const firstChunk = uris.slice(0, 100);
     const remainingChunks = chunkArray(uris.slice(100), 100);
 
-    await spotifyRequestWithRetry(
-      'put',
-      `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      },
-      { uris: firstChunk }
-    );
-
-    // Subsequent POSTs append the remaining tracks in batches of 100
-    for (const chunk of remainingChunks) {
+    await enqueueSpotifyWrite(async () => {
       await spotifyRequestWithRetry(
-        'post',
+        'put',
         `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
         {
           headers: {
@@ -541,9 +541,24 @@ router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, r
             'Content-Type': 'application/json',
           },
         },
-        { uris: chunk }
+        { uris: firstChunk }
       );
-    }
+
+      // Subsequent POSTs append the remaining tracks in batches of 100
+      for (const chunk of remainingChunks) {
+        await spotifyRequestWithRetry(
+          'post',
+          `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          },
+          { uris: chunk }
+        );
+      }
+    });
 
     // If this playlist has an active auto-reshuffle schedule, update the timestamps
     // so the cron job doesn't re-shuffle it again shortly after a manual shuffle.
@@ -593,35 +608,39 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
   const accessToken = (req as any).accessToken;
 
   try {
-    // Create a new empty playlist
-    const createResponse = await spotifyRequestWithRetry(
-      'post',
-      'https://api.spotify.com/v1/me/playlists',
-      { headers: { Authorization: `Bearer ${accessToken}` } },
-      {
-        name: name,
-        description: 'Created by Tunecraft',
-        public: true,
-      }
-    );
-
-    const newPlaylistId = createResponse.data.id;
-    const newPlaylistOwnerId = createResponse.data.owner.id;
-
     // Add tracks in batches of 100 (Spotify's limit per request)
     const uris = tracks.map((t: any) => `spotify:track:${t.id}`);
     const chunks = chunkArray(uris, 100);
 
-    for (const chunk of chunks) {
-      await spotifyRequestWithRetry(
+    const { newPlaylistId, newPlaylistOwnerId } = await enqueueSpotifyWrite(async () => {
+      // Create a new empty playlist
+      const createResponse = await spotifyRequestWithRetry(
         'post',
-        `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
+        'https://api.spotify.com/v1/me/playlists',
         { headers: { Authorization: `Bearer ${accessToken}` } },
-        { uris: chunk }
-      ).catch((err: any) => {
-        console.error('Failed to add chunk:', err.response?.data || err.message);
-      });
-    }
+        {
+          name: name,
+          description: 'Created by Tunecraft',
+          public: true,
+        }
+      );
+
+      const newPlaylistId = createResponse.data.id;
+      const newPlaylistOwnerId = createResponse.data.owner.id;
+
+      for (const chunk of chunks) {
+        await spotifyRequestWithRetry(
+          'post',
+          `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+          { uris: chunk }
+        ).catch((err: any) => {
+          console.error('Failed to add chunk:', err.response?.data || err.message);
+        });
+      }
+
+      return { newPlaylistId, newPlaylistOwnerId };
+    });
 
     res.json({
       success: true,
@@ -647,35 +666,39 @@ router.post('/:userId/merge', refreshTokenMiddleware, async (req, res) => {
   const accessToken = (req as any).accessToken;
 
   try {
-    // Create a new empty playlist in the user's Spotify account
-    const createResponse = await spotifyRequestWithRetry(
-      'post',
-      'https://api.spotify.com/v1/me/playlists',
-      { headers: { Authorization: `Bearer ${accessToken}` } },
-      {
-        name,
-        description: 'Merged by Tunecraft',
-        public: true,
-      }
-    );
-
-    const newPlaylistId = createResponse.data.id;
-    const newPlaylistOwnerId = createResponse.data.owner.id;
-
     // Add tracks in batches of 100 (Spotify's per-request limit)
     const uris = tracks.map((t: any) => `spotify:track:${t.id}`);
     const chunks = chunkArray(uris, 100);
 
-    for (const chunk of chunks) {
-      await spotifyRequestWithRetry(
+    const { newPlaylistId, newPlaylistOwnerId } = await enqueueSpotifyWrite(async () => {
+      // Create a new empty playlist in the user's Spotify account
+      const createResponse = await spotifyRequestWithRetry(
         'post',
-        `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
+        'https://api.spotify.com/v1/me/playlists',
         { headers: { Authorization: `Bearer ${accessToken}` } },
-        { uris: chunk }
-      ).catch((err: any) => {
-        console.error('Failed to add chunk to merged playlist:', err.response?.data || err.message);
-      });
-    }
+        {
+          name,
+          description: 'Merged by Tunecraft',
+          public: true,
+        }
+      );
+
+      const newPlaylistId = createResponse.data.id;
+      const newPlaylistOwnerId = createResponse.data.owner.id;
+
+      for (const chunk of chunks) {
+        await spotifyRequestWithRetry(
+          'post',
+          `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+          { uris: chunk }
+        ).catch((err: any) => {
+          console.error('Failed to add chunk to merged playlist:', err.response?.data || err.message);
+        });
+      }
+
+      return { newPlaylistId, newPlaylistOwnerId };
+    });
 
     res.json({
       success: true,
@@ -702,47 +725,51 @@ router.post('/:userId/split', refreshTokenMiddleware, async (req, res) => {
   const accessToken = (req as any).accessToken;
 
   try {
-    // Process each group sequentially to avoid hammering the Spotify API
-    // Each group becomes its own playlist in the user's library
-    const created = [];
+    const created = await enqueueSpotifyWrite(async () => {
+      // Process each group sequentially to avoid hammering the Spotify API
+      // Each group becomes its own playlist in the user's library
+      const created = [];
 
-    for (const group of groups) {
-      // Create an empty playlist for this group
-      const createResponse = await spotifyRequestWithRetry(
-        'post',
-        'https://api.spotify.com/v1/me/playlists',
-        { headers: { Authorization: `Bearer ${accessToken}` } },
-        {
-          name: group.name,
-          description: `${group.description}  - Created by TuneCraft Split`,
-          public: true,
-        }
-      );
-
-      const newPlaylistId = createResponse.data.id;
-      const newPlaylistOwnerId = createResponse.data.owner.id;
-
-      // Add this group's tracks in batches of 100 (Spotify's per-request limit)
-      const uris = group.tracks.map((t: any) => `spotify:track:${t.id}`);
-      const chunks = chunkArray(uris, 100);
-
-      for (const chunk of chunks) {
-        await spotifyRequestWithRetry(
+      for (const group of groups) {
+        // Create an empty playlist for this group
+        const createResponse = await spotifyRequestWithRetry(
           'post',
-          `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
+          'https://api.spotify.com/v1/me/playlists',
           { headers: { Authorization: `Bearer ${accessToken}` } },
-          { uris: chunk }
-        ).catch((err: any) => {
-          console.error(`Failed to add chunk to split playlist "${group.name}":`, err.response?.data || err.message);
+          {
+            name: group.name,
+            description: `${group.description}  - Created by TuneCraft Split`,
+            public: true,
+          }
+        );
+
+        const newPlaylistId = createResponse.data.id;
+        const newPlaylistOwnerId = createResponse.data.owner.id;
+
+        // Add this group's tracks in batches of 100 (Spotify's per-request limit)
+        const uris = group.tracks.map((t: any) => `spotify:track:${t.id}`);
+        const chunks = chunkArray(uris, 100);
+
+        for (const chunk of chunks) {
+          await spotifyRequestWithRetry(
+            'post',
+            `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
+            { headers: { Authorization: `Bearer ${accessToken}` } },
+            { uris: chunk }
+          ).catch((err: any) => {
+            console.error(`Failed to add chunk to split playlist "${group.name}":`, err.response?.data || err.message);
+          });
+        }
+
+        created.push({
+          spotifyId: newPlaylistId,
+          name: group.name,
+          ownerId: newPlaylistOwnerId,
         });
       }
 
-      created.push({
-        spotifyId: newPlaylistId,
-        name: group.name,
-        ownerId: newPlaylistOwnerId,
-      });
-    }
+      return created;
+    });
 
     res.json({ success: true, playlists: created });
 
@@ -765,23 +792,10 @@ router.put('/:userId/:spotifyId/save', refreshTokenMiddleware, async (req, res) 
     const firstChunk = uris.slice(0, 100);
     const remainingChunks = chunkArray(uris.slice(100), 100);
 
-    // First PUT replaces entire playlist with first 100 tracks
-    await spotifyRequestWithRetry(
-      'put',
-      `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      },
-      { uris: firstChunk }
-    );
-
-    // Subsequent POSTs append remaining tracks
-    for (const chunk of remainingChunks) {
+    await enqueueSpotifyWrite(async () => {
+      // First PUT replaces entire playlist with first 100 tracks
       await spotifyRequestWithRetry(
-        'post',
+        'put',
         `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
         {
           headers: {
@@ -789,9 +803,24 @@ router.put('/:userId/:spotifyId/save', refreshTokenMiddleware, async (req, res) 
             'Content-Type': 'application/json',
           },
         },
-        { uris: chunk }
+        { uris: firstChunk }
       );
-    }
+
+      // Subsequent POSTs append remaining tracks
+      for (const chunk of remainingChunks) {
+        await spotifyRequestWithRetry(
+          'post',
+          `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          },
+          { uris: chunk }
+        );
+      }
+    });
 
     res.json({ success: true });
 
