@@ -15,3 +15,43 @@
     --color-border: rgba(255, 255, 255, 0.1);
   }
 }
+
+@layer components {
+  /*
+   * Reusable themed scrollbar — apply class="custom-scrollbar" to any
+   * scrollable container to replace the browser default with a styled bar
+   * that matches the TuneCraft dark/purple theme.
+   *
+   * Works in Chrome/Edge/Safari via ::-webkit-scrollbar-* pseudo-elements.
+   * Firefox uses the scrollbar-color shorthand (two-value syntax: thumb track).
+   */
+  .custom-scrollbar {
+    /* Firefox — "auto" respects the width set below; "thin" would override it */
+    scrollbar-width: auto;
+    scrollbar-color: var(--color-accent) var(--color-bg-primary);
+  }
+
+  /* The full scrollbar groove (the rail) — Chrome/Edge/Safari */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 12px;
+  }
+
+  /* The background rail behind the thumb */
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: var(--color-bg-primary);
+    border-radius: 9999px;
+  }
+
+  /* The draggable thumb */
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-accent);
+    border-radius: 9999px;
+    transition: background 0.2s;
+  }
+
+  /* Brighten the thumb on hover for interactivity feedback */
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-accent-hover);
+    box-shadow: 0 0 6px var(--color-accent-glow);
+  }
+}

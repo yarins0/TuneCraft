@@ -465,7 +465,7 @@ export default function SplitModal({
             <p className="text-text-muted text-xs uppercase tracking-widest font-semibold mb-3 shrink-0">
               Split by
             </p>
-            <div className="flex flex-col gap-0.5 overflow-y-auto">
+            <div className="flex flex-col gap-0.5 overflow-y-auto custom-scrollbar">
               {STRATEGIES.map(s => (
                 <button
                   key={s.value}
@@ -515,7 +515,7 @@ export default function SplitModal({
             </div>
 
         {/* Group list — scrollable */}
-        <div className="overflow-y-auto flex-1 rounded-xl border border-border-color bg-bg-secondary">
+        <div className="overflow-y-auto flex-1 rounded-xl border border-border-color bg-bg-secondary custom-scrollbar">
           {validGroups.length === 0 ? (
             <p className="text-text-muted text-sm p-4 text-center">
               No groups found for this strategy
