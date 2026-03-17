@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { ReshuffleSchedule } from '../api/reshuffle';
 import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
 
@@ -79,6 +79,13 @@ export default function ShuffleModal({
     }
   );
   const [autoEnabled, setAutoEnabled] = useState<boolean>(Boolean(reshuffleSchedule));
+
+  // If reshuffleSchedule arrives after the component mounts (async fetch in PlaylistDetail),
+  // make sure autoEnabled stays in sync so the schedule button is enabled and shows the
+  // correct "Update Schedule" label rather than staying stuck on "Activate Schedule".
+  useEffect(() => {
+    if (reshuffleSchedule) setAutoEnabled(true);
+  }, [reshuffleSchedule]);
 
   // Animates the Shuffle button label while a shuffle is in flight
   const shuffleLabel = useAnimatedLabel(isLoading, 'Shuffling');
