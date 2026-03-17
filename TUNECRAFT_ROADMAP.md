@@ -108,7 +108,7 @@ Build new playlists intelligently based on what's already in the user's library.
 - [x] SplitModal — clicking outside while dragging text should not close the modal (mousedown/mouseup delta check)
 - [x] SplitModal — two-column layout (strategy picker left ~30%, preview list right ~70%), widen to `max-w-6xl`
 - [x] PlaylistDetail — double-click track number to jump to position (inline number input, Enter/blur to confirm, clamp to valid range)
-- [x] ShuffleModal — saving a new auto-reshuffle schedule immediately applies the shuffle to Spotify, writes `lastShuffledAt = now` and `nextReshuffleAt = now + intervalDays` to DB
+- [x] ShuffleModal — saving a new auto-reshuffle schedule writes `lastReshuffledAt = now` and `nextReshuffleAt = now + intervalDays` to DB so the cron window starts from the moment of activation
 - [x] ShuffleModal — manually shuffling a playlist with an active schedule updates `lastShuffledAt` and `nextReshuffleAt` in DB
 - [x] ShuffleModal — schedule button label bug fixed (API field name mismatch caused schedule to never load)
 
@@ -123,7 +123,7 @@ Each change below lives on its own branch. Test each one before merging into `ma
 | `ui/split-modal-two-column` | Two-column layout, close-on-drag fix | `SplitModal.tsx` |
 | `fix/reshuffle-schedule-label` | API field mismatch fix (`playlists`→`schedules`, `playlist`→`schedule`), `autoEnabled` sync | `reshuffle.ts` (server), `ShuffleModal.tsx` |
 | `fix/shuffle-reshuffle-timestamps` | Update DB timestamps on manual shuffle, delete stale DB record on Spotify 404 | `playlists.ts` (server) |
-| `feat/schedule-immediate-shuffle` | Shuffle immediately on schedule activation using already-loaded tracks | `reshuffle.ts` (server), `PlaylistDetail.tsx` |
+| `feat/schedule-immediate-shuffle` | Stamp `lastReshuffledAt = now` when activating a schedule so the cron window starts from activation | `reshuffle.ts` (server) |
 | `feat/track-jump-to-position` | Double-click track number → inline input → move to position | `PlaylistDetail.tsx` |
 | `fix/reccobeats-lastfm-rate-limiting` | Sequential batching for ReccoBeats + Last.fm with concurrent phases | `playlists.ts` (server) |
 | `fix/spotify-write-serialization` | Serial async queue for all Spotify write routes (shuffle, save, copy, merge, split) | `playlists.ts` (server) |
