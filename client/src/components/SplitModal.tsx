@@ -441,7 +441,7 @@ export default function SplitModal({
     >
       {/* Modal panel */}
       <div
-        className="bg-bg-card border border-border-color rounded-2xl p-6 w-full max-w-6xl max-h-[85vh] flex flex-col"
+        className="bg-bg-card border border-border-color rounded-2xl p-6 w-full max-w-5xl h-[95vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -460,19 +460,19 @@ export default function SplitModal({
         {/* Two-column body */}
         <div className="flex gap-6 flex-1 min-h-0">
 
-          {/* Left column — strategy picker (~30%) */}
-          <div className="w-[30%] shrink-0 flex flex-col min-h-0">
+          {/* Left column — strategy picker (~24%) */}
+          <div className="w-[24%] shrink-0 flex flex-col min-h-0">
             <p className="text-text-muted text-xs uppercase tracking-widest font-semibold mb-3 shrink-0">
               Split by
             </p>
-            <div className="flex flex-col gap-2 overflow-y-auto">
+            <div className="flex flex-col gap-0.5 overflow-y-auto">
               {STRATEGIES.map(s => (
                 <button
                   key={s.value}
                   type="button"
                   onClick={() => setStrategy(s.value)}
                   className={[
-                    'flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all duration-150',
+                    'flex items-center gap-3 px-3 py-1 rounded-xl border text-left transition-all duration-150',
                     strategy === s.value
                       ? 'border-accent bg-accent/10 text-text-primary'
                       : 'border-border-color bg-bg-secondary hover:border-accent/40 text-text-muted',
