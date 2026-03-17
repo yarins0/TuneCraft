@@ -25,6 +25,11 @@ const MergeModal: React.FC<MergeModalProps> = ({
   const [name, setName] = React.useState('');
   const [removeDuplicates, setRemoveDuplicates] = React.useState(true);
 
+  // Tracks whether the most recent mousedown originated on the backdrop itself.
+  // Prevents closing the modal when the user drags text that starts inside and
+  // releases outside (which would otherwise fire a click on the backdrop).
+  const mouseDownOnBackdrop = React.useRef(false);
+
   // Animates the confirm button label while the merge request is in flight
   const mergeLabel = useAnimatedLabel(isLoading, 'Merging');
 
@@ -41,8 +46,14 @@ const MergeModal: React.FC<MergeModalProps> = ({
   ].join(', ');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-lg rounded-2xl bg-bg-card p-6 shadow-2xl border border-border-color">
+    // Backdrop — only close when the mousedown also originated on the backdrop,
+    // so dragging text that starts inside and ends outside doesn't dismiss the modal.
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      onMouseDown={e => { mouseDownOnBackdrop.current = e.target === e.currentTarget; }}
+      onClick={() => { if (mouseDownOnBackdrop.current) onClose(); }}
+    >
+      <div className="w-full max-w-lg rounded-2xl bg-bg-card p-6 shadow-2xl border border-border-color" onClick={e => e.stopPropagation()}>
         <h2 className="text-xl font-semibold mb-2">Merge playlists</h2>
         <p className="text-text-muted text-sm mb-4">
           You&apos;re about to merge the following:

@@ -13,6 +13,11 @@ export default function CopyModal({ isOpen, defaultName, isLoading, onClose, onC
   const [name, setName] = useState(defaultName);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Tracks whether the most recent mousedown originated on the backdrop itself.
+  // Prevents closing the modal when the user drags text that starts inside and
+  // releases outside (which would otherwise fire a click on the backdrop).
+  const mouseDownOnBackdrop = useRef(false);
+
   // Animates the confirm button label while the copy request is in flight
   const saveLabel = useAnimatedLabel(isLoading, 'Saveing');
 
@@ -34,10 +39,12 @@ export default function CopyModal({ isOpen, defaultName, isLoading, onClose, onC
   };
 
   return (
-    // Backdrop — clicking outside cancels the copy
+    // Backdrop — only close when the mousedown also originated on the backdrop,
+    // so dragging text that starts inside and ends outside doesn't dismiss the modal.
     <div
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 px-4"
-      onClick={onClose}
+      onMouseDown={e => { mouseDownOnBackdrop.current = e.target === e.currentTarget; }}
+      onClick={() => { if (mouseDownOnBackdrop.current) onClose(); }}
     >
       {/* Modal panel — stop click from bubbling to backdrop */}
       <div
@@ -82,7 +89,7 @@ export default function CopyModal({ isOpen, defaultName, isLoading, onClose, onC
             disabled={isLoading || !name.trim()}
             className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
           >
-            {saveLabel}
+            {isLoading? saveLabel : `Save`}
           </button>
         </div>
       </div>

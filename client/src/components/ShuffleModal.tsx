@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { ReshuffleSchedule } from '../api/reshuffle';
 import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
 
@@ -94,6 +94,12 @@ export default function ShuffleModal({
   const scheduleLabelBase = reshuffleSchedule ? 'Update Schedule' : 'Activate Schedule';
   const scheduleLabel = useAnimatedLabel(reshuffleLoading, scheduleLabelBase);
 
+  // Tracks whether the most recent mousedown originated on the backdrop itself.
+  // Prevents closing the modal when the user drags text that starts inside and
+  // releases outside (which would otherwise fire a click on the backdrop).
+  // Must be declared before any early returns to satisfy the Rules of Hooks.
+  const mouseDownOnBackdrop = useRef(false);
+
   if (!isOpen) return null;
 
   // Toggles a shuffle option
@@ -127,10 +133,12 @@ export default function ShuffleModal({
   const showReshuffle = Boolean(isOwner && canScheduleReshuffle);
 
   return (
-    // Backdrop — clicking outside closes the modal
+    // Backdrop — only close when the mousedown also originated on the backdrop,
+    // so dragging text that starts inside and ends outside doesn't dismiss the modal.
     <div
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 px-4"
-      onClick={onClose}
+      onMouseDown={e => { mouseDownOnBackdrop.current = e.target === e.currentTarget; }}
+      onClick={() => { if (mouseDownOnBackdrop.current) onClose(); }}
     >
       {/* Modal panel — stop click from bubbling to backdrop */}
       <div
