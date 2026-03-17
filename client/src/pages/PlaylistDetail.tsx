@@ -481,11 +481,18 @@ export default function PlaylistDetail() {
           <button
             onClick={() => setShuffleModalOpen(true)}
             disabled={loadingMore}
-            className="bg-accent hover:bg-bg-secondary
-            disabled:opacity-50  text-white font-semibold px-5 py-2 rounded-full
-            transition-all duration-200 hover:scale-105 active:scale-95"
+            className={`bg-accent hover:bg-bg-secondary
+            disabled:opacity-50 text-white font-semibold px-5 rounded-full
+            transition-all duration-200 hover:scale-105 active:scale-95
+            flex flex-col items-center ${reshuffleSchedule ? 'py-0.5' : 'py-2'}`}
           >
-            🔀 Shuffle
+            <span>🔀 Shuffle</span>
+            {/* Show when auto-reshuffle is active so the user can see it without opening the modal */}
+            {reshuffleSchedule && (
+              <span className="text-xs font-normal opacity-80 leading-tight">
+                Scheduled
+              </span>
+            )}
           </button>
           {isOwner && (
             <>

@@ -84,7 +84,8 @@ export default function ShuffleModal({
   // make sure autoEnabled stays in sync so the schedule button is enabled and shows the
   // correct "Update Schedule" label rather than staying stuck on "Activate Schedule".
   useEffect(() => {
-    if (reshuffleSchedule) setAutoEnabled(true);
+    // Keep autoEnabled in sync in both directions — on when schedule exists, off when it's cleared
+    setAutoEnabled(Boolean(reshuffleSchedule));
   }, [reshuffleSchedule]);
 
   // Animates the Shuffle button label while a shuffle is in flight
@@ -232,23 +233,21 @@ export default function ShuffleModal({
               </span>
               {showReshuffle && (
                 <div className="flex items-center gap-3">
-                  {reshuffleSchedule && (
-                    <button
-                      onClick={onDisableReshuffle}
-                      disabled={reshuffleLoading}
-                      className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors"
-                    >
-                      Disable
-                    </button>
-                  )}
-                  {/* Enable toggle aligned with headline */}
+                  {/* Toggle — when a schedule is active it stays ON; toggling it off calls onDisableReshuffle */}
                   <button
                     type="button"
-                    onClick={() => setAutoEnabled(v => !v)}
-                    disabled={Boolean(reshuffleSchedule)} // when active, use "Disable" instead
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all duration-200 ${
+                    onClick={() => {
+                      if (reshuffleSchedule) {
+                        // Schedule is active — turning the toggle off disables it
+                        onDisableReshuffle?.();
+                      } else {
+                        setAutoEnabled(v => !v);
+                      }
+                    }}
+                    disabled={reshuffleLoading}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all duration-200 disabled:opacity-50 ${
                       autoEnabled ? 'border-accent bg-accent/10 text-accent' : 'border-border-color text-text-muted hover:border-accent/40'
-                    } ${reshuffleSchedule ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    }`}
                   >
                     <span>Enable</span>
                     <span
