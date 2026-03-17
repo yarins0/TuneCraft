@@ -17,6 +17,7 @@ import { enableReshuffle, disableReshuffle, fetchReshuffleSchedule } from '../ap
 import type { ReshuffleSchedule } from '../api/reshuffle';
 import { findDuplicates } from '../utils/findDuplicates';
 import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
+import useNumberStepper from '../hooks/useNumberStepper';
 
 const getUserId = () => sessionStorage.getItem('userId') || '';
 const getSpotifyId = () => sessionStorage.getItem('spotifyId') || '';
@@ -102,6 +103,9 @@ export default function PlaylistDetail() {
   // jumpInputValue — the raw string the user is typing in the position input.
   // Kept as a string while editing so partial input (e.g. "") doesn't force a number immediately.
   const [jumpInputValue, setJumpInputValue] = useState('');
+
+  // Provides increment/decrement helpers and reversed arrow-key handling for the jump input.
+  const jumpStepper = useNumberStepper(jumpInputValue, setJumpInputValue, 1, tracks.length);
 
   // Auto-reshuffle panel state
   // reshuffleSchedule — the schedule currently saved in the DB (null if none exists)
@@ -727,31 +731,48 @@ export default function PlaylistDetail() {
                 {jumpingTrackIndex === index ? (
                   // Edit mode — shown after a double-click on the position number.
                   // onBlur and Enter both confirm the jump so the user can use either.
-                  <input
-                    type="number"
-                    value={jumpInputValue}
-                    min={1}
-                    max={tracks.length}
-                    onChange={e => setJumpInputValue(e.target.value)}
-                    onBlur={() => confirmJump(index)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') e.currentTarget.blur();
-                      if (e.key === 'Escape') {
-                        // Cancel without moving — just exit edit mode
-                        setJumpingTrackIndex(null);
-                        setJumpInputValue('');
-                      }
-                    }}
-                    className="w-10 text-right text-sm bg-transparent border-b border-accent text-accent focus:outline-none shrink-0"
-                    autoFocus
-                  />
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={jumpInputValue}
+                      onChange={e => setJumpInputValue(e.target.value)}
+                      onBlur={() => confirmJump(index)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') e.currentTarget.blur();
+                        if (e.key === 'Escape') {
+                          setJumpingTrackIndex(null);
+                          setJumpInputValue('');
+                        }
+                        jumpStepper.handleKeyDown(e);
+                      }}
+                      className="w-8 text-center text-sm bg-transparent border-b border-accent text-accent focus:outline-none"
+                      autoFocus
+                    />
+                    {/* Custom ▲▼ stepper — ▲ moves earlier (smaller number), ▼ moves later */}
+                    <div className="flex flex-col">
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={jumpStepper.decrement}
+                        className="text-accent leading-none text-[10px] hover:text-accent-hover"
+                      >▲</button>
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={jumpStepper.increment}
+                        className="text-accent leading-none text-[10px] hover:text-accent-hover"
+                      >▼</button>
+                    </div>
+                  </div>
                 ) : (
                   // Static mode — double-click to enter edit mode.
                   // title gives a hint on hover so the interaction is discoverable.
                   <span
                     className="text-text-muted text-sm w-6 text-right shrink-0 cursor-pointer select-none"
                     title="Double-click to jump to position"
-                    onDoubleClick={() => {
+                    onDoubleClick={e => {
+                      e.stopPropagation();
                       setJumpingTrackIndex(index);
                       setJumpInputValue(String(index + 1));
                     }}
@@ -769,6 +790,18 @@ export default function PlaylistDetail() {
                 >
                   ⋮⋮
                 </span>
+                {/* Double-clicking anywhere from the album art rightward toggles audio features */}
+                <div
+                  className="flex items-center gap-4 flex-1 min-w-0"
+                  onDoubleClick={() => {
+                    setOpenTrackIds(prev => {
+                      const next = new Set(prev);
+                      if (next.has(track.id)) next.delete(track.id);
+                      else next.add(track.id);
+                      return next;
+                    });
+                  }}
+                >
                 <div className="w-10 h-10 rounded-md overflow-hidden bg-bg-secondary shrink-0">
                   {track.albumImageUrl ? (
                     <img
@@ -835,6 +868,7 @@ export default function PlaylistDetail() {
                     ▼
                   </span>
                 </button>
+                </div> {/* end double-click expand zone */}
               </div>
 
               {isOpen && (
