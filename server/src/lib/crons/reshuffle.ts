@@ -1,57 +1,14 @@
 import cron from 'node-cron';
 import axios from 'axios';
-import prisma from './prisma';
-import { applyShuffle } from './shuffleAlgorithms';
+import prisma from '../prisma';
+import { applyShuffle } from '../shuffleAlgorithms';
+import { getSpotifyAccessToken } from '../auth/spotify';
 
 // Splits an array into chunks of a given size.
 const chunkArray = (arr: string[], size: number): string[][] =>
   Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>
     arr.slice(i * size, i * size + size)
   );
-
-// Fetches a valid access token for a user, refreshing it if expired.
-const getAccessToken = async (userId: string): Promise<string | null> => {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user) return null;
-
-  // If the token is still valid, use it directly
-  if (user.tokenExpiresAt > new Date()) {
-    return user.accessToken;
-  }
-
-  // Token is expired — refresh it using the refresh token
-  try {
-    const response = await axios.post(
-      'https://accounts.spotify.com/api/token',
-      new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: user.refreshToken,
-      }),
-      {
-        headers: {
-          Authorization: 'Basic ' + Buffer.from(
-            `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
-          ).toString('base64'),
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-      }
-    );
-
-    const { access_token, expires_in } = response.data;
-    const tokenExpiresAt = new Date(Date.now() + expires_in * 1000);
-
-    // Save the new token so future requests use it
-    await prisma.user.update({
-      where: { id: userId },
-      data: { accessToken: access_token, tokenExpiresAt },
-    });
-
-    return access_token;
-  } catch (error) {
-    console.error(`Failed to refresh token for user ${userId}:`, error);
-    return null;
-  }
-};
 
 // Fetches all tracks for a Spotify playlist, handling pagination automatically.
 // Returns a minimal array of track objects — just enough for the shuffle algorithms.
@@ -141,17 +98,15 @@ const saveShuffledPlaylist = async (
 const reshufflePlaylist = async (playlist: any): Promise<void> => {
   console.log(`Auto-reshuffling: ${playlist.name} (${playlist.spotifyPlaylistId})`);
 
-  const accessToken = await getAccessToken(playlist.userId);
+  const accessToken = await getSpotifyAccessToken(playlist.userId);
   if (!accessToken) {
     console.error(`No valid token for user ${playlist.userId}, skipping`);
     return;
   }
 
   try {
-    // Fetch the current tracks from Spotify
     const tracks = await fetchAllTracks(playlist.spotifyPlaylistId, accessToken);
 
-    // Apply the stored shuffle algorithms
     const algorithms = playlist.algorithms as {
       trueRandom: boolean;
       artistSpread: boolean;
@@ -160,29 +115,22 @@ const reshufflePlaylist = async (playlist: any): Promise<void> => {
     };
     const shuffled = applyShuffle(tracks, algorithms);
 
-    // Write the new order back to Spotify
     await saveShuffledPlaylist(playlist.spotifyPlaylistId, shuffled, accessToken);
 
-    // Update the DB record with the new timestamps
     const nextReshuffleAt = new Date();
     nextReshuffleAt.setDate(nextReshuffleAt.getDate() + playlist.intervalDays);
 
     await prisma.playlist.update({
       where: { id: playlist.id },
-      data: {
-        lastReshuffledAt: new Date(),
-        nextReshuffleAt,
-      },
+      data: { lastReshuffledAt: new Date(), nextReshuffleAt },
     });
 
     console.log(`✅ Reshuffled: ${playlist.name}, next at ${nextReshuffleAt.toISOString()}`);
-  
+
   } catch (error: any) {
     // If Spotify returns 404, the playlist was deleted — clean up the orphaned schedule
     if (error.response?.status === 404) {
-      await prisma.playlist.delete({
-        where: { id: playlist.id },
-      }).catch(() => {}); // ignore if the DB delete also fails
+      await prisma.playlist.delete({ where: { id: playlist.id } }).catch(() => {});
       console.log(`🗑️ Removed orphaned schedule for deleted playlist: ${playlist.name}`);
       return;
     }
@@ -190,33 +138,25 @@ const reshufflePlaylist = async (playlist: any): Promise<void> => {
   }
 };
 
-// Starts the cron job. Called once when the server boots.
-// Runs every hour and checks for any playlists due for a reshuffle.
+// Fires at minute 0 of every hour.
+// Queries only playlists that are due and reshuffles them.
 export const startReshuffleCron = (): void => {
-  // "0 * * * *" means: at minute 0 of every hour
   cron.schedule('0 * * * *', async () => {
-    console.log('🕐 Cron: checking for playlists due for reshuffle...');
+    console.log('🕐 Reshuffle cron: checking for due playlists...');
 
-    // Find all active auto-reshuffles where the next reshuffle time has passed
+    const now = new Date();
     const due = await prisma.playlist.findMany({
-      where: {
-        autoReshuffle: true,
-        nextReshuffleAt: { lte: new Date() },
-      },
+      where: { autoReshuffle: true, nextReshuffleAt: { lte: now } },
     });
 
     if (due.length === 0) {
-      console.log('Cron: nothing due.');
+      console.log('Reshuffle cron: no playlists due.');
       return;
     }
 
-    console.log(`Cron: ${due.length} playlist(s) due for reshuffle`);
-
-    // Process each due playlist one at a time to avoid rate limiting
+    console.log(`Reshuffle cron: ${due.length} playlist(s) due`);
     for (const playlist of due) {
       await reshufflePlaylist(playlist);
     }
   });
-
-  console.log('✅ Auto-reshuffle cron job started');
 };

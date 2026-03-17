@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import authRouter from './routes/auth';
 import playlistsRouter from './routes/playlists';
 import reshuffleRouter from './routes/reshuffle';
-import { startReshuffleCron } from './lib/reshuffleCron';
+import { startCrons } from './lib/crons';
 
 // Environment variables must be loaded before any other configuration
 dotenv.config();
@@ -21,7 +21,7 @@ app.use('/auth', authRouter);
 app.use('/playlists', playlistsRouter);
 app.use('/reshuffle', reshuffleRouter);
 
-startReshuffleCron();
+startCrons();
 
 // Health check endpoint used to verify the server is running
 app.get('/health', (req, res) => {
