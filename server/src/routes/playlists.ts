@@ -787,7 +787,8 @@ router.post('/:userId/split', refreshTokenMiddleware, async (req, res) => {
 // Saves the current track order to an owned Spotify playlist
 // Sends tracks in batches of 100 (Spotify's limit per request)
 router.put('/:userId/:spotifyId/save', refreshTokenMiddleware, async (req, res) => {
-  const { userId, spotifyId } = req.params;
+  const userId = req.params.userId as string;
+  const { spotifyId } = req.params;
   const { tracks } = req.body;
   const accessToken = (req as any).accessToken;
 
