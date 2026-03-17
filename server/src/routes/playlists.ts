@@ -62,6 +62,7 @@ const spotifyRequestWithRetry = async (
   }
 };
 
+
 // Fetches audio features and genres for a list of tracks
 // Checks the database cache first — only calls external APIs for cache misses
 // Stores new results in the cache for future requests
@@ -108,23 +109,33 @@ const fetchTrackEnrichment = async (
     : [];
 
   await Promise.all([
-    // --- ReccoBeats: batch ID lookup (chunks of 40, sequential) ---
+    // --- ReccoBeats: batch ID lookup (chunks of 40, sequential, retry on 429) ---
     (async () => {
       if (missedTrackIds.length === 0) return;
       const chunks = chunkArray(missedTrackIds, 40);
       const batchResults: any[][] = [];
 
-      for (let i = 0; i < chunks.length; i++) {
-        const result = await axios.get('https://api.reccobeats.com/v1/track', {
-          params: { ids: chunks[i].join(',') },
-        })
-          .then(r => r.data.content || [])
-          .catch(err => {
-            console.error('ReccoBeats batch failed:', err.response?.status, err.response?.data);
-            return [];
-          });
+      for (const chunk of chunks) {
+        let result: any[] = [];
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const r = await axios.get('https://api.reccobeats.com/v1/track', {
+              params: { ids: chunk.join(',') },
+            });
+            result = r.data.content || [];
+            break;
+          } catch (err: any) {
+            if (err.response?.status === 429 && attempt < 2) {
+              const wait = parseInt(err.response?.headers?.['retry-after'] || '5', 10);
+              console.warn(`ReccoBeats ID batch 429 — waiting ${wait}s`);
+              await sleep(wait * 1000);
+            } else {
+              console.error('ReccoBeats ID batch failed:', err.response?.status);
+              break;
+            }
+          }
+        }
         batchResults.push(result);
-        if (i < chunks.length - 1) await sleep(300);
       }
 
       batchResults.flat().forEach((feature: any) => {
@@ -135,64 +146,74 @@ const fetchTrackEnrichment = async (
       });
     })(),
 
-    // --- Last.fm: genre lookup (chunks of 5, sequential) ---
+    // --- Last.fm: genre lookup (all artists in parallel — separate API, independent limit) ---
     (async () => {
       if (uniqueMissedArtists.length === 0) return;
-      const artistChunks = chunkArray(uniqueMissedArtists.map(a => a.id), 5)
-        .map((_, i) => uniqueMissedArtists.slice(i * 5, i * 5 + 5));
-
-      for (let i = 0; i < artistChunks.length; i++) {
-        const chunkResults = await Promise.all(
-          artistChunks[i].map(({ id, name }) =>
-            axios.get('https://ws.audioscrobbler.com/2.0/', {
-              params: {
-                method: 'artist.getTopTags',
-                artist: name,
-                api_key: process.env.LASTFM_API_KEY,
-                format: 'json',
-              },
-            })
-            .then(r => ({
-              id,
-              name,
-              genres: (r.data.toptags?.tag || [])
-                .slice(0, 3)
-                .map((tag: any) => tag.name.toLowerCase()),
-            }))
-            .catch(() => ({ id, name, genres: [] as string[] }))
-          )
-        );
-        genreResults.push(...chunkResults);
-        if (i < artistChunks.length - 1) await sleep(300);
-      }
+      const results = await Promise.all(
+        uniqueMissedArtists.map(({ id, name }) =>
+          axios.get('https://ws.audioscrobbler.com/2.0/', {
+            params: {
+              method: 'artist.getTopTags',
+              artist: name,
+              api_key: process.env.LASTFM_API_KEY,
+              format: 'json',
+            },
+          })
+          .then(r => ({
+            id,
+            name,
+            genres: (r.data.toptags?.tag || [])
+              .slice(0, 3)
+              .map((tag: any) => tag.name.toLowerCase()),
+          }))
+          .catch(() => ({ id, name, genres: [] as string[] }))
+        )
+      );
+      genreResults.push(...results);
     })(),
   ]);
 
   // Phase 2 — fetch individual audio features from ReccoBeats using the IDs from phase 1.
-  // Must run after phase 1 since it depends on reccoBeatsIdMap being populated.
-  // Batched in groups of 5 with 300ms between batches.
+  // Capped at 20 concurrent requests to avoid bursting into ReccoBeats' rate limit.
+  // For a 50-track page this means ~3 waves (~1s total). Each request retries once on 429,
+  // waiting at most 10s (Retry-After capped) before giving up.
   if (missedTrackIds.length > 0) {
     const featureEntries = Object.entries(reccoBeatsIdMap);
-    const featureChunks = chunkArray(featureEntries.map(([, reccoId]) => reccoId), 5);
-    const spotifyIds = featureEntries.map(([spotifyId]) => spotifyId);
+    const MAX_CONCURRENT = 20;
+    let active = 0;
+    const waiters: (() => void)[] = [];
+    const runNext = () => { if (waiters.length > 0) waiters.shift()!(); };
 
-    let processedCount = 0;
-    for (const chunk of featureChunks) {
-      await Promise.all(
-        chunk.map(async (reccoId, i) => {
-          const spotifyId = spotifyIds[processedCount + i];
-          await axios.get(`https://api.reccobeats.com/v1/track/${reccoId}/audio-features`)
-            .then(r => {
+    const fetchWithLimit = ([spotifyId, reccoId]: [string, string]) =>
+      new Promise<void>(resolve => {
+        const run = async () => {
+          active++;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              const r = await axios.get(`https://api.reccobeats.com/v1/track/${reccoId}/audio-features`);
               audioFeaturesMap[spotifyId] = sanitizeAudioFeatures(r.data);
-            })
-            .catch(err => {
-              console.error('ReccoBeats audio features failed:', err.response?.status, err.response?.data);
-            });
-        })
-      );
-      processedCount += chunk.length;
-      if (processedCount < featureEntries.length) await sleep(300);
-    }
+              break;
+            } catch (err: any) {
+              const status = err.response?.status;
+              if (status === 429 && attempt === 0) {
+                const wait = Math.min(parseInt(err.response?.headers?.['retry-after'] || '2', 10), 10);
+                console.warn(`ReccoBeats 429 — waiting ${wait}s before retry`);
+                await sleep(wait * 1000);
+              } else {
+                console.error('ReccoBeats audio features failed:', status);
+                break;
+              }
+            }
+          }
+          active--;
+          runNext();
+          resolve();
+        };
+        if (active < MAX_CONCURRENT) run();
+        else waiters.push(run);
+      });
+
+    await Promise.all(featureEntries.map(fetchWithLimit));
 
     // Persist newly fetched audio features to TrackCache
     await Promise.all(
