@@ -112,68 +112,28 @@ Build new playlists intelligently based on what's already in the user's library.
 - [x] ShuffleModal — manually shuffling a playlist with an active schedule updates `lastShuffledAt` and `nextReshuffleAt` in DB
 - [x] ShuffleModal — schedule button label bug fixed (API field name mismatch caused schedule to never load)
 
+### 🟡 UI Polish — Pending
+- [ ] All modals — fix backdrop close firing when user drags text that starts inside the modal and releases outside; track mousedown origin and only close if it hit the backdrop (same fix already applied to SplitModal)
+
 ---
 
-## 🌿 Pending Branches — UI Polish Session
+## 🌿 Pending Work
 
-Each change below lives on its own branch. Test each one before merging into `main`.
-
-| Branch | What it changes | Key files |
+| Task | Status | Key files |
 |---|---|---|
-| `ui/split-modal-two-column` | Two-column layout, close-on-drag fix | `SplitModal.tsx` |
-| `fix/reshuffle-schedule-label` | API field mismatch fix (`playlists`→`schedules`, `playlist`→`schedule`), `autoEnabled` sync | `reshuffle.ts` (server), `ShuffleModal.tsx` |
-| `fix/shuffle-reshuffle-timestamps` | Update DB timestamps on manual shuffle, delete stale DB record on Spotify 404 | `playlists.ts` (server) |
-| `feat/schedule-immediate-shuffle` | Stamp `lastReshuffledAt = now` when activating a schedule so the cron window starts from activation | `reshuffle.ts` (server) |
-| `feat/track-jump-to-position` | Double-click track number → inline input → move to position | `PlaylistDetail.tsx` |
-| `fix/reccobeats-lastfm-rate-limiting` | Sequential batching for ReccoBeats + Last.fm with concurrent phases | `playlists.ts` (server) |
-| `fix/spotify-write-serialization` | Serial async queue for all Spotify write routes (shuffle, save, copy, merge, split) | `playlists.ts` (server) |
-
-### How to review and merge each branch
-
-**1. Check what the branch changes**
-```bash
-git log main..<branch-name> --oneline        # see commits on the branch
-git diff main...<branch-name>                # see all changed lines vs main
-```
-
-**2. Test it locally**
-```bash
-git checkout <branch-name>
-npm run dev                                  # starts server + client + Prisma Studio
-```
-Then manually test the feature described in the table above.
-
-**3. If it looks good — merge into main**
-```bash
-git checkout main
-git merge <branch-name>
-```
-
-**4. If you want to discard it**
-```bash
-git branch -d <branch-name>                 # safe delete (only works if already merged)
-git branch -D <branch-name>                 # force delete
-```
-
-**Recommended merge order** — some branches touch the same files, so merge in this sequence to avoid conflicts:
-1. `fix/reshuffle-schedule-label`
-2. `fix/shuffle-reshuffle-timestamps`
-3. `feat/schedule-immediate-shuffle`
-4. `ui/split-modal-two-column`
-5. `feat/track-jump-to-position`
-6. `fix/reccobeats-lastfm-rate-limiting`
-7. `fix/spotify-write-serialization`
+| All modals — backdrop close-on-drag fix | 🔲 TODO | `ShuffleModal.tsx`, `CopyModal.tsx`, `MergeModal.tsx` |
+| Per-user write queue (key `spotifyWriteQueue` by `userId`) | 🔲 TODO | `playlists.ts` (server) |
 
 
 
-### 🔴 Spotify API Rate Limiting (Pre-publish blocker)
-- Spotify's rolling 30-second request window causes 429 errors under load (large playlists, frequent saves)
-- `spotifyRequestWithRetry` handles retries for individual requests, but parallel requests can both hit the limit simultaneously
-- Need to audit all Spotify write paths (shuffle, save, copy, split, merge) and ensure requests are serialized or throttled rather than fired in parallel
+### ✅ Spotify API Rate Limiting (Pre-publish blocker) — FIXED
+- Serial async queue (`enqueueSpotifyWrite`) serializes all write routes per user — no more cascading 429s
+- Chunk errors now propagate properly; routes return 500 instead of silent partial success
 
-### 🔴 ReccoBeats Audio Feature Rate Limiting (Pre-publish blocker)
-- Audio feature requests for large playlists are all fired in parallel, overwhelming the ReccoBeats API
-- Fix: process requests in small sequential batches (e.g. 5 at a time) with ~300ms delay between batches instead of `Promise.all`
+### ✅ ReccoBeats Audio Feature Rate Limiting (Pre-publish blocker) — FIXED
+- ReccoBeats ID batches: sequential with 429 retry + Retry-After backoff
+- Audio feature fetches: 20-concurrency semaphore with retry
+- Last.fm genre lookups: fully parallel (independent rate limit)
 
 ---
 
