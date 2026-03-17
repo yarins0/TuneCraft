@@ -211,6 +211,11 @@ export default function SplitModal({
   // Animates the confirm button label while the API call is in flight
   const splitLabel = useAnimatedLabel(isLoading, 'Splitting');
 
+  // Tracks whether the most recent mousedown originated on the backdrop itself.
+  // Prevents closing the modal when the user drags text that starts inside and
+  // releases outside (which would otherwise fire a click on the backdrop).
+  const mouseDownOnBackdrop = useRef(false);
+
   // Recompute groups (and reset all interaction state) when the strategy changes or the modal opens
   useEffect(() => {
     if (isOpen && tracks.length > 0) {
@@ -427,14 +432,16 @@ export default function SplitModal({
   const checkedCount = realGroups.filter(g => enabledGroups.has(g.name)).length;
 
   return (
-    // Backdrop
+    // Backdrop — only close when the mousedown also originated on the backdrop,
+    // so dragging text that starts inside and ends outside doesn't dismiss the modal.
     <div
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 px-4"
-      onClick={onClose}
+      onMouseDown={e => { mouseDownOnBackdrop.current = e.target === e.currentTarget; }}
+      onClick={() => { if (mouseDownOnBackdrop.current) onClose(); }}
     >
       {/* Modal panel */}
       <div
-        className="bg-bg-card border border-border-color rounded-2xl p-6 w-full max-w-5xl max-h-[85vh] flex flex-col"
+        className="bg-bg-card border border-border-color rounded-2xl p-6 w-full max-w-5xl h-[95vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -450,54 +457,62 @@ export default function SplitModal({
           </button>
         </div>
 
-        {/* Strategy picker */}
-        <p className="text-text-muted text-xs uppercase tracking-widest font-semibold mb-3 shrink-0">
-          Split by
-        </p>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-5 shrink-0">
-          {STRATEGIES.map(s => (
-            <button
-              key={s.value}
-              type="button"
-              onClick={() => setStrategy(s.value)}
-              className={[
-                'flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all duration-150',
-                strategy === s.value
-                  ? 'border-accent bg-accent/10 text-text-primary'
-                  : 'border-border-color bg-bg-secondary hover:border-accent/40 text-text-muted',
-              ].join(' ')}
-            >
-              <span className="text-xl shrink-0">{s.emoji}</span>
-              <div>
-                <p className="text-sm font-semibold leading-tight">{s.label}</p>
-                <p className="text-xs text-text-muted leading-tight mt-0.5">{s.description}</p>
-              </div>
-            </button>
-          ))}
-        </div>
+        {/* Two-column body */}
+        <div className="flex gap-6 flex-1 min-h-0">
 
-        {/* Preview header row with select-all toggle */}
-        <div className="flex items-center justify-between mb-2 shrink-0">
-          <p className="text-text-muted text-xs uppercase tracking-widest font-semibold">
-            Preview — {checkedCount} of {realGroups.length} playlists selected
-          </p>
-          {/* Select all / deselect all shortcut */}
-          <button
-            type="button"
-            onClick={() => {
-              if (checkedCount === realGroups.length) {
-                // All real groups checked → uncheck all (leave Unassigned as-is)
-                setEnabledGroups(new Set());
-              } else {
-                // Some or none checked → check all real groups
-                setEnabledGroups(new Set(realGroups.map(g => g.name)));
-              }
-            }}
-            className="text-xs text-accent hover:underline"
-          >
-            {checkedCount === realGroups.length ? 'Deselect all' : 'Select all'}
-          </button>
-        </div>
+          {/* Left column — strategy picker (~24%) */}
+          <div className="w-[24%] shrink-0 flex flex-col min-h-0">
+            <p className="text-text-muted text-xs uppercase tracking-widest font-semibold mb-3 shrink-0">
+              Split by
+            </p>
+            <div className="flex flex-col gap-0.5 overflow-y-auto">
+              {STRATEGIES.map(s => (
+                <button
+                  key={s.value}
+                  type="button"
+                  onClick={() => setStrategy(s.value)}
+                  className={[
+                    'flex items-center gap-3 px-3 py-1 rounded-xl border text-left transition-all duration-150',
+                    strategy === s.value
+                      ? 'border-accent bg-accent/10 text-text-primary'
+                      : 'border-border-color bg-bg-secondary hover:border-accent/40 text-text-muted',
+                  ].join(' ')}
+                >
+                  <span className="text-xl shrink-0">{s.emoji}</span>
+                  <div>
+                    <p className="text-sm font-semibold leading-tight">{s.label}</p>
+                    <p className="text-xs text-text-muted leading-tight mt-0.5">{s.description}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Right column — preview + actions (~70%) */}
+          <div className="flex-1 flex flex-col min-h-0">
+
+            {/* Preview header row with select-all toggle */}
+            <div className="flex items-center justify-between mb-2 shrink-0">
+              <p className="text-text-muted text-xs uppercase tracking-widest font-semibold">
+                Preview — {checkedCount} of {realGroups.length} playlists selected
+              </p>
+              {/* Select all / deselect all shortcut */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (checkedCount === realGroups.length) {
+                    // All real groups checked → uncheck all (leave Unassigned as-is)
+                    setEnabledGroups(new Set());
+                  } else {
+                    // Some or none checked → check all real groups
+                    setEnabledGroups(new Set(realGroups.map(g => g.name)));
+                  }
+                }}
+                className="text-xs text-accent hover:underline"
+              >
+                {checkedCount === realGroups.length ? 'Deselect all' : 'Select all'}
+              </button>
+            </div>
 
         {/* Group list — scrollable */}
         <div className="overflow-y-auto flex-1 rounded-xl border border-border-color bg-bg-secondary">
@@ -723,37 +738,39 @@ export default function SplitModal({
           )}
         </div>
 
-        {/* Action buttons */}
-        <div className="flex gap-3 mt-5 shrink-0">
-          <button
-            onClick={onClose}
-            disabled={isLoading}
-            className="flex-1 bg-bg-secondary hover:bg-bg-primary disabled:opacity-50 text-text-muted font-semibold py-3 rounded-full border border-border-color transition-all duration-200"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() =>
-              onConfirm(
-                // Only pass groups that are checked AND have at least one track
-                validGroups
-                  .filter(g => enabledGroups.has(g.name))
-                  .map(g => ({
-                    ...g,
-                    name: resolvedName(g.name),
-                    
-                    // Pass the accumulated description so the backend can write it to Spotify
-                    description: groupMeta[g.name]?.description
-                      ?? `${playlistName} — ${g.name}`,
-                  }))
-              )
-            }
-            disabled={isLoading || checkedCount === 0}
-            className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
-          >
-            {isLoading ? splitLabel : `Create ${checkedCount} Playlist${checkedCount !== 1 ? 's' : ''}`}
-          </button>
-        </div>
+            {/* Action buttons */}
+            <div className="flex gap-3 mt-5 shrink-0">
+              <button
+                onClick={onClose}
+                disabled={isLoading}
+                className="flex-1 bg-bg-secondary hover:bg-bg-primary disabled:opacity-50 text-text-muted font-semibold py-3 rounded-full border border-border-color transition-all duration-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() =>
+                  onConfirm(
+                    // Only pass groups that are checked AND have at least one track
+                    validGroups
+                      .filter(g => enabledGroups.has(g.name))
+                      .map(g => ({
+                        ...g,
+                        name: resolvedName(g.name),
+
+                        // Pass the accumulated description so the backend can write it to Spotify
+                        description: groupMeta[g.name]?.description
+                          ?? `${playlistName} — ${g.name}`,
+                      }))
+                  )
+                }
+                disabled={isLoading || checkedCount === 0}
+                className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
+              >
+                {isLoading ? splitLabel : `Create ${checkedCount} Playlist${checkedCount !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </div> {/* end right column */}
+        </div> {/* end two-column body */}
       </div>
     </div>
   );
