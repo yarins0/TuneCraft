@@ -451,7 +451,8 @@ router.get('/:userId/:spotifyId/tracks', refreshTokenMiddleware, async (req, res
 // Saves a pre-shuffled track order to an owned Spotify playlist
 // The shuffle algorithm runs on the frontend; this route just writes the result to Spotify
 router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, res) => {
-  const { spotifyId } = req.params;
+  const userId = req.params.userId as string;
+  const spotifyId = req.params.spotifyId as string;
   const { tracks } = req.body;
   const accessToken = (req as any).accessToken;
 
@@ -490,9 +491,41 @@ router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, r
       );
     }
 
+    // If this playlist has an active auto-reshuffle schedule, update the timestamps
+    // so the cron job doesn't re-shuffle it again shortly after a manual shuffle.
+    // Runs after the response is sent — a failure here doesn't affect the shuffle result.
+    prisma.playlist.findUnique({
+      where: { userId_spotifyPlaylistId: { userId, spotifyPlaylistId: spotifyId } },
+      select: { autoReshuffle: true, intervalDays: true },
+    }).then(schedule => {
+      if (!schedule?.autoReshuffle || !schedule.intervalDays) return;
+      const now = new Date();
+      const nextReshuffleAt = new Date(now);
+      nextReshuffleAt.setDate(nextReshuffleAt.getDate() + schedule.intervalDays);
+      return prisma.playlist.update({
+        where: { userId_spotifyPlaylistId: { userId, spotifyPlaylistId: spotifyId } },
+        data: { lastReshuffledAt: now, nextReshuffleAt },
+      });
+    }).catch(err => {
+      console.error('Failed to update reshuffle timestamps after manual shuffle:', err);
+    });
+
     res.json({ success: true });
 
   } catch (error: any) {
+    const status = error.response?.status;
+
+    // Playlist was deleted from Spotify but its auto-reshuffle record still exists in our DB.
+    // Clean it up so the cron job doesn't keep trying to reshuffle a playlist that is gone.
+    if (status === 404) {
+      await prisma.playlist.deleteMany({
+        where: { userId, spotifyPlaylistId: spotifyId },
+      }).catch(dbErr => {
+        console.error('Failed to remove deleted playlist from DB:', dbErr);
+      });
+      return res.status(404).json({ error: 'Playlist not found on Spotify — it may have been deleted' });
+    }
+
     console.error('Failed to shuffle playlist:', error.response?.data || error.message);
     res.status(500).json({ error: 'Failed to shuffle playlist' });
   }
