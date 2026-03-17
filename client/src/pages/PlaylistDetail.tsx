@@ -10,7 +10,7 @@ import ShuffleModal from '../components/ShuffleModal';
 import CopyModal from '../components/CopyModal';
 import SplitModal from '../components/SplitModal';
 import TrackAudioFeaturesCollapse from '../components/TrackAudioFeaturesCollapse';
-import { copyPlaylist, savePlaylist, splitPlaylist } from '../api/playlists';
+import { copyPlaylist, savePlaylist, splitPlaylist, shufflePlaylist } from '../api/playlists';
 import { applyShuffle } from '../utils/shuffleAlgorithms';
 import type { SplitGroup } from '../utils/splitPlaylist';
 import { enableReshuffle, disableReshuffle, fetchReshuffleSchedule } from '../api/reshuffle';
@@ -256,6 +256,17 @@ export default function PlaylistDetail() {
     if (!spotifyId) return;
     setReshuffleLoading(true);
     try {
+      // Apply the shuffle immediately using the already-loaded enriched track list.
+      // This avoids a redundant Spotify fetch and ensures genre/audio feature data
+      // is available for algorithms like genre spread.
+      await shufflePlaylist(
+        getUserId(),
+        spotifyId,
+        tracks.map(t => ({ id: t.id, artist: t.artist, genres: t.genres, releaseYear: t.releaseYear })),
+        algorithms
+      );
+
+      // Save the schedule — the backend stamps lastReshuffledAt = now since we just shuffled.
       const { schedule } = await enableReshuffle(
         getUserId(), spotifyId, name || '', intervalDays, algorithms
       );

@@ -12,15 +12,17 @@ router.post('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
   const userId = req.params.userId as string;
   const spotifyId = req.params.spotifyId as string;
   const { intervalDays, algorithms, playlistName } = req.body;
-
   // Validate that intervalDays is a positive number
   if (!intervalDays || intervalDays < 1) {
     return res.status(400).json({ error: 'intervalDays must be at least 1' });
   }
 
   try {
-    // Calculate when the first auto-reshuffle should happen
-    const nextReshuffleAt = new Date();
+    // The frontend applies and saves the shuffle itself using the already-loaded enriched
+    // track list (genres + audio features), so there's no need to re-fetch tracks here.
+    // This route only persists the schedule and stamps lastReshuffledAt = now.
+    const now = new Date();
+    const nextReshuffleAt = new Date(now);
     nextReshuffleAt.setDate(nextReshuffleAt.getDate() + intervalDays);
 
     // upsert: update if a record already exists for this user+playlist, create if not
@@ -35,6 +37,7 @@ router.post('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
         autoReshuffle: true,
         intervalDays,
         algorithms,
+        lastReshuffledAt: now,
         nextReshuffleAt,
         name: playlistName,
       },
@@ -45,6 +48,7 @@ router.post('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
         autoReshuffle: true,
         intervalDays,
         algorithms,
+        lastReshuffledAt: now,
         nextReshuffleAt,
       },
     });
