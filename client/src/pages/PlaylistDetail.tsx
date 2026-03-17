@@ -490,7 +490,7 @@ export default function PlaylistDetail() {
             {/* Show when auto-reshuffle is active so the user can see it without opening the modal */}
             {reshuffleSchedule && (
               <span className="text-xs font-normal opacity-80 leading-tight">
-                Scheduled
+                Active
               </span>
             )}
           </button>

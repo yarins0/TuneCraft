@@ -72,8 +72,13 @@ const spotifyWriteQueues = new Map<string, Promise<void>>();
 const enqueueSpotifyWrite = <T>(userId: string, fn: () => Promise<T>): Promise<T> => {
   const current = spotifyWriteQueues.get(userId) ?? Promise.resolve();
   const result = current.then(fn);
-  // Replace this user's queue tail — even if fn rejects, future callers for this user proceed
-  spotifyWriteQueues.set(userId, result.then(() => {}, () => {}));
+  // Replace this user's queue tail — even if fn rejects, future callers for this user proceed.
+  // After settling, delete the entry so the Map doesn't grow indefinitely on a long-running server.
+  const tail = result.then(
+    () => { if (spotifyWriteQueues.get(userId) === tail) spotifyWriteQueues.delete(userId); },
+    () => { if (spotifyWriteQueues.get(userId) === tail) spotifyWriteQueues.delete(userId); }
+  );
+  spotifyWriteQueues.set(userId, tail);
   return result;
 };
 
