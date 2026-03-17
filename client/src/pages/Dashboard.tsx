@@ -208,15 +208,17 @@ export default function Dashboard() {
     // pb-28 reserves space so the last card row is never hidden behind the fixed action bar
     <div className="min-h-screen bg-bg-primary text-text-primary pb-28">
 
-      {/* Header — unchanged */}
-      <div className="border-b border-border-color px-8 py-6">
-        <h1
-          onClick={() => navigate('/dashboard')}
-          className="text-3xl font-bold tracking-tight cursor-pointer w-fit"
-        >
-          Tune<span className="text-accent">Craft</span>
-        </h1>
-        <p className="text-text-muted text-sm mt-1">Your music, engineered.</p>
+      {/* Header */}
+      <div className="sticky top-0 z-10 border-b border-border-color px-8 py-6 bg-bg-secondary">
+        <div className="flex items-center gap-3 cursor-pointer w-fit" onClick={() => navigate('/dashboard')}>
+          <img src="/favicon.svg" alt="TuneCraft icon" className="h-12 w-12" />
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">
+              Tune<span className="text-accent">Craft</span>
+            </h1>
+            <p className="text-text-muted text-sm mt-0.5">Your music, engineered.</p>
+          </div>
+        </div>
       </div>
 
       <div className="px-8 py-10">

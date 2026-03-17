@@ -431,26 +431,22 @@ export default function PlaylistDetail() {
     <div className="min-h-screen bg-bg-primary text-text-primary">
 
       {/* Header */}
-      <div className="border-b border-border-color px-8 py-6 flex items-center justify-between">
+      <div className="sticky top-0 z-10 border-b border-border-color px-8 py-6 flex items-center justify-between bg-bg-secondary">
         <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="group inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-bg-card/40 hover:bg-accent/10 text-accent border border-accent hover:border-accent shadow-sm transition-all duration-200 hover:-translate-x-0.5"
-          >
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/10 text-accent group-hover:bg-accent group-hover:text-white transition-colors duration-200">
-              ←
-            </span>
-            <span className="text-sm font-semibold tracking-wide uppercase group-hover:text-accent">
-              Back
-            </span>
-          </button>
-          <div>
-          <h1
-            onClick={() => navigate('/dashboard')}
-            className="text-2xl font-bold tracking-tight cursor-pointer w-fit"
-          >
-            Tune<span className="text-accent">Craft</span>
-          </h1>
+
+          {/* Logo — clicking navigates back to dashboard */}
+          <div className="flex items-center gap-2 cursor-pointer shrink-0" onClick={() => navigate('/dashboard')}>
+            <img src="/favicon.svg" alt="TuneCraft icon" className="h-7 w-7" />
+            <h1 className="text-2xl font-bold tracking-tight">
+              Tune<span className="text-accent">Craft</span>
+            </h1>
+          </div>
+
+          {/* Vertical divider */}
+          <div className="h-8 w-px bg-border-color shrink-0" />
+
+          {/* Playlist name + track count */}
+          <div className="min-w-0">
             {name && (
               <button
                 type="button"
@@ -461,7 +457,7 @@ export default function PlaylistDetail() {
                     : `https://open.spotify.com/playlist/${spotifyId}`;
                   window.open(url, '_blank', 'noopener,noreferrer');
                 }}
-                className="text-lg font-semibold text-left text-text-primary hover:text-accent hover:underline cursor-pointer"
+                className="text-lg font-semibold text-left text-text-primary hover:text-accent hover:underline cursor-pointer truncate max-w-xs block"
               >
                 {name}
               </button>
@@ -474,6 +470,7 @@ export default function PlaylistDetail() {
               }
             </p>
           </div>
+
         </div>
 
         {/* Action buttons */}

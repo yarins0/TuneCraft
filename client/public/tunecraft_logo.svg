@@ -1,0 +1,38 @@
+<svg width="100%" viewBox="0 0 520 150" xmlns="http://www.w3.org/2000/svg" style="background:#0a0a0a;border-radius:16px;">
+  <defs>
+    
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#a855f7" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0"/>
+    </radialGradient>
+  <mask id="imagine-text-gaps-650bk2" maskUnits="userSpaceOnUse"><rect x="0" y="0" width="520" height="150" fill="white"/><rect x="111.99999237060547" y="39.60452651977539" width="15.083127975463867" height="19.34677791595459" fill="black" rx="2"/><rect x="96" y="35.146087646484375" width="15.507378101348877" height="15.214953422546387" fill="black" rx="2"/><rect x="161.99998474121094" y="38.5499267578125" width="228.9604034423828" height="61.255287170410156" fill="black" rx="2"/><rect x="163.40972900390625" y="95.37530517578125" width="265.92547607421875" height="17.575995445251465" fill="black" rx="2"/></mask></defs>
+
+  <rect width="520" height="140" fill="#0a0a0a" style="fill:rgb(10, 10, 10);stroke:none;color:rgb(0, 0, 0);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Glow behind icon -->
+  <ellipse cx="70" cy="72" rx="58" ry="50" fill="url(#glow)" style="stroke:none;color:rgb(0, 0, 0);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Headphone arc -->
+  <path d="M 28 74 A 42 44 0 0 1 112 74" fill="none" stroke="#a855f7" stroke-width="3.5" stroke-linecap="round" mask="url(#imagine-text-gaps-650bk2)" style="fill:none;stroke:rgb(168, 85, 247);color:rgb(0, 0, 0);stroke-width:3.5px;stroke-linecap:round;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Left ear cup -->
+  <rect x="20" y="70" width="18" height="28" rx="9" fill="#161616" stroke="#a855f7" stroke-width="2.5" style="fill:rgb(22, 22, 22);stroke:rgb(168, 85, 247);color:rgb(0, 0, 0);stroke-width:2.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+  <rect x="25" y="75" width="8" height="18" rx="4" fill="#a855f7" opacity="0.3" style="fill:rgb(168, 85, 247);stroke:none;color:rgb(0, 0, 0);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:0.3;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Right ear cup -->
+  <rect x="102" y="70" width="18" height="28" rx="9" fill="#161616" stroke="#a855f7" stroke-width="2.5" style="fill:rgb(22, 22, 22);stroke:rgb(168, 85, 247);color:rgb(0, 0, 0);stroke-width:2.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+  <rect x="107" y="75" width="8" height="18" rx="4" fill="#a855f7" opacity="0.3" style="fill:rgb(168, 85, 247);stroke:none;color:rgb(0, 0, 0);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:0.3;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Floating notes -->
+  <text x="116" y="54" font-size="14" fill="#a855f7" opacity="0.5" font-family="serif" style="fill:rgb(168, 85, 247);stroke:none;color:rgb(0, 0, 0);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:0.5;font-family:serif;font-size:14px;font-weight:400;text-anchor:start;dominant-baseline:auto">♪</text>
+  <text x="100" y="46" font-size="10" fill="#a855f7" opacity="0.3" font-family="serif" style="fill:rgb(168, 85, 247);stroke:none;color:rgb(0, 0, 0);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:0.3;font-family:serif;font-size:10px;font-weight:400;text-anchor:start;dominant-baseline:auto">♫</text>
+
+  <!-- Divider -->
+  <line x1="148" y1="34" x2="148" y2="106" stroke="rgba(168,85,247,0.2)" stroke-width="1" style="fill:rgb(0, 0, 0);stroke:rgba(168, 85, 247, 0.2);color:rgb(0, 0, 0);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Wordmark -->
+  <text x="166" y="86" style="fill:rgb(255, 255, 255);stroke:none;color:rgb(0, 0, 0);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, sans-serif;font-size:46px;font-weight:500;text-anchor:start;dominant-baseline:auto">Tune<tspan style="fill:rgb(168, 85, 247);stroke:none;color:rgb(0, 0, 0);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, sans-serif;font-size:46px;font-weight:500;text-anchor:start;dominant-baseline:auto">Craft</tspan></text>
+
+  <!-- Tagline -->
+  <text x="168" y="108" style="fill:rgba(255, 255, 255, 0.35);stroke:none;color:rgb(0, 0, 0);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, sans-serif;font-size:11px;font-weight:400;text-anchor:start;dominant-baseline:auto">YOUR MUSIC, ENGINEERED</text>
+</svg>

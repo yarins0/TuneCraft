@@ -14,12 +14,17 @@ export default function Login() {
       <div className="relative z-10 flex flex-col items-center gap-8 text-center px-8">
         {/* Logo */}
         <div>
-          <h1 className="text-6xl font-black tracking-tighter text-text-primary">
-            Tune<span className="text-accent">craft</span>
-          </h1>
-          <p className="text-text-muted text-lg mt-3 font-light tracking-wide">
-            Your music, engineered.
-          </p>
+          <div className="flex items-center justify-center gap-4">
+            <img src="/favicon.svg" alt="TuneCraft icon" className="h-16 w-16" />
+            <div className="text-left">
+              <h1 className="text-6xl font-black tracking-tighter text-text-primary">
+                Tune<span className="text-accent">craft</span>
+              </h1>
+              <p className="text-text-muted text-lg mt-1 font-light tracking-wide">
+                Your music, engineered.
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Feature list */}
