@@ -62,17 +62,18 @@ const spotifyRequestWithRetry = async (
   }
 };
 
-// A serial queue for all Spotify write requests (POST/PUT).
-// Spotify's rate limit applies per rolling 30-second window across the entire app —
-// if two write routes fire simultaneously they both hit 429 at once and retry
-// simultaneously, causing a cascade. This queue ensures only one write sequence
-// runs at a time by chaining each caller onto the previous one's Promise tail.
-let spotifyWriteQueue = Promise.resolve();
+// A serial write queue keyed by userId.
+// Spotify's rate limit applies per OAuth token — each user has their own rolling window,
+// so there is no benefit in serializing writes across different users.
+// Keying by userId means User A's large split never blocks User B's quick save,
+// while still preventing a single user from firing concurrent writes that collide.
+const spotifyWriteQueues = new Map<string, Promise<void>>();
 
-const enqueueSpotifyWrite = <T>(fn: () => Promise<T>): Promise<T> => {
-  const result = spotifyWriteQueue.then(fn);
-  // Replace the queue tail — even if fn rejects, the queue must continue for future callers
-  spotifyWriteQueue = result.then(() => {}, () => {});
+const enqueueSpotifyWrite = <T>(userId: string, fn: () => Promise<T>): Promise<T> => {
+  const current = spotifyWriteQueues.get(userId) ?? Promise.resolve();
+  const result = current.then(fn);
+  // Replace this user's queue tail — even if fn rejects, future callers for this user proceed
+  spotifyWriteQueues.set(userId, result.then(() => {}, () => {}));
   return result;
 };
 
@@ -531,7 +532,7 @@ router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, r
     const firstChunk = uris.slice(0, 100);
     const remainingChunks = chunkArray(uris.slice(100), 100);
 
-    await enqueueSpotifyWrite(async () => {
+    await enqueueSpotifyWrite(userId, async () => {
       await spotifyRequestWithRetry(
         'put',
         `https://api.spotify.com/v1/playlists/${spotifyId}/items`,
@@ -605,6 +606,7 @@ router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, r
 // Used when the user wants to shuffle a playlist they don't own
 router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
   const { tracks, name } = req.body;
+  const userId = req.params.userId as string;
   const accessToken = (req as any).accessToken;
 
   try {
@@ -612,7 +614,7 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
     const uris = tracks.map((t: any) => `spotify:track:${t.id}`);
     const chunks = chunkArray(uris, 100);
 
-    const { newPlaylistId, newPlaylistOwnerId } = await enqueueSpotifyWrite(async () => {
+    const { newPlaylistId, newPlaylistOwnerId } = await enqueueSpotifyWrite(userId, async () => {
       // Create a new empty playlist
       const createResponse = await spotifyRequestWithRetry(
         'post',
@@ -663,6 +665,7 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
 // This endpoint only handles creating the Spotify playlist and adding the tracks in batches
 router.post('/:userId/merge', refreshTokenMiddleware, async (req, res) => {
   const { tracks, name } = req.body;
+  const userId = req.params.userId as string;
   const accessToken = (req as any).accessToken;
 
   try {
@@ -670,7 +673,7 @@ router.post('/:userId/merge', refreshTokenMiddleware, async (req, res) => {
     const uris = tracks.map((t: any) => `spotify:track:${t.id}`);
     const chunks = chunkArray(uris, 100);
 
-    const { newPlaylistId, newPlaylistOwnerId } = await enqueueSpotifyWrite(async () => {
+    const { newPlaylistId, newPlaylistOwnerId } = await enqueueSpotifyWrite(userId, async () => {
       // Create a new empty playlist in the user's Spotify account
       const createResponse = await spotifyRequestWithRetry(
         'post',
@@ -722,10 +725,11 @@ router.post('/:userId/split', refreshTokenMiddleware, async (req, res) => {
   const { groups } = req.body as {
     groups: { name: string; tracks: { id: string }[]; description: string}[];
   };
+  const userId = req.params.userId as string;
   const accessToken = (req as any).accessToken;
 
   try {
-    const created = await enqueueSpotifyWrite(async () => {
+    const created = await enqueueSpotifyWrite(userId, async () => {
       // Process each group sequentially to avoid hammering the Spotify API
       // Each group becomes its own playlist in the user's library
       const created = [];
@@ -783,7 +787,7 @@ router.post('/:userId/split', refreshTokenMiddleware, async (req, res) => {
 // Saves the current track order to an owned Spotify playlist
 // Sends tracks in batches of 100 (Spotify's limit per request)
 router.put('/:userId/:spotifyId/save', refreshTokenMiddleware, async (req, res) => {
-  const { spotifyId } = req.params;
+  const { userId, spotifyId } = req.params;
   const { tracks } = req.body;
   const accessToken = (req as any).accessToken;
 
@@ -792,7 +796,7 @@ router.put('/:userId/:spotifyId/save', refreshTokenMiddleware, async (req, res) 
     const firstChunk = uris.slice(0, 100);
     const remainingChunks = chunkArray(uris.slice(100), 100);
 
-    await enqueueSpotifyWrite(async () => {
+    await enqueueSpotifyWrite(userId, async () => {
       // First PUT replaces entire playlist with first 100 tracks
       await spotifyRequestWithRetry(
         'put',
