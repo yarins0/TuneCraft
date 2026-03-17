@@ -628,15 +628,15 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
       const newPlaylistId = createResponse.data.id;
       const newPlaylistOwnerId = createResponse.data.owner.id;
 
+      // Errors thrown here propagate out of enqueueSpotifyWrite and are caught by
+      // the outer try/catch, which returns a 500 — no partial-success silencing
       for (const chunk of chunks) {
         await spotifyRequestWithRetry(
           'post',
           `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
           { headers: { Authorization: `Bearer ${accessToken}` } },
           { uris: chunk }
-        ).catch((err: any) => {
-          console.error('Failed to add chunk:', err.response?.data || err.message);
-        });
+        );
       }
 
       return { newPlaylistId, newPlaylistOwnerId };
@@ -686,15 +686,15 @@ router.post('/:userId/merge', refreshTokenMiddleware, async (req, res) => {
       const newPlaylistId = createResponse.data.id;
       const newPlaylistOwnerId = createResponse.data.owner.id;
 
+      // Errors thrown here propagate out of enqueueSpotifyWrite and are caught by
+      // the outer try/catch, which returns a 500 — no partial-success silencing
       for (const chunk of chunks) {
         await spotifyRequestWithRetry(
           'post',
           `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
           { headers: { Authorization: `Bearer ${accessToken}` } },
           { uris: chunk }
-        ).catch((err: any) => {
-          console.error('Failed to add chunk to merged playlist:', err.response?.data || err.message);
-        });
+        );
       }
 
       return { newPlaylistId, newPlaylistOwnerId };
@@ -750,15 +750,15 @@ router.post('/:userId/split', refreshTokenMiddleware, async (req, res) => {
         const uris = group.tracks.map((t: any) => `spotify:track:${t.id}`);
         const chunks = chunkArray(uris, 100);
 
+        // Errors thrown here propagate out of enqueueSpotifyWrite and are caught by
+        // the outer try/catch, which returns a 500 — no partial-success silencing
         for (const chunk of chunks) {
           await spotifyRequestWithRetry(
             'post',
             `https://api.spotify.com/v1/playlists/${newPlaylistId}/items`,
             { headers: { Authorization: `Bearer ${accessToken}` } },
             { uris: chunk }
-          ).catch((err: any) => {
-            console.error(`Failed to add chunk to split playlist "${group.name}":`, err.response?.data || err.message);
-          });
+          );
         }
 
         created.push({
