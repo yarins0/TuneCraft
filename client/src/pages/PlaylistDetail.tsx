@@ -357,8 +357,8 @@ export default function PlaylistDetail() {
     if (!playlistId) return;
     setReshuffleLoading(true);
     try {
-      // Save the schedule — the backend stamps lastReshuffledAt = now so the cron job
-      // calculates the next window from the moment of activation.
+      // Save the schedule — nextReshuffleAt starts from now so the cron window begins immediately.
+      // lastReshuffledAt is only set by the shuffle/save routes when an actual shuffle happens.
       const { schedule } = await enableReshuffle(
         getUserId(), playlistId, name || '', intervalDays, algorithms
       );
@@ -406,6 +406,18 @@ export default function PlaylistDetail() {
       setHasUnsavedChanges(false);
       setSaveSuccess('Playlist saved successfully!');
       setTimeout(() => setSaveSuccess(null), 3000);
+
+      // If an auto-reshuffle schedule is active, mirror the timestamp update the server just made.
+      // The save route resets lastReshuffledAt = now and advances nextReshuffleAt by intervalDays.
+      // Without this, the ShuffleModal shows stale dates until the page is refreshed.
+      if (reshuffleSchedule?.intervalDays) {
+        const now = new Date();
+        const nextReshuffleAt = new Date(now);
+        nextReshuffleAt.setDate(nextReshuffleAt.getDate() + reshuffleSchedule.intervalDays);
+        setReshuffleSchedule(prev =>
+          prev ? { ...prev, lastReshuffledAt: now.toISOString(), nextReshuffleAt: nextReshuffleAt.toISOString() } : null
+        );
+      }
     } catch {
       setSaveError('Spotify restricts playlist modifications in development mode. This will work once the app is published.');
       setTimeout(() => setSaveError(null), 5000);

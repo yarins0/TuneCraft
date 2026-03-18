@@ -21,7 +21,10 @@ router.post('/:userId/:playlistId', refreshTokenMiddleware, async (req, res) => 
   try {
     // The frontend applies and saves the shuffle itself using the already-loaded enriched
     // track list (genres + audio features), so there's no need to re-fetch tracks here.
-    // This route only persists the schedule and stamps lastReshuffledAt = now.
+    // This route only persists the schedule settings.
+    // lastReshuffledAt is intentionally NOT set here — it is only written when an actual
+    // shuffle occurs (shuffle route or save route). Setting it here would show a false
+    // "last shuffled" date on playlists that were scheduled but never actually reshuffled.
     const now = new Date();
     const nextReshuffleAt = new Date(now);
     nextReshuffleAt.setDate(nextReshuffleAt.getDate() + intervalDays);
@@ -38,9 +41,9 @@ router.post('/:userId/:playlistId', refreshTokenMiddleware, async (req, res) => 
         autoReshuffle: true,
         intervalDays,
         algorithms,
-        lastReshuffledAt: now,
         nextReshuffleAt,
         name: playlistName,
+        // lastReshuffledAt is not touched — preserve whatever the shuffle routes wrote last
       },
       create: {
         userId,
@@ -49,7 +52,7 @@ router.post('/:userId/:playlistId', refreshTokenMiddleware, async (req, res) => 
         autoReshuffle: true,
         intervalDays,
         algorithms,
-        lastReshuffledAt: now,
+        lastReshuffledAt: null,
         nextReshuffleAt,
       },
     });

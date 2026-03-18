@@ -381,6 +381,27 @@ router.put('/:userId/:playlistId/save', refreshTokenMiddleware, async (req, res)
       adapter.replacePlaylistTracks(accessToken, playlistId, trackIds)
     );
 
+    // If auto-reshuffle is scheduled for this playlist, reset the timestamps so the cron
+    // doesn't overwrite the user's manually saved order before the next interval elapses.
+    // Fire-and-forget — a failure here doesn't roll back the save.
+    const updateReshuffleTimestamps = async () => {
+      const schedule = await prisma.playlist.findUnique({
+        where: { userId_platformPlaylistId: { userId, platformPlaylistId: playlistId } },
+        select: { autoReshuffle: true, intervalDays: true },
+      });
+      if (!schedule?.autoReshuffle || !schedule.intervalDays) return;
+      const now = new Date();
+      const nextReshuffleAt = new Date(now);
+      nextReshuffleAt.setDate(nextReshuffleAt.getDate() + schedule.intervalDays);
+      await prisma.playlist.update({
+        where: { userId_platformPlaylistId: { userId, platformPlaylistId: playlistId } },
+        data: { lastReshuffledAt: now, nextReshuffleAt },
+      });
+    };
+    updateReshuffleTimestamps().catch(err => {
+      console.error('Failed to update reshuffle timestamps after manual save:', err);
+    });
+
     res.json({ success: true });
   } catch (error: any) {
     console.error('Failed to save playlist:', error.response?.data || error.message);
