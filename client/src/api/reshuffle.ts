@@ -3,7 +3,7 @@ import { API_BASE_URL } from './config';
 // The shape of an auto-reshuffle schedule stored in the database
 export interface ReshuffleSchedule {
   id: string;
-  spotifyPlaylistId: string;
+  platformPlaylistId: string;
   name: string;
   autoReshuffle: boolean;
   intervalDays: number | null;
@@ -69,5 +69,5 @@ export const fetchReshuffleSchedule = async (
   const data: { schedules: ReshuffleSchedule[] } = await response.json();
 
   // The GET route returns ALL schedules for a user — filter to just this playlist
-  return data.schedules.find(s => s.spotifyPlaylistId === spotifyId) ?? null;
+  return data.schedules.find(s => s.platformPlaylistId === spotifyId) ?? null;
 };

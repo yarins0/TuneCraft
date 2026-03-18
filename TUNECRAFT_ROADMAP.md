@@ -1,7 +1,7 @@
 # Tunecraft — Feature Roadmap
 
 ## Core Philosophy
-Give users smarter, more powerful control over their Spotify playlists than Spotify's default experience offers.
+Give users smarter, more powerful control over their streaming playlists than any single platform offers natively.
 
 ---
 
@@ -19,7 +19,7 @@ Give users smarter, more powerful control over their Spotify playlists than Spot
 ---
 
 ## Phase 2 — Playlist Detail Page ✅ COMPLETE
-- [x] Pass spotifyId to frontend after login (needed for ownership checks)
+- [x] Pass platformUserId to frontend after login (needed for ownership checks)
 - [x] Liked Songs special card on dashboard (uses /me/tracks endpoint)
 - [x] Ownership indicator on playlist cards (yours vs following)
 - [x] Frontend API function for tracks
@@ -28,7 +28,7 @@ Give users smarter, more powerful control over their Spotify playlists than Spot
 - [x] [Save] button for owned playlists
 - [x] [Save as Copy] button with rename modal before saving
 - [x] Shuffle button with multi-algorithm selection modal
-- [x] Paginated track loading with background auto-fetch
+- [x] Paginated track loading with background auto-fetch (progressive, per-page renders)
 - [x] Database caching for tracks (TrackCache) and artists (ArtistCache)
 - [x] Unsaved changes banner with Undo
 - [x] Friendly error handling for inaccessible playlists
@@ -57,7 +57,7 @@ Give users smarter, more powerful control over their Spotify playlists than Spot
 
 ---
 
-## Phase 5 — Playlist Organizer 🔨 IN PROGRESS
+## Phase 5 — Playlist Organizer ✅ COMPLETE
 Advanced tools for merging, splitting, and reorganizing playlists — the power features Spotify doesn't offer.
 
 ### 5a — Merge Playlists ✅ COMPLETE
@@ -71,7 +71,7 @@ Advanced tools for merging, splitting, and reorganizing playlists — the power 
   - [x] By genre (uses existing genre data from Last.fm)
   - [x] By artist (one playlist per artist)
   - [x] By era/decade (uses releaseYear already on each track)
-  - [x] By energy, danceability, valence, acousticness, instrumentalness, speechiness, tempo (low/medium/high buckets using audio features)
+  - [x] By energy, danceability, valence, acousticness, instrumentalness, speechiness, tempo (low/medium/high buckets)
 - [x] Preview the resulting sub-playlists before saving
 - [x] Track-level actions in preview: remove, copy to group, transfer to group
 - [x] Merge split groups together before saving
@@ -85,7 +85,46 @@ Advanced tools for merging, splitting, and reorganizing playlists — the power 
 
 ---
 
-## Phase 6 — Playlist Builder (Future)
+## Phase 6 — Multi-Platform Support ✅ ARCHITECTURE COMPLETE
+The backend is fully platform-agnostic. Adding a new platform means implementing one interface.
+
+### What's done
+- [x] `PlatformAdapter` interface (`server/src/lib/platform/types.ts`) — defines all methods a platform must implement
+- [x] `SpotifyAdapter` (`server/src/lib/platform/spotify.ts`) — full Spotify implementation
+- [x] Registry (`server/src/lib/platform/registry.ts`) — singleton adapters, `getAdapter(platform)` lookup
+- [x] All DB fields renamed to platform-agnostic names (`platformUserId`, `platformPlaylistId`, `platformTrackId`)
+- [x] All server routes use `getAdapter()` — no Spotify-specific code in routes
+- [x] Client stores `platformUserId` in sessionStorage; all API calls use it
+- [x] Login page has platform picker UI (Spotify active, SoundCloud/Apple Music disabled)
+- [x] `platform` field included in all API responses so client knows which service each track belongs to
+
+### Decision: First target platform — Deezer
+**Why Deezer:** Simpler OAuth than Apple Music (no server-side JWT signing, no $99 developer account), better ISRC coverage than SoundCloud (which has many user uploads with no ISRC), and good structured playlist/track data.
+
+### Decision: Audio features strategy — ISRC cross-reference
+ReccoBeats only accepts Spotify track IDs. Most commercially released tracks carry an ISRC (International Standard Recording Code) — a universal identifier that follows a song across every platform.
+
+**Flow:**
+1. Get track from Deezer → read its ISRC field
+2. Query Spotify: `GET /search?q=isrc:{code}&type=track`
+3. Match found → use that Spotify track ID with ReccoBeats as normal
+4. No match → track gets no audio features (graceful fallback — hide audio feature UI for that track)
+
+This preserves the full feature set (shuffle algorithms, split by audio feature, charts) for mainstream catalog. Independent/upload tracks without an ISRC degrade gracefully.
+
+### What's needed to add Deezer
+- [ ] Create Deezer developer app and obtain API credentials
+- [ ] Implement `PlatformAdapter` interface in `server/src/lib/platform/deezer.ts`
+- [ ] Register it in `registry.ts`
+- [ ] Add OAuth flow in `routes/auth.ts` (new `/auth/deezer` route)
+- [ ] Implement ISRC → Spotify ID lookup for audio features (`server/src/lib/isrcLookup.ts`)
+- [ ] Add platform case to `client/src/utils/platform.ts` (`getPlatformTrackUrl`, `getPlatformLabel`)
+- [ ] Enable the Deezer button in `Login.tsx`
+- [ ] Handle tracks with no ISRC match gracefully in UI (hide audio feature controls)
+
+---
+
+## Phase 7 — Playlist Builder (Future)
 Build new playlists intelligently based on what's already in the user's library.
 
 ### Genre-Based Builder
@@ -96,44 +135,34 @@ Build new playlists intelligently based on what's already in the user's library.
 
 ### Weighted Shuffle
 - [ ] Songs not heard recently get higher probability of appearing earlier in the shuffle
-- [ ] Uses Spotify's `GET /me/player/recently-played` (returns up to 50 most recent plays with timestamps) — no new external API needed
-- [ ] Tracks absent from recent history are treated as "cold" and weighted up; tracks in recent history are weighted down
+- [ ] Uses Spotify's `GET /me/player/recently-played` (returns up to 50 most recent plays with timestamps)
+- [ ] Tracks absent from recent history are treated as "cold" and weighted up
 - [ ] Basic version requires no DB changes — works within Spotify's 50-track window
-- [ ] Enhanced version: add a `PlayHistory` table to track plays over time beyond Spotify's 50-track limit
+- [ ] Enhanced version: add a `PlayHistory` table to track plays over time beyond Spotify's limit
 
 ---
 
-### 🟡 UI Polish — Complete (pending merge)
-- [x] Animated loading button labels (`useAnimatedLabel` hook) — applied to all modals and PlaylistDetail
-- [x] SplitModal — clicking outside while dragging text should not close the modal (mousedown/mouseup delta check)
-- [x] SplitModal — two-column layout (strategy picker left ~30%, preview list right ~70%), widen to `max-w-6xl`
-- [x] PlaylistDetail — double-click track number to jump to position (inline number input, Enter/blur to confirm, clamp to valid range)
-- [x] ShuffleModal — saving a new auto-reshuffle schedule writes `lastReshuffledAt = now` and `nextReshuffleAt = now + intervalDays` to DB so the cron window starts from the moment of activation
-- [x] ShuffleModal — manually shuffling a playlist with an active schedule updates `lastShuffledAt` and `nextReshuffleAt` in DB
-- [x] ShuffleModal — schedule button label bug fixed (API field name mismatch caused schedule to never load)
-
-### 🟡 UI Polish — Pending
-- [ ] All modals — fix backdrop close firing when user drags text that starts inside the modal and releases outside; track mousedown origin and only close if it hit the backdrop (same fix already applied to SplitModal)
+## UI Polish ✅ COMPLETE
+- [x] Animated loading button labels (`useAnimatedLabel` hook)
+- [x] All modals — backdrop close-on-drag fix (mousedown origin tracking, applied to all modal components)
+- [x] SplitModal — two-column layout (strategy picker ~30% / preview ~70%, max-w-6xl)
+- [x] PlaylistDetail — double-click track number to jump to position
+- [x] ShuffleModal — saving a new schedule writes `lastReshuffledAt = now`, starts cron window immediately
+- [x] ShuffleModal — manual shuffle with active schedule updates `lastReshuffledAt` / `nextReshuffleAt`
+- [x] ShuffleModal — schedule button label bug fixed
 
 ---
 
-## 🌿 Pending Work
+## Pre-Publish Blockers ✅ ALL FIXED
 
-| Task | Status | Key files |
-|---|---|---|
-| All modals — backdrop close-on-drag fix | 🔲 TODO | `ShuffleModal.tsx`, `CopyModal.tsx`, `MergeModal.tsx` |
-| Per-user write queue (key `spotifyWriteQueue` by `userId`) | 🔲 TODO | `playlists.ts` (server) |
+### ✅ Spotify API Rate Limiting — FIXED
+- Per-user serial write queue (`enqueueWrite`) in `routes/playlists.ts` — no cascading 429s
 
-
-
-### ✅ Spotify API Rate Limiting (Pre-publish blocker) — FIXED
-- Serial async queue (`enqueueSpotifyWrite`) serializes all write routes per user — no more cascading 429s
-- Chunk errors now propagate properly; routes return 500 instead of silent partial success
-
-### ✅ ReccoBeats Audio Feature Rate Limiting (Pre-publish blocker) — FIXED
-- ReccoBeats ID batches: sequential with 429 retry + Retry-After backoff
-- Audio feature fetches: 20-concurrency semaphore with retry
-- Last.fm genre lookups: fully parallel (independent rate limit)
+### ✅ ReccoBeats Rate Limiting — FIXED
+- ID batch lookup: sequential per chunk, 429 retry with Retry-After backoff
+- Audio feature fetches: sequential with 300ms delay between tracks
+- Features written to `TrackCache` immediately per-track (not bulk at end) — client polling sees them arrive one by one
+- Client polls `/playlists/:userId/features` every 1s and merges arriving features into track state live
 
 ---
 
@@ -152,32 +181,35 @@ GET  /playlists/:userId                          → user's playlists (dashboard
 GET  /playlists/:userId/liked                    → liked songs count
 GET  /playlists/:userId/liked/tracks             → liked songs tracks (paginated)
 GET  /playlists/:userId/discover/:playlistId     → any public playlist metadata
-GET  /playlists/:userId/:spotifyId/tracks        → playlist tracks (paginated)
-POST /playlists/:userId/:spotifyId/shuffle       → write shuffled order to Spotify
+GET  /playlists/:userId/features?ids=...         → cached audio features for track IDs (poll endpoint)
+GET  /playlists/:userId/:playlistId/tracks       → playlist tracks (paginated)
+POST /playlists/:userId/:playlistId/shuffle      → write shuffled order to platform
 POST /playlists/:userId/copy                     → create a named copy in user's account
-PUT  /playlists/:userId/:spotifyId/save          → save track order (owned only)
+PUT  /playlists/:userId/:playlistId/save         → save track order (owned only)
 POST /playlists/:userId/merge                    → merge multiple playlists into one new playlist
-POST /playlists/:userId/:spotifyId/split         → split one playlist into multiple by strategy
-GET  /playlists/:userId/duplicates               → find duplicate tracks across all playlists
+POST /playlists/:userId/:playlistId/split        → split one playlist into multiple by strategy
+
+GET  /reshuffle/:userId                          → all active auto-reshuffle schedules for user
+POST /reshuffle/:userId/:playlistId              → enable/update auto-reshuffle schedule
+DELETE /reshuffle/:userId/:playlistId            → remove auto-reshuffle schedule
 ```
 
 ## Ownership Logic
 ```
-playlist.owner.id === user.spotifyId → show [Save] + [Save as Copy]
-playlist.owner.id !== user.spotifyId → show [Save as Copy] only
-spotifyId === 'liked'                → show [Save as Copy] only (not a real playlist)
+playlist.ownerId === platformUserId → show [Save] + [Save as Copy]
+playlist.ownerId !== platformUserId → show [Save as Copy] only
+playlistId === 'liked'              → show [Save as Copy] only (not a real playlist)
 ```
 
 ## Technical Notes
-- Auto-reshuffle requires background jobs → use `node-cron`
-- Server-side shuffle kept in `server/src/lib/shuffleAlgorithms.ts` for use by cron job
+- **Platform adapter pattern**: implement `PlatformAdapter` interface + register in `registry.ts` to add a new platform
+- All DB fields are platform-agnostic: `platformUserId`, `platformPlaylistId`, `platformTrackId`
+- Auto-reshuffle uses `node-cron` (hourly); server-side shuffle in `server/src/lib/shuffleAlgorithms.ts`
 - Genre detection uses Last.fm `artist.getTopTags` (better underground coverage than Spotify)
 - Audio features use ReccoBeats API (Spotify deprecated their audio features endpoint Nov 2024)
+- ReccoBeats batch size capped at 40 IDs (not 50)
 - Liked Songs use `/me/tracks` endpoint (not included in `/me/playlists`)
 - Spotify write endpoints require `/items` not `/tracks` (deprecated, returns 403)
-- Spotify API restrictions for new apps: other users' playlists inaccessible in development mode
-- Track count on playlist cards shows 0 — Spotify's `/me/playlists` doesn't return accurate counts
-- spotifyId stored in sessionStorage after login for frontend ownership checks
-- Copy playlist name is now set by the user via CopyModal before the API call is made
-- ReccoBeats batch size capped at 40 IDs (not 50); chunk size set to 40
 - Prisma JSON columns may return as strings — always parse: `typeof f === 'string' ? JSON.parse(f) : f`
+- `platformUserId` stored in sessionStorage after login for frontend ownership checks
+- Neon PostgreSQL free tier auto-suspends — first connection may be slow; use `directUrl` for `prisma migrate dev`

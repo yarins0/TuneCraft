@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchPlaylists, fetchLikedSongs } from '../api/playlists';
 import type { Playlist } from '../api/playlists';
-import { extractPlaylistId } from '../utils/spotify';
+import { extractPlaylistId } from '../utils/platform';
 import { discoverPlaylist } from '../api/playlists';
 import MergeModal from '../components/MergeModal';
 import { mergePlaylist } from '../api/playlists';
 import { buildMergedTrackList } from '../utils/mergePlaylists';
 
 const getUserId = () => sessionStorage.getItem('userId') || '';
-const getSpotifyId = () => sessionStorage.getItem('spotifyId');
+const getPlatformUserId = () => sessionStorage.getItem('platformUserId');
 
 // Sentinel ID used to represent Liked Songs in the selection set
 // Liked Songs have no real Spotify playlist ID, so we use this constant as a stand-in
@@ -170,7 +170,7 @@ export default function Dashboard() {
       toggleSelection(LIKED_SONGS_ID);
     } else {
       navigate('/playlist/liked', {
-        state: { ownerId: getSpotifyId(), name: 'Liked Songs' },
+        state: { ownerId: getPlatformUserId(), name: 'Liked Songs' },
       });
     }
   };
@@ -188,8 +188,8 @@ export default function Dashboard() {
   );
 
   // Split playlists into owned and following groups
-  const ownedPlaylists = playlists.filter(p => p.ownerId === getSpotifyId());
-  const followingPlaylists = playlists.filter(p => p.ownerId !== getSpotifyId());
+  const ownedPlaylists = playlists.filter(p => p.ownerId === getPlatformUserId());
+  const followingPlaylists = playlists.filter(p => p.ownerId !== getPlatformUserId());
 
   // Full Playlist objects for the current selection — passed to MergeModal in Step 2
   // Liked Songs is handled separately since it's not in the playlists array

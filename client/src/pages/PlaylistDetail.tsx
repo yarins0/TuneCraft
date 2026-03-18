@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { fetchTracksPage } from '../api/tracks';
+import { fetchTracksPage, fetchPendingFeatures } from '../api/tracks';
 import type { Track, PlaylistAverages } from '../api/tracks';
 import { formatDuration } from '../api/tracks';
+import { getPlatformTrackUrl, getPlatformLabel } from '../utils/platform';
 import AudioFeatureChart from '../components/AudioFeatureChart';
 import { AUDIO_FEATURES } from '../constants/audioFeatures';
 import PlaylistCompositionCharts from '../components/PlaylistCompositionCharts';
@@ -20,7 +21,7 @@ import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
 import useNumberStepper from '../hooks/useNumberStepper';
 
 const getUserId = () => sessionStorage.getItem('userId') || '';
-const getSpotifyId = () => sessionStorage.getItem('spotifyId') || '';
+const getPlatformUserId = () => sessionStorage.getItem('platformUserId') || '';
 
 // Recalculates playlist averages from the full set of loaded tracks
 // Called after each page loads so the charts stay up to date as tracks stream in
@@ -64,7 +65,7 @@ export default function PlaylistDetail() {
   const ownerId = state.ownerId || searchParams.get('ownerId') || undefined;
   const name = state.name || searchParams.get('name') || undefined;
 
-  const isOwner = ownerId === getSpotifyId();
+  const isOwner = ownerId === getPlatformUserId();
 
   const [tracks, setTracks] = useState<Track[]>([]);
   const [averages, setAverages] = useState<PlaylistAverages | null>(null);
@@ -92,6 +93,11 @@ export default function PlaylistDetail() {
 
   const dragFromIndexRef = useRef<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  // Tracks IDs whose audio features haven't arrived yet (background enrichment in progress)
+  const pendingFeatureIds = useRef<Set<string>>(new Set());
+  // Holds the setInterval handle so we can clear it on cleanup
+  const featurePollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Controls whether the duplicate warning section is expanded beyond the first 3 rows
   const [isDupesExpanded, setIsDupesExpanded] = useState(false);
@@ -138,8 +144,63 @@ export default function PlaylistDetail() {
 
     let cancelled = false;
 
+    // Clears the pending set and stops the polling interval
+    const stopPolling = () => {
+      if (featurePollingRef.current) {
+        clearInterval(featurePollingRef.current);
+        featurePollingRef.current = null;
+      }
+      pendingFeatureIds.current.clear();
+    };
+
+    // Adds null-feature tracks to the pending set and starts polling if not already running.
+    // The poll hits the lightweight /features endpoint (DB cache only) every 3 seconds.
+    // When features arrive they're merged into track state and averages are recalculated.
+    const scheduleFeaturePolling = (newTracks: Track[]) => {
+      const missing = newTracks.filter(t =>
+        Object.values(t.audioFeatures).every(v => v === null)
+      );
+      if (missing.length === 0) return;
+
+      missing.forEach(t => pendingFeatureIds.current.add(t.id));
+
+      if (featurePollingRef.current) return; // interval already running
+
+      featurePollingRef.current = setInterval(async () => {
+        const pending = Array.from(pendingFeatureIds.current);
+        if (pending.length === 0) {
+          clearInterval(featurePollingRef.current!);
+          featurePollingRef.current = null;
+          return;
+        }
+
+        try {
+          const { features } = await fetchPendingFeatures(getUserId(), pending);
+          const arrived = Object.entries(features).filter(
+            ([, f]) => f && Object.values(f).some(v => v !== null)
+          );
+          if (arrived.length === 0) return;
+
+          arrived.forEach(([id]) => pendingFeatureIds.current.delete(id));
+          const featureMap = Object.fromEntries(arrived);
+
+          setTracks(prev =>
+            prev.map(t =>
+              featureMap[t.id] ? { ...t, audioFeatures: featureMap[t.id] } : t
+            )
+          );
+        } catch {
+          // Polling errors are silent — will retry on the next interval tick
+        }
+      }, 1000);
+    };
+
     // Loads all remaining pages after the first page has already been shown
-    // Runs in the background so the user isn't blocked waiting for large playlists
+    // Runs in the background so the user isn't blocked waiting for large playlists.
+    // The setTimeout(0) between pages yields to the JS message queue so React can flush
+    // each setTracks update into a visible render before fetching the next page.
+    // Without it, React 18's automatic batching collapses all setTracks calls into one
+    // update at the end when the server responds quickly (e.g. localhost).
     const loadAllPages = async (startPage: number) => {
       let currentPage = startPage;
       let more = true;
@@ -150,14 +211,14 @@ export default function PlaylistDetail() {
           const data = await fetchTracksPage(getUserId(), spotifyId, currentPage);
           if (cancelled) break;
 
-          setTracks(prev => {
-            const updated = [...prev, ...data.tracks];
-            setAverages(recalculateAverages(updated));
-            return updated;
-          });
+          setTracks(prev => [...prev, ...data.tracks]);
+          scheduleFeaturePolling(data.tracks);
 
           more = data.hasMore;
           currentPage = data.nextPage;
+
+          // Yield to the event loop so React renders this page before fetching the next one
+          await new Promise(resolve => setTimeout(resolve, 0));
         } catch {
           console.error(`Failed to load page ${currentPage}`);
           break;
@@ -175,6 +236,7 @@ export default function PlaylistDetail() {
         setAverages(data.playlistAverages);
         setTotal(data.total);
         setLoading(false);
+        scheduleFeaturePolling(data.tracks);
 
         if (data.hasMore) loadAllPages(data.nextPage);
       })
@@ -184,9 +246,21 @@ export default function PlaylistDetail() {
         setLoading(false);
       });
 
-    // If spotifyId changes before loading finishes, cancel the in-flight requests
-    return () => { cancelled = true; };
+    // If spotifyId changes before loading finishes, cancel in-flight requests and stop polling
+    return () => {
+      cancelled = true;
+      stopPolling();
+    };
   }, [spotifyId]);
+
+  // Keeps averages in sync with the full track list.
+  // Using a derived-state effect here rather than calling setAverages inside setTracks updaters,
+  // which is a React anti-pattern — state setters should not be called inside other state updater functions.
+  // This effect runs after every tracks change: initial load, background page loads, and feature polling updates.
+  useEffect(() => {
+    if (tracks.length === 0) return;
+    setAverages(recalculateAverages(tracks));
+  }, [tracks]);
 
   // Fetches the existing auto-reshuffle schedule for this playlist when the page loads
   // If one exists, pre-fills the panel inputs so the user can see/edit their current settings
@@ -827,11 +901,11 @@ export default function PlaylistDetail() {
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      const url = `https://open.spotify.com/track/${track.id}`;
+                      const url = getPlatformTrackUrl(track.platform, track.id);
                       window.open(url, '_blank', 'noopener,noreferrer');
                     }}
                     className="text-sm font-medium truncate text-left text-text-primary hover:text-accent hover:underline cursor-pointer"
-                    title="Open in Spotify"
+                    title={getPlatformLabel(track.platform)}
                   >
                     {track.name}
                   </button>

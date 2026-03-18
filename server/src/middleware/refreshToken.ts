@@ -1,67 +1,47 @@
 import { Request, Response, NextFunction } from 'express';
-import axios from 'axios';
 import prisma from '../lib/prisma';
+import { getAdapter } from '../lib/platform/registry';
+import type { Platform } from '../lib/platform/types';
 
-// Checks if a user's Spotify access token is expired and refreshes it automatically.
-// Attaches the valid access token to the request object for use in route handlers.
+// Checks whether the user's platform access token is expired and refreshes it if needed.
+// After this middleware runs, req.accessToken always holds a valid token and
+// req.userPlatform holds the user's platform — both are available to downstream route handlers.
 export const refreshTokenMiddleware = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-    const userId = req.params.userId as string;
-
+  const userId = req.params.userId as string;
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+    const user = await prisma.user.findUnique({ where: { id: userId } });
 
     if (!user) {
       res.status(404).json({ error: 'User not found' });
       return;
     }
 
-    // Check if the access token has expired by comparing current time to expiry time
+    // Attach the platform early so route handlers can resolve the correct adapter
+    (req as any).userPlatform = user.platform;
+
     const isExpired = new Date() > new Date(user.tokenExpiresAt);
 
     if (isExpired) {
-      // Request a new access token from Spotify using the refresh token
-      const response = await axios.post(
-        'https://accounts.spotify.com/api/token',
-        new URLSearchParams({
-          grant_type: 'refresh_token',
-          refresh_token: user.refreshToken,
-        }),
-        {
-          headers: {
-            'Authorization': 'Basic ' + Buffer.from(
-              `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
-            ).toString('base64'),
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-        }
-      );
+      // Resolve the adapter for this user's platform and request a fresh token
+      const adapter = getAdapter(user.platform as Platform);
+      const { accessToken, expiresAt } = await adapter.refreshAccessToken(user.refreshToken);
 
-      const { access_token, expires_in } = response.data;
-      const tokenExpiresAt = new Date(Date.now() + expires_in * 1000);
-
-      // Save the new access token and expiry time to the database
       await prisma.user.update({
         where: { id: userId },
-        data: { accessToken: access_token, tokenExpiresAt },
+        data: { accessToken, tokenExpiresAt: expiresAt },
       });
 
-      // Attach the fresh token to the request so the route handler can use it
-      (req as any).accessToken = access_token;
+      (req as any).accessToken = accessToken;
     } else {
-      // Token is still valid, attach it directly
       (req as any).accessToken = user.accessToken;
     }
 
-    // Pass control to the next middleware or route handler
     next();
-
   } catch (error) {
     console.error('Token refresh failed:', error);
     res.status(500).json({ error: 'Failed to refresh token' });

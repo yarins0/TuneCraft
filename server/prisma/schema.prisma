@@ -12,18 +12,28 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")       // pooled connection — used at runtime
+  directUrl = env("DIRECT_DATABASE_URL") // direct connection — used by prisma migrate
+}
+
+// Identifies which streaming service a row belongs to.
+// All existing rows default to SPOTIFY — new platforms are added here when adapters are built.
+enum Platform {
+  SPOTIFY
+  SOUNDCLOUD
+  APPLE_MUSIC
 }
 
 model User {
   id             String     @id @default(cuid())  // unique internal ID
-  spotifyId      String     @unique               // Spotify's own user ID
+  platformUserId String     @unique               // the platform's own user ID (e.g. Spotify "id" field)
   displayName    String
   email          String?                          // optional, not all Spotify accounts have email
   accessToken    String
   refreshToken   String
   tokenExpiresAt DateTime
+  platform       Platform   @default(SPOTIFY)     // which streaming service this user authenticated with
   createdAt      DateTime   @default(now())
 
   // One user can have many playlists
@@ -32,13 +42,14 @@ model User {
 
 model Playlist {
   id                String    @id @default(cuid())
-  spotifyPlaylistId String                         // not unique — multiple users can track same playlist
+  platformPlaylistId String                         // not unique — multiple users can track same playlist
   name              String
   autoReshuffle     Boolean   @default(false)
   intervalDays      Int?                           // every N days (null = not set)
   algorithms        Json?                          // which shuffle algorithms to apply
   lastReshuffledAt  DateTime?
   nextReshuffleAt   DateTime?                      // pre-computed, used by cron job to find due playlists
+  platform          Platform  @default(SPOTIFY)    // which platform this playlist lives on
 
   createdAt         DateTime  @default(now())
 
@@ -47,20 +58,22 @@ model Playlist {
   user              User      @relation(fields: [userId], references: [id])
 
   // Prevent duplicate entries — one user can only track one auto-reshuffle per playlist
-  @@unique([userId, spotifyPlaylistId])
+  @@unique([userId, platformPlaylistId])
 }
 
 model TrackCache {
   id            String   @id @default(cuid())
-  spotifyId     String   @unique
+  platformTrackId String  @unique               // track ID on the platform
   audioFeatures Json
+  platform      Platform @default(SPOTIFY)     // platform that issued this track ID
   cachedAt      DateTime @default(now())
 }
 
 model ArtistCache {
   id         String   @id @default(cuid())
-  artistId   String   @unique
+  artistId   String   @unique               // artist ID on the platform
   artistName String
   genres     Json
+  platform   Platform @default(SPOTIFY)     // platform that issued this artist ID
   cachedAt   DateTime @default(now())
 }

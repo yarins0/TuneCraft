@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import axios from 'axios';
 import prisma from '../lib/prisma';
 import { refreshTokenMiddleware } from '../middleware/refreshToken';
+import { getAdapter } from '../lib/platform/registry';
+import type { Platform } from '../lib/platform/types';
 
 const router = Router();
 
@@ -28,9 +29,9 @@ router.post('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
     // upsert: update if a record already exists for this user+playlist, create if not
     const playlist = await prisma.playlist.upsert({
       where: {
-        userId_spotifyPlaylistId: {
+        userId_platformPlaylistId: {
           userId,
-          spotifyPlaylistId: spotifyId,
+          platformPlaylistId: spotifyId,
         },
       },
       update: {
@@ -43,7 +44,7 @@ router.post('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
       },
       create: {
         userId,
-        spotifyPlaylistId: spotifyId,
+        platformPlaylistId: spotifyId,
         name: playlistName,
         autoReshuffle: true,
         intervalDays,
@@ -61,21 +62,18 @@ router.post('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
 });
 
 // DELETE /reshuffle/:userId/:spotifyId
-// Disables auto-reshuffle for a playlist.
-// We update the record rather than delete it so we keep the history.
+// Removes the auto-reshuffle schedule for a playlist entirely.
+// Deletion is correct here — the cleanup cron only watches autoReshuffle=true records,
+// so a disabled record would sit orphaned forever. The POST upsert recreates it if re-enabled.
 router.delete('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
   const userId = req.params.userId as string;
   const spotifyId = req.params.spotifyId as string;
 
   try {
-    await prisma.playlist.updateMany({
+    await prisma.playlist.deleteMany({
       where: {
         userId,
-        spotifyPlaylistId: spotifyId,
-      },
-      data: {
-        autoReshuffle: false,
-        nextReshuffleAt: null,
+        platformPlaylistId: spotifyId,
       },
     });
 
@@ -102,7 +100,7 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
         autoReshuffle: true,
       },
       select: {
-        spotifyPlaylistId: true,
+        platformPlaylistId: true,
         name: true,
         intervalDays: true,
         algorithms: true,
@@ -111,39 +109,24 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
       },
     });
 
+    const adapter = getAdapter((req as any).userPlatform as Platform);
     const validPlaylists: typeof playlists = [];
 
     for (const playlist of playlists) {
       try {
-        // Verify the playlist still exists on Spotify and refresh its name
-        const spotifyResponse: any = await axios.get(
-          `https://api.spotify.com/v1/playlists/${playlist.spotifyPlaylistId}`,
-          {
-            headers: { Authorization: `Bearer ${accessToken}` },
-            params: { fields: 'id,name' },
-          }
-        );
-
-        const spotifyName = spotifyResponse.data.name as string | undefined;
+        // Verify the playlist still exists on the platform and refresh its name if it changed
+        const fetched = await adapter.fetchPlaylist(accessToken, playlist.platformPlaylistId);
         let updatedPlaylist = playlist;
 
-        if (spotifyName && spotifyName !== playlist.name) {
+        if (fetched.name && fetched.name !== playlist.name) {
           await prisma.playlist
             .updateMany({
-              where: {
-                userId,
-                spotifyPlaylistId: playlist.spotifyPlaylistId,
-              },
-              data: {
-                name: spotifyName,
-              },
+              where: { userId, platformPlaylistId: playlist.platformPlaylistId },
+              data: { name: fetched.name },
             })
             .catch(() => {});
 
-          updatedPlaylist = {
-            ...playlist,
-            name: spotifyName,
-          };
+          updatedPlaylist = { ...playlist, name: fetched.name };
         }
 
         validPlaylists.push(updatedPlaylist);
@@ -151,13 +134,10 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
         const status = error.response?.status;
 
         if (status === 404 || status === 403) {
-          // Playlist was deleted or is no longer accessible on Spotify — remove its auto-reshuffle entry
+          // Playlist was deleted or is no longer accessible — remove its auto-reshuffle entry
           await prisma.playlist
             .deleteMany({
-              where: {
-                userId,
-                spotifyPlaylistId: playlist.spotifyPlaylistId,
-              },
+              where: { userId, platformPlaylistId: playlist.platformPlaylistId },
             })
             .catch(() => {});
           continue;

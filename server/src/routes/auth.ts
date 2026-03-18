@@ -1,113 +1,77 @@
 import { Router } from 'express';
-import axios from 'axios';
 import prisma from '../lib/prisma';
+import { getAdapter } from '../lib/platform/registry';
+import type { Platform } from '../lib/platform/types';
 
 // Router groups related routes into a modular unit
 // that can be mounted onto the main Express app
 const router = Router();
 
-// Scopes define the permissions requested from the Spotify account
-// Each scope unlocks specific Spotify API endpoints
-const SPOTIFY_SCOPES = [
-  'playlist-read-private',
-  'playlist-read-collaborative',
-  //'user-read-recently-played', //requiered for history fetuare
-  'playlist-modify-public',
-  'playlist-modify-private',
-  'user-read-private',        // required for user profile
-  'user-read-email',          // required for user email
-  'user-library-read',      // required for accessing liked songs
-].join(' '); // Spotify expects scopes as a space-separated string
-
-// GET /auth/login
-// Redirects the user to Spotify's authorization page
+// GET /auth/login?platform=SPOTIFY
+// Redirects the user to the platform's OAuth authorization page.
+// The platform query param defaults to SPOTIFY — future platforms can pass a different value.
 router.get('/login', (req, res) => {
-  // URLSearchParams safely formats key-value pairs into a URL query string
-  const params = new URLSearchParams({
-    client_id: process.env.SPOTIFY_CLIENT_ID!,
-    response_type: 'code',
-    redirect_uri: process.env.REDIRECT_URI!,
-    scope: SPOTIFY_SCOPES,
-    show_dialog: 'true', // forces the user to re-authorize the app if they've already authorized it
-  });
+  const platform = ((req.query.platform as string) || 'SPOTIFY').toUpperCase() as Platform;
 
-  res.redirect(`https://accounts.spotify.com/authorize?${params}`);
+  try {
+    const authUrl = getAdapter(platform).getAuthUrl();
+    res.redirect(authUrl);
+  } catch {
+    res.status(400).json({ error: `Unsupported platform: ${platform}` });
+  }
 });
 
 // GET /auth/callback
-// Handles the redirect from Spotify after the user grants or denies permission
+// Handles the OAuth redirect after the user grants permission.
+// Exchanges the one-time code for tokens and upserts the user in the database.
+// Currently only Spotify sends users here — future platforms will need their own redirect URIs
+// or a platform= query param forwarded through the OAuth state parameter.
 router.get('/callback', async (req, res) => {
   const code = req.query.code as string;
 
-  // If the user denied access, Spotify sends an error instead of a code
   if (!code) {
     res.status(400).json({ error: 'Authorization code missing' });
     return;
   }
 
+  // Only Spotify is active — the callback always routes through the Spotify adapter
+  const platform: Platform = 'SPOTIFY';
+
   try {
-    // Exchange the temporary code for a real access token
-    // This request must happen server-side to keep the client_secret secure
-    const tokenResponse = await axios.post(
-      'https://accounts.spotify.com/api/token',
-      new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: process.env.REDIRECT_URI!,
-      }),
-      {
-        headers: {
-          // Spotify requires credentials as a Base64 encoded Authorization header
-          'Authorization': 'Basic ' + Buffer.from(
-            `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
-          ).toString('base64'),
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-      }
-    );
+    const { accessToken, refreshToken, expiresAt, platformUserId, displayName, email } =
+      await getAdapter(platform).exchangeCode(code);
 
-    const { access_token, refresh_token, expires_in } = tokenResponse.data;
-
-    // Fetch the user's Spotify profile using the access token
-    const profileResponse = await axios.get('https://api.spotify.com/v1/me', {
-      headers: { Authorization: `Bearer ${access_token}` },
-    });
-
-    const { id, display_name, email } = profileResponse.data;
-
-    // Calculate the exact datetime when the access token will expire
-    // expires_in is in seconds, so we convert it to milliseconds
-    const tokenExpiresAt = new Date(Date.now() + expires_in * 1000);
-
-    // upsert means "update if exists, create if not"
-    // This handles both first-time logins and returning users in one operation
+    // upsert means "update if the user exists, create if not" — handles returning users and
+    // first-time logins in one operation
     const user = await prisma.user.upsert({
-      where: { spotifyId: id },
-      update: {
-        accessToken: access_token,
-        refreshToken: refresh_token,
-        tokenExpiresAt,
-      },
+      where: { platformUserId },
+      update: { accessToken, refreshToken, tokenExpiresAt: expiresAt },
       create: {
-        spotifyId: id,
-        displayName: display_name,
-        email: email ?? null,
-        accessToken: access_token,
-        refreshToken: refresh_token,
-        tokenExpiresAt,
+        platformUserId,
+        displayName,
+        email,
+        accessToken,
+        refreshToken,
+        tokenExpiresAt: expiresAt,
+        platform,
       },
     });
 
-    // Redirects to the frontend callback page with the userId as a query parameter
-    res.redirect(`${process.env.FRONTEND_URL}/callback?userId=${user.id}&spotifyId=${user.spotifyId}`);
-
+    // Redirect to the frontend callback page with the internal userId and platform user ID
+    res.redirect(
+      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}`
+    );
   } catch (error) {
     console.error('Auth error:', error);
     res.status(500).json({ error: 'Authentication failed' });
   }
 });
 
+// GET /auth/scopes?token=...
+// Diagnostic endpoint — returns the Spotify profile for a given token to inspect its scopes.
+// Remains Spotify-specific for now since it's a dev/debug tool.
 router.get('/scopes', async (req, res) => {
+  const { default: axios } = await import('axios');
   const token = req.query.token as string;
   const response = await axios.get('https://api.spotify.com/v1/me', {
     headers: { Authorization: `Bearer ${token}` },

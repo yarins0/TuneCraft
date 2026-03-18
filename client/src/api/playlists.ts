@@ -6,7 +6,8 @@ export interface Playlist {
   name: string;
   trackCount: number;
   imageUrl: string | null;
-  ownerId: string;  // Spotify ID of the playlist owner
+  ownerId: string;        // platform user ID of the playlist owner
+  platform?: string;      // which streaming service this playlist belongs to (e.g. 'SPOTIFY')
 }
 
 // Fetches all playlists for a given user from the Tunecraft backend

@@ -8,18 +8,18 @@ export default function Callback() {
 
   useEffect(() => {
     const userId = new URLSearchParams(window.location.search).get('userId');
-    const spotifyId = new URLSearchParams(window.location.search).get('spotifyId');
+    const platformUserId = new URLSearchParams(window.location.search).get('platformUserId');
 
-    if (userId && spotifyId) {
+    if (userId && platformUserId) {
       sessionStorage.setItem('userId', userId);
-      sessionStorage.setItem('spotifyId', spotifyId);
+      sessionStorage.setItem('platformUserId', platformUserId);
       navigate('/dashboard');
     }
   }, []);
 
   return (
     <div className="min-h-screen bg-bg-primary flex items-center justify-center">
-      <div className="text-accent text-xl animate-pulse">Connecting to Spotify...</div>
+      <div className="text-accent text-xl animate-pulse">Connecting...</div>
     </div>
   );
 }
