@@ -6,12 +6,12 @@ import type { Platform } from '../lib/platform/types';
 
 const router = Router();
 
-// POST /reshuffle/:userId/:spotifyId
+// POST /reshuffle/:userId/:playlistId
 // Enables auto-reshuffle for a playlist, or updates existing settings.
 // Uses upsert so the same endpoint works for both create and update.
-router.post('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
+router.post('/:userId/:playlistId', refreshTokenMiddleware, async (req, res) => {
   const userId = req.params.userId as string;
-  const spotifyId = req.params.spotifyId as string;
+  const playlistId = req.params.playlistId as string;
   const { intervalDays, algorithms, playlistName } = req.body;
   // Validate that intervalDays is a positive number
   if (!intervalDays || intervalDays < 1) {
@@ -31,7 +31,7 @@ router.post('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
       where: {
         userId_platformPlaylistId: {
           userId,
-          platformPlaylistId: spotifyId,
+          platformPlaylistId: playlistId,
         },
       },
       update: {
@@ -44,7 +44,7 @@ router.post('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
       },
       create: {
         userId,
-        platformPlaylistId: spotifyId,
+        platformPlaylistId: playlistId,
         name: playlistName,
         autoReshuffle: true,
         intervalDays,
@@ -61,19 +61,19 @@ router.post('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
   }
 });
 
-// DELETE /reshuffle/:userId/:spotifyId
+// DELETE /reshuffle/:userId/:playlistId
 // Removes the auto-reshuffle schedule for a playlist entirely.
 // Deletion is correct here — the cleanup cron only watches autoReshuffle=true records,
 // so a disabled record would sit orphaned forever. The POST upsert recreates it if re-enabled.
-router.delete('/:userId/:spotifyId', refreshTokenMiddleware, async (req, res) => {
+router.delete('/:userId/:playlistId', refreshTokenMiddleware, async (req, res) => {
   const userId = req.params.userId as string;
-  const spotifyId = req.params.spotifyId as string;
+  const playlistId = req.params.playlistId as string;
 
   try {
     await prisma.playlist.deleteMany({
       where: {
         userId,
-        platformPlaylistId: spotifyId,
+        platformPlaylistId: playlistId,
       },
     });
 

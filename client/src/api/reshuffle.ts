@@ -21,7 +21,7 @@ export interface ReshuffleSchedule {
 // Called when the user saves settings in the auto-reshuffle panel
 export const enableReshuffle = async (
   userId: string,
-  spotifyId: string,
+  playlistId: string,
   name: string,
   intervalDays: number,
   algorithms: {
@@ -32,7 +32,7 @@ export const enableReshuffle = async (
   }
 ): Promise<{ schedule: ReshuffleSchedule }> => {
   const response = await fetch(
-    `${API_BASE_URL}/reshuffle/${userId}/${spotifyId}`,
+    `${API_BASE_URL}/reshuffle/${userId}/${playlistId}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -47,10 +47,10 @@ export const enableReshuffle = async (
 // Deletes the schedule from the database entirely
 export const disableReshuffle = async (
   userId: string,
-  spotifyId: string
+  playlistId: string
 ): Promise<{ success: boolean }> => {
   const response = await fetch(
-    `${API_BASE_URL}/reshuffle/${userId}/${spotifyId}`,
+    `${API_BASE_URL}/reshuffle/${userId}/${playlistId}`,
     { method: 'DELETE' }
   );
   if (!response.ok) throw new Error('Failed to disable auto-reshuffle');
@@ -61,7 +61,7 @@ export const disableReshuffle = async (
 // Returns null if no schedule exists for this playlist
 export const fetchReshuffleSchedule = async (
   userId: string,
-  spotifyId: string
+  playlistId: string
 ): Promise<ReshuffleSchedule | null> => {
   const response = await fetch(`${API_BASE_URL}/reshuffle/${userId}`);
   if (!response.ok) throw new Error('Failed to fetch reshuffle schedules');
@@ -69,5 +69,5 @@ export const fetchReshuffleSchedule = async (
   const data: { schedules: ReshuffleSchedule[] } = await response.json();
 
   // The GET route returns ALL schedules for a user — filter to just this playlist
-  return data.schedules.find(s => s.platformPlaylistId === spotifyId) ?? null;
+  return data.schedules.find(s => s.platformPlaylistId === playlistId) ?? null;
 };

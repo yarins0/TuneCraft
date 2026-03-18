@@ -60,10 +60,9 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
   try {
     const playlists = await adapter.fetchPlaylists(accessToken);
 
-    // Map to the legacy response shape the client expects (uses spotifyId key)
     res.json({
       playlists: playlists.map(p => ({
-        spotifyId: p.id,
+        platformId: p.id,
         name: p.name,
         trackCount: p.trackCount,
         imageUrl: p.imageUrl,
@@ -89,7 +88,7 @@ router.get('/:userId/discover/:playlistId', refreshTokenMiddleware, async (req, 
     const playlist = await adapter.fetchPlaylist(accessToken, playlistId);
 
     res.json({
-      spotifyId: playlist.id,
+      platformId: playlist.id,
       name: playlist.name,
       ownerId: playlist.ownerId,
       trackCount: playlist.trackCount,
@@ -145,7 +144,7 @@ router.get('/:userId/liked', refreshTokenMiddleware, async (req, res) => {
 
     res.json({
       playlist: {
-        spotifyId: 'liked',
+        platformId: 'liked',
         name: 'Liked Songs',
         trackCount,
         imageUrl: null,
@@ -185,18 +184,18 @@ router.get('/:userId/liked/tracks', refreshTokenMiddleware, async (req, res) => 
   }
 });
 
-// GET /playlists/:userId/:spotifyId/tracks
+// GET /playlists/:userId/:playlistId/tracks
 // Fetches a single page of enriched tracks for a playlist
 // Supports pagination via ?page= query parameter
-router.get('/:userId/:spotifyId/tracks', refreshTokenMiddleware, async (req, res) => {
-  const spotifyId = req.params.spotifyId as string;
+router.get('/:userId/:playlistId/tracks', refreshTokenMiddleware, async (req, res) => {
+  const playlistId = req.params.playlistId as string;
   const accessToken = (req as any).accessToken;
   const adapter = getAdapter((req as any).userPlatform as Platform);
   const page = parseInt(req.query.page as string) || 0;
   const limit = 50;
 
   try {
-    const { tracks, total } = await adapter.fetchPlaylistTracks(accessToken, spotifyId, page);
+    const { tracks, total } = await adapter.fetchPlaylistTracks(accessToken, playlistId, page);
     const tracksWithPlatform = tracks.map(t => ({ ...t, platform: adapter.platform }));
 
     res.json({
@@ -219,12 +218,12 @@ router.get('/:userId/:spotifyId/tracks', refreshTokenMiddleware, async (req, res
   }
 });
 
-// POST /playlists/:userId/:spotifyId/shuffle
+// POST /playlists/:userId/:playlistId/shuffle
 // Saves a pre-shuffled track order to an owned playlist.
 // The shuffle algorithm runs on the frontend — this route only writes the result to the platform.
-router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, res) => {
+router.post('/:userId/:playlistId/shuffle', refreshTokenMiddleware, async (req, res) => {
   const userId = req.params.userId as string;
-  const spotifyId = req.params.spotifyId as string;
+  const playlistId = req.params.playlistId as string;
   const { tracks } = req.body;
   const accessToken = (req as any).accessToken;
   const adapter = getAdapter((req as any).userPlatform as Platform);
@@ -233,7 +232,7 @@ router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, r
     const trackIds = tracks.map((t: any) => t.id);
 
     await enqueueWrite(userId, () =>
-      adapter.replacePlaylistTracks(accessToken, spotifyId, trackIds)
+      adapter.replacePlaylistTracks(accessToken, playlistId, trackIds)
     );
 
     // If auto-reshuffle is scheduled for this playlist, reset the timestamps so the cron
@@ -242,7 +241,7 @@ router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, r
     // A failure here doesn't roll back the shuffle result.
     const updateReshuffleTimestamps = async () => {
       const schedule = await prisma.playlist.findUnique({
-        where: { userId_platformPlaylistId: { userId, platformPlaylistId: spotifyId } },
+        where: { userId_platformPlaylistId: { userId, platformPlaylistId: playlistId } },
         select: { autoReshuffle: true, intervalDays: true },
       });
       if (!schedule?.autoReshuffle || !schedule.intervalDays) return;
@@ -250,7 +249,7 @@ router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, r
       const nextReshuffleAt = new Date(now);
       nextReshuffleAt.setDate(nextReshuffleAt.getDate() + schedule.intervalDays);
       await prisma.playlist.update({
-        where: { userId_platformPlaylistId: { userId, platformPlaylistId: spotifyId } },
+        where: { userId_platformPlaylistId: { userId, platformPlaylistId: playlistId } },
         data: { lastReshuffledAt: now, nextReshuffleAt },
       });
     };
@@ -263,7 +262,7 @@ router.post('/:userId/:spotifyId/shuffle', refreshTokenMiddleware, async (req, r
     if (error.response?.status === 404) {
       // Playlist was deleted from Spotify — clean up the orphaned schedule record
       await prisma.playlist.deleteMany({
-        where: { userId, platformPlaylistId: spotifyId },
+        where: { userId, platformPlaylistId: playlistId },
       }).catch(dbErr => console.error('Failed to remove deleted playlist from DB:', dbErr));
       return res.status(404).json({ error: 'Playlist not found — it may have been deleted' });
     }
@@ -292,7 +291,7 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
 
     res.json({
       success: true,
-      playlist: { spotifyId: newPlaylistId, name, ownerId, platform: adapter.platform },
+      playlist: { platformId: newPlaylistId, name, ownerId, platform: adapter.platform },
     });
   } catch (error: any) {
     console.error('Failed to copy playlist:', error.response?.data || error.message);
@@ -320,7 +319,7 @@ router.post('/:userId/merge', refreshTokenMiddleware, async (req, res) => {
 
     res.json({
       success: true,
-      playlist: { spotifyId: newPlaylistId, name, ownerId, platform: adapter.platform },
+      playlist: { platformId: newPlaylistId, name, ownerId, platform: adapter.platform },
     });
   } catch (error: any) {
     console.error('Failed to merge playlists:', error.response?.data || error.message);
@@ -352,7 +351,7 @@ router.post('/:userId/split', refreshTokenMiddleware, async (req, res) => {
         );
         const trackIds = group.tracks.map((t: any) => t.id);
         await adapter.addTracksToPlaylist(accessToken, playlist.id, trackIds);
-        results.push({ spotifyId: playlist.id, name: group.name, ownerId: playlist.ownerId, platform: adapter.platform });
+        results.push({ platformId: playlist.id, name: group.name, ownerId: playlist.ownerId, platform: adapter.platform });
       }
 
       return results;
@@ -365,12 +364,12 @@ router.post('/:userId/split', refreshTokenMiddleware, async (req, res) => {
   }
 });
 
-// PUT /playlists/:userId/:spotifyId/save
+// PUT /playlists/:userId/:playlistId/save
 // Saves the current track order to an owned playlist.
 // Identical to shuffle's write path — both replace the full playlist with a new ordered list.
-router.put('/:userId/:spotifyId/save', refreshTokenMiddleware, async (req, res) => {
+router.put('/:userId/:playlistId/save', refreshTokenMiddleware, async (req, res) => {
   const userId = req.params.userId as string;
-  const spotifyId = req.params.spotifyId as string;
+  const playlistId = req.params.playlistId as string;
   const { tracks } = req.body;
   const accessToken = (req as any).accessToken;
   const adapter = getAdapter((req as any).userPlatform as Platform);
@@ -379,7 +378,7 @@ router.put('/:userId/:spotifyId/save', refreshTokenMiddleware, async (req, res) 
     const trackIds = tracks.map((t: any) => t.id);
 
     await enqueueWrite(userId, () =>
-      adapter.replacePlaylistTracks(accessToken, spotifyId, trackIds)
+      adapter.replacePlaylistTracks(accessToken, playlistId, trackIds)
     );
 
     res.json({ success: true });

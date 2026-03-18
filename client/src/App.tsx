@@ -29,7 +29,7 @@ export default function App() {
           }
         />
         <Route
-          path="/playlist/:spotifyId"
+          path="/playlist/:playlistId"
           element={
             <ProtectedRoute>
               <PlaylistDetail />

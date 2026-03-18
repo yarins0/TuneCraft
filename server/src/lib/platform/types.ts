@@ -3,7 +3,7 @@
 export type Platform = 'SPOTIFY' | 'SOUNDCLOUD' | 'APPLE_MUSIC';
 
 // A playlist with enough data to render a dashboard card.
-// Uses a generic `id` field — routes map it to the legacy `spotifyId` response key as needed.
+// Uses a generic `id` field — routes expose it as `platformId` in JSON responses.
 export interface PlatformPlaylist {
   id: string;
   name: string;

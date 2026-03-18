@@ -53,7 +53,7 @@ const recalculateAverages = (tracks: Track[]): PlaylistAverages => {
 };
 
 export default function PlaylistDetail() {
-  const { spotifyId } = useParams<{ spotifyId: string }>();
+  const { playlistId } = useParams<{ playlistId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -130,7 +130,7 @@ export default function PlaylistDetail() {
   const [reshuffleLoading, setReshuffleLoading] = useState(false);
 
   useEffect(() => {
-    if (!spotifyId) return;
+    if (!playlistId) return;
 
     // Reset state when playlist changes
     setTracks([]);
@@ -208,7 +208,7 @@ export default function PlaylistDetail() {
 
       while (more && !cancelled) {
         try {
-          const data = await fetchTracksPage(getUserId(), spotifyId, currentPage);
+          const data = await fetchTracksPage(getUserId(), playlistId, currentPage);
           if (cancelled) break;
 
           setTracks(prev => [...prev, ...data.tracks]);
@@ -229,7 +229,7 @@ export default function PlaylistDetail() {
     };
 
     // Load the first page immediately, then kick off background loading for the rest
-    fetchTracksPage(getUserId(), spotifyId, 0)
+    fetchTracksPage(getUserId(), playlistId, 0)
       .then(data => {
         if (cancelled) return;
         setTracks(data.tracks);
@@ -246,12 +246,12 @@ export default function PlaylistDetail() {
         setLoading(false);
       });
 
-    // If spotifyId changes before loading finishes, cancel in-flight requests and stop polling
+    // If playlistId changes before loading finishes, cancel in-flight requests and stop polling
     return () => {
       cancelled = true;
       stopPolling();
     };
-  }, [spotifyId]);
+  }, [playlistId]);
 
   // Keeps averages in sync with the full track list.
   // Using a derived-state effect here rather than calling setAverages inside setTracks updaters,
@@ -265,9 +265,9 @@ export default function PlaylistDetail() {
   // Fetches the existing auto-reshuffle schedule for this playlist when the page loads
   // If one exists, pre-fills the panel inputs so the user can see/edit their current settings
   useEffect(() => {
-    if (!spotifyId || spotifyId === 'liked' || !isOwner) return;
+    if (!playlistId || playlistId === 'liked' || !isOwner) return;
 
-    fetchReshuffleSchedule(getUserId(), spotifyId)
+    fetchReshuffleSchedule(getUserId(), playlistId)
       .then(schedule => {
         setReshuffleSchedule(schedule);
         // Pre-fill the inputs from the saved schedule so the user sees their current settings
@@ -277,7 +277,7 @@ export default function PlaylistDetail() {
         }
       })
       .catch(() => {}); // Silently ignore — the panel just shows defaults
-  }, [spotifyId, isOwner]);
+  }, [playlistId, isOwner]);
 
 
   // Applies the chosen shuffle algorithms to the current track list in memory
@@ -354,13 +354,13 @@ export default function PlaylistDetail() {
     intervalDays: number,
     algorithms: { trueRandom: boolean; artistSpread: boolean; genreSpread: boolean; chronological: boolean }
   ) => {
-    if (!spotifyId) return;
+    if (!playlistId) return;
     setReshuffleLoading(true);
     try {
       // Save the schedule — the backend stamps lastReshuffledAt = now so the cron job
       // calculates the next window from the moment of activation.
       const { schedule } = await enableReshuffle(
-        getUserId(), spotifyId, name || '', intervalDays, algorithms
+        getUserId(), playlistId, name || '', intervalDays, algorithms
       );
       setReshuffleSchedule(schedule);
       setReshuffleInterval(intervalDays);
@@ -378,10 +378,10 @@ export default function PlaylistDetail() {
   // Deletes the auto-reshuffle schedule from the database
   // Resets local state to defaults so the panel looks like a fresh setup
   const handleDisableReshuffle = async () => {
-    if (!spotifyId) return;
+    if (!playlistId) return;
     setReshuffleLoading(true);
     try {
-      await disableReshuffle(getUserId(), spotifyId);
+      await disableReshuffle(getUserId(), playlistId);
       setReshuffleSchedule(null);
       setReshuffleInterval(7);
       setReshuffleAlgorithms({ trueRandom: false, artistSpread: true, genreSpread: false, chronological: false });
@@ -397,12 +397,12 @@ export default function PlaylistDetail() {
 
   // Writes the current track order to the user's owned Spotify playlist
   const handleSave = async () => {
-    if (!spotifyId) return;
+    if (!playlistId) return;
     setSaveLoading(true);
     setSaveError(null);
 
     try {
-      await savePlaylist(getUserId(), spotifyId, tracks);
+      await savePlaylist(getUserId(), playlistId, tracks);
       setHasUnsavedChanges(false);
       setSaveSuccess('Playlist saved successfully!');
       setTimeout(() => setSaveSuccess(null), 3000);
@@ -437,7 +437,7 @@ export default function PlaylistDetail() {
         name: newPlaylist.name,
         ownerId: newPlaylist.ownerId,
       });
-      window.open(`/playlist/${newPlaylist.spotifyId}?${params}`, '_blank');
+      window.open(`/playlist/${newPlaylist.platformId}?${params}`, '_blank');
     } catch {
       setSaveError('Spotify restricts playlist modifications in development mode. This will work once the app is published.');
       setTimeout(() => setSaveError(null), 5000);
@@ -525,10 +525,10 @@ export default function PlaylistDetail() {
               <button
                 type="button"
                 onClick={() => {
-                  if (!spotifyId) return;
-                  const url = spotifyId === 'liked'
+                  if (!playlistId) return;
+                  const url = playlistId === 'liked'
                     ? 'https://open.spotify.com/collection/tracks'
-                    : `https://open.spotify.com/playlist/${spotifyId}`;
+                    : `https://open.spotify.com/playlist/${playlistId}`;
                   window.open(url, '_blank', 'noopener,noreferrer');
                 }}
                 className="text-lg font-semibold text-left text-text-primary hover:text-accent hover:underline cursor-pointer truncate max-w-xs block"
@@ -577,7 +577,7 @@ export default function PlaylistDetail() {
               >
                 ✂️ Split
               </button>
-              {spotifyId !== 'liked' && ( 
+              {playlistId !== 'liked' && ( 
                 <>
                   <button
                     onClick={handleSave}
@@ -994,7 +994,7 @@ export default function PlaylistDetail() {
         onClose={() => setShuffleModalOpen(false)}
         onShuffle={handleShuffle}
         isLoading={false}
-        canScheduleReshuffle={isOwner && spotifyId !== 'liked'}
+        canScheduleReshuffle={isOwner && playlistId !== 'liked'}
         reshuffleSchedule={reshuffleSchedule}
         reshuffleInterval={reshuffleInterval}
         setReshuffleInterval={setReshuffleInterval}

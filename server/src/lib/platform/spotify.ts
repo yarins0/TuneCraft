@@ -375,7 +375,7 @@ export class SpotifyAdapter implements PlatformAdapter {
       .map((p: any) => ({
         id: p.id,
         name: p.name,
-        trackCount: p.tracks?.total ?? 0,
+        trackCount: p.items?.total ?? 0,
         imageUrl: p.images?.[0]?.url ?? null,
         ownerId: p.owner.id,
       }));

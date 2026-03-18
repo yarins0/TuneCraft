@@ -2,7 +2,7 @@ import { API_BASE_URL } from './config';
 
 // Represents the shape of a playlist returned by the Tunecraft API
 export interface Playlist {
-  spotifyId: string;
+  platformId: string;     // the playlist's ID on its native platform (e.g. Spotify playlist ID)
   name: string;
   trackCount: number;
   imageUrl: string | null;
@@ -24,7 +24,7 @@ export const fetchPlaylists = async (userId: string): Promise<Playlist[]> => {
 
 // Represents the Liked Songs playlist card on the dashboard
 export interface LikedSongsPlaylist {
-  spotifyId: string;
+  platformId: string;
   name: string;
   trackCount: number;
   imageUrl: null;
@@ -43,13 +43,13 @@ export const fetchLikedSongs = async (userId: string): Promise<LikedSongsPlaylis
   return data.playlist;
 };
 
-// Fetches metadata for any public playlist by Spotify ID
+// Fetches metadata for any public playlist by its platform ID
 // Used by the discovery search bar on the dashboard
 export const discoverPlaylist = async (
   userId: string,
   playlistId: string
 ): Promise<{
-  spotifyId: string;
+  platformId: string;
   name: string;
   ownerId: string;
   trackCount: number;
@@ -67,10 +67,10 @@ export const discoverPlaylist = async (
   return response.json();
 };
 
-// Shuffles a playlist on Spotify using the chosen algorithms
+// Shuffles a playlist on the platform using the chosen algorithms
 export const shufflePlaylist = async (
   userId: string,
-  spotifyId: string,
+  playlistId: string,
   tracks: { id: string; artist: string; genres: string[]; releaseYear: number | null }[],
   algorithms: {
     trueRandom: boolean;
@@ -80,7 +80,7 @@ export const shufflePlaylist = async (
   }
 ): Promise<{ success: boolean }> => {
   const response = await fetch(
-    `${API_BASE_URL}/playlists/${userId}/${spotifyId}/shuffle`,
+    `${API_BASE_URL}/playlists/${userId}/${playlistId}/shuffle`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -91,12 +91,12 @@ export const shufflePlaylist = async (
   return response.json();
 };
 
-// Creates a shuffled copy of any playlist in the user's Spotify library
+// Creates a named copy of any playlist in the user's library on the platform
 export const copyPlaylist = async (
   userId: string,
   tracks: { id: string }[],
   name: string
-): Promise<{ success: boolean; playlist: { spotifyId: string; name: string; ownerId: string } }> => {
+): Promise<{ success: boolean; playlist: { platformId: string; name: string; ownerId: string } }> => {
   const response = await fetch(
     `${API_BASE_URL}/playlists/${userId}/copy`,
     {
@@ -115,7 +115,7 @@ export const mergePlaylist = async (
   userId: string,
   tracks: { id: string }[],
   name: string
-): Promise<{ success: boolean; playlist: { spotifyId: string; name: string; ownerId: string } }> => {
+): Promise<{ success: boolean; playlist: { platformId: string; name: string; ownerId: string } }> => {
   const response = await fetch(
     `${API_BASE_URL}/playlists/${userId}/merge`,
     {
@@ -128,11 +128,11 @@ export const mergePlaylist = async (
   return response.json();
 };
 
-// Sends pre-grouped tracks to the backend to create one new Spotify playlist per group
+// Sends pre-grouped tracks to the backend to create one new playlist per group
 export const splitPlaylist = async (
   userId: string,
   groups: { name: string; tracks: { id: string }[]; description: string }[]
-): Promise<{ success: boolean; playlists: { spotifyId: string; name: string; ownerId: string }[] }> => {
+): Promise<{ success: boolean; playlists: { platformId: string; name: string; ownerId: string }[] }> => {
   const response = await fetch(
     `${API_BASE_URL}/playlists/${userId}/split`,
     {
@@ -145,14 +145,14 @@ export const splitPlaylist = async (
   return response.json();
 };
 
-// Saves the current track order to an owned Spotify playlist
+// Saves the current track order to an owned playlist
 export const savePlaylist = async (
   userId: string,
-  spotifyId: string,
+  playlistId: string,
   tracks: { id: string }[]
 ): Promise<{ success: boolean }> => {
   const response = await fetch(
-    `${API_BASE_URL}/playlists/${userId}/${spotifyId}/save`,
+    `${API_BASE_URL}/playlists/${userId}/${playlistId}/save`,
     {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

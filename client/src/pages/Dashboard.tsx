@@ -34,7 +34,7 @@ export default function Dashboard() {
   // --- Phase 5: Multi-select state ---
   // selectMode becomes true the moment the user checks any playlist
   const [selectMode, setSelectMode] = useState(false);
-  // selectedIds holds spotifyIds of checked owned playlists, plus LIKED_SONGS_ID if Liked Songs is checked
+  // selectedIds holds platformIds of checked owned playlists, plus LIKED_SONGS_ID if Liked Songs is checked
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const navigate = useNavigate();
@@ -79,7 +79,7 @@ export default function Dashboard() {
 
     try {
       const playlist = await discoverPlaylist(getUserId(), playlistId);
-      navigate(`/playlist/${playlist.spotifyId}`, {
+      navigate(`/playlist/${playlist.platformId}`, {
         state: { ownerId: playlist.ownerId, name: playlist.name },
       });
     } catch (error: any) {
@@ -104,7 +104,7 @@ export default function Dashboard() {
       // The order here determines which playlist's tracks come first in the merged result
       const playlistIds = [
         ...(likedSongsSelected ? ['liked'] : []),
-        ...selectedPlaylists.map(p => p.spotifyId),
+        ...selectedPlaylists.map(p => p.platformId),
       ];
 
       const tracks = await buildMergedTrackList(getUserId(), playlistIds, removeDuplicates);
@@ -114,7 +114,7 @@ export default function Dashboard() {
       exitSelectMode();
 
       // Navigate to the newly created playlist so the user can see the result immediately
-      navigate(`/playlist/${newPlaylist.spotifyId}`, {
+      navigate(`/playlist/${newPlaylist.platformId}`, {
         state: { ownerId: newPlaylist.ownerId, name: newPlaylist.name },
       });
 
@@ -155,9 +155,9 @@ export default function Dashboard() {
   // In select mode: toggle selection; in normal mode: navigate
   const handleCardClick = (playlist: Playlist) => {
     if (selectMode) {
-      toggleSelection(playlist.spotifyId);
+      toggleSelection(playlist.platformId);
     } else {
-      navigate(`/playlist/${playlist.spotifyId}`, {
+      navigate(`/playlist/${playlist.platformId}`, {
         state: { ownerId: playlist.ownerId, name: playlist.name },
       });
     }
@@ -193,7 +193,7 @@ export default function Dashboard() {
 
   // Full Playlist objects for the current selection — passed to MergeModal in Step 2
   // Liked Songs is handled separately since it's not in the playlists array
-  const selectedPlaylists = playlists.filter(p => selectedIds.has(p.spotifyId));
+  const selectedPlaylists = playlists.filter(p => selectedIds.has(p.platformId));
   const likedSongsSelected = selectedIds.has(LIKED_SONGS_ID);
 
   // Human-readable label for the action bar — includes "Liked Songs" if selected
@@ -294,10 +294,10 @@ export default function Dashboard() {
 
             {/* Owned playlists — hover-reveal checkbox, fully selectable */}
             {ownedPlaylists.map(playlist => {
-              const isSelected = selectedIds.has(playlist.spotifyId);
+              const isSelected = selectedIds.has(playlist.platformId);
               return (
                 <div
-                  key={playlist.spotifyId}
+                  key={playlist.platformId}
                   onClick={() => handleCardClick(playlist)}
                   className={[
                     'group relative bg-bg-card rounded-2xl overflow-hidden border transition-all duration-200 cursor-pointer',
@@ -308,7 +308,7 @@ export default function Dashboard() {
                 >
                   {/* Checkbox — hover-reveal in normal mode, always visible in select mode */}
                   <div
-                    onClick={e => handleCheckboxClick(e, playlist.spotifyId)}
+                    onClick={e => handleCheckboxClick(e, playlist.platformId)}
                     className={[
                       'absolute top-2 right-2 z-10 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-150',
                       isSelected
@@ -359,10 +359,10 @@ export default function Dashboard() {
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               {followingPlaylists.map(playlist => (
                 <div
-                  key={playlist.spotifyId}
+                  key={playlist.platformId}
                   onClick={() => {
                     if (!selectMode) {
-                      navigate(`/playlist/${playlist.spotifyId}`, {
+                      navigate(`/playlist/${playlist.platformId}`, {
                         state: { ownerId: playlist.ownerId, name: playlist.name },
                       });
                     }

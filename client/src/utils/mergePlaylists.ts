@@ -1,15 +1,15 @@
 import { fetchTracksPage } from '../api/tracks';
 
 // Fetches every track from a single playlist by paginating through all pages
-// Works for both regular playlists (spotifyId) and Liked Songs ('liked')
+// Works for both regular playlists (playlistId) and Liked Songs ('liked')
 // Returns a flat array of track objects — same shape as PlaylistDetail uses
-const fetchAllTracks = async (userId: string, spotifyId: string): Promise<{ id: string }[]> => {
+const fetchAllTracks = async (userId: string, playlistId: string): Promise<{ id: string }[]> => {
   const tracks: { id: string }[] = [];
   let page = 0;
   let hasMore = true;
 
   while (hasMore) {
-    const data = await fetchTracksPage(userId, spotifyId, page);
+    const data = await fetchTracksPage(userId, playlistId, page);
     tracks.push(...data.tracks.map((t: any) => ({ id: t.id })));
     hasMore = data.hasMore;
     page = data.nextPage;
@@ -23,7 +23,7 @@ const fetchAllTracks = async (userId: string, spotifyId: string): Promise<{ id: 
 // Optionally removes duplicate track IDs, keeping only the first occurrence of each
 export const buildMergedTrackList = async (
   userId: string,
-  // List of spotifyIds to merge — may include the sentinel value 'liked' for Liked Songs
+  // List of playlistIds to merge — may include the sentinel value 'liked' for Liked Songs
   playlistIds: string[],
   removeDuplicates: boolean
 ): Promise<{ id: string }[]> => {

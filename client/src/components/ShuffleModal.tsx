@@ -132,6 +132,7 @@ export default function ShuffleModal({
 
   const noneSelected = !Object.values(algorithms).some(Boolean);
   const showReshuffle = Boolean(isOwner && canScheduleReshuffle);
+  const dontShowReshuffleText ="Auto-reshuffle is only available for playlists you own.\nTip: For liked songs playlist, try and create a copy of the playlist first!"
 
   return (
     // Backdrop — only close when the mousedown also originated on the backdrop,
@@ -269,7 +270,7 @@ export default function ShuffleModal({
 
             {!showReshuffle ? (
               <div className="text-text-muted text-sm">
-                Auto-reshuffle is only available for playlists you own.
+                {dontShowReshuffleText}
               </div>
             ) : (
               <div className="flex flex-col gap-5 flex-1">
