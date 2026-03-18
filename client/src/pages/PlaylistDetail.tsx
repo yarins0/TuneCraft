@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
+import { useParams, useLocation, Link } from 'react-router-dom';
 import { fetchTracksPage, fetchPendingFeatures } from '../api/tracks';
 import type { Track, PlaylistAverages } from '../api/tracks';
 import { formatDuration } from '../api/tracks';
@@ -54,7 +54,6 @@ const recalculateAverages = (tracks: Track[]): PlaylistAverages => {
 
 export default function PlaylistDetail() {
   const { playlistId } = useParams<{ playlistId: string }>();
-  const navigate = useNavigate();
   const location = useLocation();
 
   // location.state is set when navigating within the app via React Router
