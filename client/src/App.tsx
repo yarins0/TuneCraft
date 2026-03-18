@@ -6,7 +6,7 @@ import PlaylistDetail from './pages/PlaylistDetail.tsx';
 
 // Checks if a userId exists in session storage.
 // Used to protect routes that require authentication.
-const isAuthenticated = () => !!sessionStorage.getItem('userId');
+const isAuthenticated = () => !!localStorage.getItem('userId');
 
 // ProtectedRoute wraps any page that requires the user to be logged in.
 // If the user is not authenticated, they are redirected to the login page.

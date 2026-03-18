@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { fetchTracksPage, fetchPendingFeatures } from '../api/tracks';
 import type { Track, PlaylistAverages } from '../api/tracks';
 import { formatDuration } from '../api/tracks';
@@ -20,8 +20,8 @@ import { findDuplicates } from '../utils/findDuplicates';
 import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
 import useNumberStepper from '../hooks/useNumberStepper';
 
-const getUserId = () => sessionStorage.getItem('userId') || '';
-const getPlatformUserId = () => sessionStorage.getItem('platformUserId') || '';
+const getUserId = () => localStorage.getItem('userId') || '';
+const getPlatformUserId = () => localStorage.getItem('platformUserId') || '';
 
 // Recalculates playlist averages from the full set of loaded tracks
 // Called after each page loads so the charts stay up to date as tracks stream in
@@ -503,12 +503,12 @@ export default function PlaylistDetail() {
             Tunecraft can only access playlists you own. Playlists created by other users are restricted.
           </p>
         )}
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-3 rounded-full transition-all duration-200"
+        <Link
+          to="/dashboard"
+          className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-3 rounded-full transition-all duration-200 inline-block"
         >
           Back to Dashboard
-        </button>
+        </Link>
       </div>
     </div>
   );
@@ -521,12 +521,12 @@ export default function PlaylistDetail() {
         <div className="flex items-center gap-4">
 
           {/* Logo — clicking navigates back to dashboard */}
-          <div className="flex items-center gap-2 cursor-pointer shrink-0" onClick={() => navigate('/dashboard')}>
+          <Link to="/dashboard" className="flex items-center gap-2 cursor-pointer shrink-0">
             <img src="/favicon.svg" alt="TuneCraft icon" className="h-7 w-7" />
             <h1 className="text-2xl font-bold tracking-tight">
               Tune<span className="text-accent">Craft</span>
             </h1>
-          </div>
+          </Link>
 
           {/* Vertical divider */}
           <div className="h-8 w-px bg-border-color shrink-0" />

@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 // Handles the redirect from the Tunecraft backend after Spotify OAuth completes.
-// Reads the userId from the URL and stores it in session storage.
+// Reads the userId from the URL and stores it in local storage.
 export default function Callback() {
   const navigate = useNavigate();
 
@@ -11,8 +11,8 @@ export default function Callback() {
     const platformUserId = new URLSearchParams(window.location.search).get('platformUserId');
 
     if (userId && platformUserId) {
-      sessionStorage.setItem('userId', userId);
-      sessionStorage.setItem('platformUserId', platformUserId);
+      localStorage.setItem('userId', userId);
+      localStorage.setItem('platformUserId', platformUserId);
       navigate('/dashboard');
     }
   }, []);

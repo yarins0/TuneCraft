@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { fetchPlaylists, fetchLikedSongs } from '../api/playlists';
 import type { Playlist } from '../api/playlists';
 import { extractPlaylistId } from '../utils/platform';
@@ -8,8 +8,8 @@ import MergeModal from '../components/MergeModal';
 import { mergePlaylist } from '../api/playlists';
 import { buildMergedTrackList } from '../utils/mergePlaylists';
 
-const getUserId = () => sessionStorage.getItem('userId') || '';
-const getPlatformUserId = () => sessionStorage.getItem('platformUserId');
+const getUserId = () => localStorage.getItem('userId') || '';
+const getPlatformUserId = () => localStorage.getItem('platformUserId');
 
 // Sentinel ID used to represent Liked Songs in the selection set
 // Liked Songs have no real Spotify playlist ID, so we use this constant as a stand-in
@@ -152,26 +152,22 @@ export default function Dashboard() {
   };
 
   // Called when the card body itself is clicked
-  // In select mode: toggle selection; in normal mode: navigate
-  const handleCardClick = (playlist: Playlist) => {
+  // In select mode: block the Link navigation and toggle selection instead
+  // In normal mode: let the Link navigate (supports Ctrl+click / middle-click to open in new tab)
+  const handleCardClick = (e: React.MouseEvent, playlist: Playlist) => {
     if (selectMode) {
+      e.preventDefault();
       toggleSelection(playlist.platformId);
-    } else {
-      navigate(`/playlist/${playlist.platformId}`, {
-        state: { ownerId: playlist.ownerId, name: playlist.name },
-      });
     }
   };
 
   // Called when the Liked Songs card body is clicked
-  // In select mode: toggle its selection; in normal mode: navigate as before
-  const handleLikedCardClick = () => {
+  // In select mode: block the Link navigation and toggle selection instead
+  // In normal mode: let the Link navigate (supports Ctrl+click / middle-click to open in new tab)
+  const handleLikedCardClick = (e: React.MouseEvent) => {
     if (selectMode) {
+      e.preventDefault();
       toggleSelection(LIKED_SONGS_ID);
-    } else {
-      navigate('/playlist/liked', {
-        state: { ownerId: getPlatformUserId(), name: 'Liked Songs' },
-      });
     }
   };
 
@@ -210,7 +206,7 @@ export default function Dashboard() {
 
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-border-color px-8 py-6 bg-bg-secondary">
-        <div className="flex items-center gap-3 cursor-pointer w-fit" onClick={() => navigate('/dashboard')}>
+        <Link to="/dashboard" className="flex items-center gap-3 cursor-pointer w-fit">
           <img src="/favicon.svg" alt="TuneCraft icon" className="h-12 w-12" />
           <div>
             <h1 className="text-3xl font-bold tracking-tight">
@@ -218,7 +214,7 @@ export default function Dashboard() {
             </h1>
             <p className="text-text-muted text-sm mt-0.5">Your music, engineered.</p>
           </div>
-        </div>
+        </Link>
       </div>
 
       <div className="px-8 py-10">
@@ -260,10 +256,12 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
 
             {/* Liked Songs card — selectable like owned playlists, handled with LIKED_SONGS_ID */}
-            <div
+            <Link
+              to="/playlist/liked"
+              state={{ ownerId: getPlatformUserId(), name: 'Liked Songs' }}
               onClick={handleLikedCardClick}
               className={[
-                'group relative bg-bg-card rounded-2xl overflow-hidden border transition-all duration-200 cursor-pointer',
+                'group relative bg-bg-card rounded-2xl overflow-hidden border transition-all duration-200 cursor-pointer block',
                 isLikedSelected
                   ? 'border-accent ring-2 ring-accent/40 bg-accent/5'
                   : 'border-border-color hover:border-accent/50 hover:bg-bg-secondary',
@@ -290,17 +288,19 @@ export default function Dashboard() {
                 <p className="font-semibold text-sm">Liked Songs</p>
                 <p className="text-text-muted text-xs mt-1">{likedCount ?? '...'} tracks</p>
               </div>
-            </div>
+            </Link>
 
             {/* Owned playlists — hover-reveal checkbox, fully selectable */}
             {ownedPlaylists.map(playlist => {
               const isSelected = selectedIds.has(playlist.platformId);
               return (
-                <div
+                <Link
                   key={playlist.platformId}
-                  onClick={() => handleCardClick(playlist)}
+                  to={`/playlist/${playlist.platformId}`}
+                  state={{ ownerId: playlist.ownerId, name: playlist.name }}
+                  onClick={(e) => handleCardClick(e, playlist)}
                   className={[
-                    'group relative bg-bg-card rounded-2xl overflow-hidden border transition-all duration-200 cursor-pointer',
+                    'group relative bg-bg-card rounded-2xl overflow-hidden border transition-all duration-200 cursor-pointer block',
                     isSelected
                       ? 'border-accent ring-2 ring-accent/40 bg-accent/5'
                       : 'border-border-color hover:border-accent/50 hover:bg-bg-secondary',
@@ -337,7 +337,7 @@ export default function Dashboard() {
                     <p className="font-semibold text-sm truncate">{playlist.name}</p>
                     <p className="text-text-muted text-xs mt-1">{playlist.trackCount} tracks</p>
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>
@@ -358,17 +358,13 @@ export default function Dashboard() {
             )}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               {followingPlaylists.map(playlist => (
-                <div
+                <Link
                   key={playlist.platformId}
-                  onClick={() => {
-                    if (!selectMode) {
-                      navigate(`/playlist/${playlist.platformId}`, {
-                        state: { ownerId: playlist.ownerId, name: playlist.name },
-                      });
-                    }
-                  }}
+                  to={`/playlist/${playlist.platformId}`}
+                  state={{ ownerId: playlist.ownerId, name: playlist.name }}
+                  onClick={(e) => { if (selectMode) e.preventDefault(); }}
                   className={[
-                    'group bg-bg-card rounded-2xl overflow-hidden border border-border-color transition-all duration-300 opacity-75',
+                    'group bg-bg-card rounded-2xl overflow-hidden border border-border-color transition-all duration-300 opacity-75 block',
                     selectMode
                       // In select mode: dim and show a not-allowed cursor, but keep hover feedback consistent
                       ? 'opacity-30 cursor-not-allowed'
@@ -397,7 +393,7 @@ export default function Dashboard() {
                     <p className="font-semibold text-sm truncate">{playlist.name}</p>
                     <p className="text-text-muted text-xs mt-1">{playlist.trackCount} tracks</p>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
