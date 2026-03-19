@@ -55,14 +55,14 @@ Browser → Vite (5173) → React Router → Page component
                          └──────────┬──────────────┬──────────┘
                                     │              │
                              PlatformAdapter    Prisma ORM
-                             (Spotify impl)       │
+                          (Spotify / SoundCloud)   │
                                     │         PostgreSQL
-                               Spotify API
+                               Platform API
                                Last.fm API
                                ReccoBeats API
 ```
 
-All playlist and reshuffle routes run through `server/src/middleware/refreshToken.ts`, which auto-refreshes expired Spotify tokens and attaches the valid access token to `req` before any route handler runs.
+All playlist and reshuffle routes run through `server/src/middleware/refreshToken.ts`, which auto-refreshes expired tokens and attaches the valid access token to `req` before any route handler runs.
 
 ---
 
@@ -77,18 +77,24 @@ GET /playlists/:userId/:playlistId/tracks
   Fetch raw tracks from Spotify
           │
           ▼
-  ┌───────────────────────────────────────┐
-  │           Audio Features              │
-  │                                       │
-  │  Check TrackCache (by spotifyId)      │
-  │       ├── HIT  → use cached data      │
-  │       └── MISS → batch collect IDs   │
-  │                       │              │
-  │             ReccoBeats API            │
-  │          (batches of ≤ 40 tracks)     │
-  │                       │              │
-  │             Persist to TrackCache     │
-  └───────────────────────────────────────┘
+  ┌────────────────────────────────────────────┐
+  │              Audio Features                │
+  │                                            │
+  │  Check TrackCache (spotifyId / soundcloud  │
+  │  Id / isrc — one OR query, all platforms)  │
+  │       ├── HIT  → use cached data           │
+  │       │    └─ ISRC cross-hit? backfill      │
+  │       │       platform ID fire-and-forget  │
+  │       └── MISS → Phase 0: ISRC → spotifyId │
+  │                  (SoundCloud only)         │
+  │                       │                   │
+  │             ReccoBeats API                 │
+  │          (batches of ≤ 40 tracks)          │
+  │                       │                   │
+  │             Upsert TrackCache by ISRC      │
+  │             (links both platform IDs       │
+  │              to a single row)              │
+  └────────────────────────────────────────────┘
           │
           ▼
   ┌───────────────────────────────────────┐
@@ -112,6 +118,8 @@ GET /playlists/:userId/:playlistId/tracks
 ```
 
 **Why two caches?** Audio features are keyed per track (stable — a song's BPM doesn't change). Genres are keyed per artist (one artist → many tracks; caching at the artist level avoids redundant Last.fm calls).
+
+**Cross-platform deduplication:** `TrackCache` holds one row per unique recording, not one row per platform track entry. The row is keyed by ISRC when available, so if a song is loaded on Spotify first and later on SoundCloud, ReccoBeats is never called a second time — the existing features are returned immediately and the SoundCloud ID is backfilled onto the existing row.
 
 **ReccoBeats batch cap:** The API accepts up to 40 track IDs per request. Requests are split into chunks of 40 before dispatch.
 
@@ -233,7 +241,7 @@ routes/playlists.ts
           server/src/lib/platform/spotify.ts
 ```
 
-Adding a new platform (Apple Music, YouTube Music) means implementing `PlatformAdapter` and registering it in `registry.ts` — zero changes to route handlers.
+Adding a new platform means implementing `PlatformAdapter` and registering it in `registry.ts` — zero changes to route handlers. `TrackCache` already has a dedicated column for each platform (`spotifyId`, `soundcloudId`) — add a new column per platform as adapters are built.
 
 ---
 
@@ -290,11 +298,15 @@ Spotify enforces a 429 rate limit. `spotifyRequestWithRetry` in `routes/playlist
 │                  User                   │
 │─────────────────────────────────────────│
 │ id                String  (cuid, PK)    │
-│ spotifyUserId     String  (unique)      │
+│ platformUserId    String                │
+│ displayName       String                │
+│ email             String?               │
 │ accessToken       String                │
 │ refreshToken      String                │
 │ tokenExpiresAt    DateTime              │
+│ platform          Platform (enum)       │
 │ createdAt         DateTime              │
+│ @@unique([platformUserId, platform])    │
 └──────────────────────┬──────────────────┘
                        │ 1:N
                        ▼
@@ -303,33 +315,42 @@ Spotify enforces a 429 rate limit. `spotifyRequestWithRetry` in `routes/playlist
 │─────────────────────────────────────────│
 │ id                  String  (cuid, PK)  │
 │ userId              String  (FK → User) │
-│ platformPlaylistId  String  (Spotify ID)│
+│ platformPlaylistId  String              │
+│ name                String              │
 │ autoReshuffle       Boolean             │
 │ intervalDays        Int?                │
 │ algorithms          Json?               │
 │ lastReshuffledAt    DateTime?           │
 │ nextReshuffleAt     DateTime?           │
+│ platform            Platform (enum)     │
 │ @@unique([userId, platformPlaylistId])  │
 └─────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────┐
 │              TrackCache                 │
 │─────────────────────────────────────────│
-│ spotifyId      String  (unique, PK)     │
-│ audioFeatures  Json                     │
-│ fetchedAt      DateTime                 │
+│ id            String   (cuid, PK)       │
+│ isrc          String?  (unique)         │
+│ spotifyId     String?  (unique)         │
+│ soundcloudId  String?  (unique)         │
+│ audioFeatures Json                      │
+│ cachedAt      DateTime                  │
 └─────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────┐
 │              ArtistCache                │
 │─────────────────────────────────────────│
-│ artistId   String  (unique, PK)         │
-│ genres     Json    (string[])           │
-│ fetchedAt  DateTime                     │
+│ id          String  (cuid, PK)          │
+│ artistId    String  (unique)            │
+│ artistName  String                      │
+│ genres      Json    (string[])          │
+│ cachedAt    DateTime                    │
 └─────────────────────────────────────────┘
 ```
 
-`Playlist` stores only scheduling metadata — track data is never persisted locally. It is always fetched live from Spotify and enriched on the fly via the two cache tables.
+`Playlist` stores only scheduling metadata — track data is never persisted locally. It is always fetched live from the platform and enriched on the fly via the two cache tables.
+
+`TrackCache` holds one row per unique recording. The same song on Spotify and SoundCloud shares a single row, linked by ISRC. Platform-specific ID columns (`spotifyId`, `soundcloudId`) are added as each adapter is built.
 
 ---
 
@@ -341,7 +362,7 @@ Spotify enforces a 429 rate limit. `spotifyRequestWithRetry` in `routes/playlist
 | Backend | Node.js, Express, TypeScript |
 | Database | PostgreSQL via Prisma ORM |
 | Auth | Spotify OAuth 2.0 with automatic token refresh |
-| External APIs | Spotify Web API, Last.fm, ReccoBeats |
+| External APIs | Spotify Web API, SoundCloud API, Last.fm, ReccoBeats |
 | Background jobs | node-cron |
 
 ---
@@ -436,7 +457,7 @@ tunecraft/
 │       ├── api/                   # Typed fetch wrappers (playlists, tracks, reshuffle)
 │       ├── components/            # Modals (Shuffle, Split, Merge, Copy, Duplicates)
 │       ├── constants/             # Audio feature keys, labels, chart colours
-│       ├── hooks/                 # useAnimatedLabel (cycling button state text)
+│       ├── hooks/                 # useAnimatedLabel, usePlaylistTracks, usePlaylistActions, useReshuffleSchedule
 │       ├── pages/                 # Route-level components (Login, Dashboard, PlaylistDetail, Callback)
 │       └── utils/                 # shuffleAlgorithms, splitPlaylist, mergePlaylists, platform helpers
 └── server/                        # Express backend (Node.js + TypeScript)
