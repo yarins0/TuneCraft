@@ -1,6 +1,6 @@
 # TuneCraft
 
-> Smarter Spotify playlist management. Analyze, shuffle, organize, and automate your music library beyond what Spotify natively offers.
+>Smarter playlist management. Analyze, shuffle, organize, and automate your music library.
 
 ---
 
@@ -382,13 +382,13 @@ SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
 LASTFM_API_KEY=your_lastfm_api_key
 LASTFM_SECRET=your_lastfm_secret
 RECCOBEATS_API_KEY=your_reccobeats_api_key
-REDIRECT_URI=http://127.0.0.1:3000/auth/callback
+SPOTIFY_REDIRECT_URI=http://127.0.0.1:3000/auth/callback
 FRONTEND_URL=http://127.0.0.1:5173
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DB_NAME?schema=public
 PORT=3000
 ```
 
-> **Important:** `REDIRECT_URI` must exactly match the redirect URI registered in your Spotify Developer Dashboard.
+> **Important:** `SPOTIFY_REDIRECT_URI` must exactly match the redirect URI registered in your Spotify Developer Dashboard.
 
 ### 3. Initialize the database
 

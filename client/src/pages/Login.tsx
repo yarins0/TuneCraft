@@ -7,14 +7,20 @@ const handleLogin = (platform: string) => {
 };
 
 // Each platform option in the picker.
-// `available` controls whether the button is clickable — only Spotify is live right now.
+// `color` uses the platform's official brand color for the active button so users recognise
+// what they're granting access to — a trust signal before the OAuth redirect.
 const PLATFORMS = [
-  { id: 'SPOTIFY',     label: 'Spotify',     available: true  },
-  { id: 'SOUNDCLOUD',  label: 'SoundCloud',  available: false },
-  { id: 'APPLE_MUSIC', label: 'Apple Music', available: false },
+  { id: 'SPOTIFY',     label: 'Spotify',     available: true,  color: '#1DB954' },
+  { id: 'SOUNDCLOUD',  label: 'SoundCloud',  available: true,  color: '#FF5500' },
+  { id: 'APPLE_MUSIC', label: 'Apple Music', available: false, color: '#fc3c44' },
 ];
 
 export default function Login() {
+  // The OAuth callback redirects back here with ?error=denied when the user cancels
+  // the authorization screen on Spotify or SoundCloud. Show a brief explanatory message
+  // so they're not confused by the page reloading with no feedback.
+  const denied = new URLSearchParams(window.location.search).get('error') === 'denied';
+
   return (
     <div className="min-h-screen bg-bg-primary flex items-center justify-center">
       {/* Glowing background orb */}
@@ -43,21 +49,34 @@ export default function Login() {
           <p>🔀 Auto-reshuffle on schedule</p>
         </div>
 
+        {/* OAuth denial message — shown when redirected back with ?error=denied */}
+        {denied && (
+          <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 max-w-xs text-center">
+            Authorization was cancelled. Connect below to try again.
+          </p>
+        )}
+
         {/* Platform picker */}
         <div className="flex flex-col gap-3 w-full max-w-xs">
-          {PLATFORMS.map(({ id, label, available }) => (
+          {PLATFORMS.map(({ id, label, available, color }) => (
             <button
               key={id}
               onClick={available ? () => handleLogin(id) : undefined}
               disabled={!available}
               title={available ? undefined : 'Coming soon'}
+              style={available ? { backgroundColor: color } : undefined}
               className={
                 available
-                  ? 'bg-accent hover:bg-accent-hover text-text-primary font-bold px-10 py-4 rounded-full text-lg transition-all duration-300 hover:scale-105 active:scale-95'
-                  : 'bg-bg-secondary text-text-muted font-bold px-10 py-4 rounded-full text-lg opacity-40 cursor-not-allowed'
+                  ? 'text-white font-bold px-10 py-4 rounded-full text-lg transition-all duration-300 hover:scale-105 active:scale-95 hover:brightness-110'
+                  : 'bg-bg-secondary text-text-muted font-bold px-10 py-4 rounded-full text-lg opacity-40 cursor-not-allowed relative'
               }
             >
               Connect {label}
+              {!available && (
+                <span className="absolute -top-2 -right-2 text-[10px] font-semibold bg-bg-card border border-border-color text-text-muted px-2 py-0.5 rounded-full">
+                  soon
+                </span>
+              )}
             </button>
           ))}
         </div>

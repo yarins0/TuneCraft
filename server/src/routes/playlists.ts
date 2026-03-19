@@ -76,6 +76,67 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
   }
 });
 
+// GET /playlists/:userId/discover?url=https://soundcloud.com/user/sets/name
+// Resolves a platform URL to a playlist by calling the platform's slug-resolution API.
+// Used when the client detects a full URL in the discover input rather than a bare ID.
+// Currently only SoundCloud URLs need server-side resolution — Spotify IDs are extracted client-side.
+router.get('/:userId/discover', refreshTokenMiddleware, async (req, res) => {
+  const url = req.query.url as string | undefined;
+  const accessToken = (req as any).accessToken;
+
+  if (!url) {
+    res.status(400).json({ error: 'url query param required' });
+    return;
+  }
+
+  // Detect platform from the URL hostname
+  const isSoundCloud = url.includes('soundcloud.com');
+  if (!isSoundCloud) {
+    res.status(400).json({ error: 'Unsupported URL — only SoundCloud URLs are supported here' });
+    return;
+  }
+
+  const adapter = getAdapter('SOUNDCLOUD');
+
+  try {
+    // SoundCloud's /resolve endpoint translates a slug URL into a full resource object.
+    // The response contains `id` (numeric playlist ID) and `kind` ('playlist').
+    const { default: axios } = await import('axios');
+    const resolved = await axios.get('https://api.soundcloud.com/resolve', {
+      params: { url },
+      headers: { Authorization: `OAuth ${accessToken}` },
+    });
+
+    if (resolved.data.kind !== 'playlist') {
+      res.status(400).json({ error: 'URL does not point to a SoundCloud playlist' });
+      return;
+    }
+
+    const playlistId = String(resolved.data.id);
+    const playlist = await adapter.fetchPlaylist(accessToken, playlistId);
+
+    res.json({
+      platformId: playlist.id,
+      name: playlist.name,
+      ownerId: playlist.ownerId,
+      trackCount: playlist.trackCount,
+      imageUrl: playlist.imageUrl,
+      platform: adapter.platform,
+    });
+  } catch (error: any) {
+    const status = error.response?.status;
+    if (status === 404) {
+      res.status(404).json({ error: 'Playlist not found' });
+      return;
+    }
+    if (status === 403) {
+      res.status(403).json({ error: 'This playlist is private' });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to resolve playlist URL' });
+  }
+});
+
 // GET /playlists/:userId/discover/:playlistId
 // Fetches metadata for any public playlist by ID
 // Used when a user pastes a URL or ID they don't own

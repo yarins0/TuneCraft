@@ -1,13 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { fetchPlaylists, fetchLikedSongs } from '../api/playlists';
 import type { Playlist } from '../api/playlists';
 import { extractPlaylistId } from '../utils/platform';
-import { discoverPlaylist } from '../api/playlists';
+import { discoverPlaylist, discoverPlaylistByUrl } from '../api/playlists';
 import MergeModal from '../components/MergeModal';
 import { mergePlaylist } from '../api/playlists';
 import { buildMergedTrackList } from '../utils/mergePlaylists';
+import { getActiveAccount, getAccounts, type StoredAccount } from '../utils/accounts';
+import PlatformSwitcherSidebar from '../components/PlatformSwitcherSidebar';
 
+// Reads the active userId from localStorage — synced by setActiveAccount() on every switch.
 const getUserId = () => localStorage.getItem('userId') || '';
 const getPlatformUserId = () => localStorage.getItem('platformUserId');
 
@@ -25,6 +28,12 @@ export default function Dashboard() {
   const [discoverError, setDiscoverError] = useState<string | null>(null);
   const [discoverLoading, setDiscoverLoading] = useState(false);
 
+  // --- Platform Switcher state ---
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // activeAccount drives the account button label in the header.
+  // Re-read from localStorage on every switch.
+  const [activeAccount, setActiveAccount] = useState<StoredAccount | null>(() => getActiveAccount());
+
   // --- Phase 5: Merge modal state ---
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
   const [mergeLoading, setMergeLoading] = useState(false);
@@ -39,7 +48,9 @@ export default function Dashboard() {
 
   const navigate = useNavigate();
 
-  useEffect(() => {
+  // loadLibrary fetches playlists and liked-song count for the currently active account.
+  // Extracted into a useCallback so it can be called both on mount and after an account switch.
+  const loadLibrary = useCallback(() => {
     const userId = getUserId();
 
     if (!userId) {
@@ -47,6 +58,9 @@ export default function Dashboard() {
       setLoading(false);
       return;
     }
+
+    setLoading(true);
+    setError(null);
 
     // Fetch both playlists and liked songs count in parallel
     Promise.all([
@@ -64,21 +78,43 @@ export default function Dashboard() {
       });
   }, []);
 
-  // Handles the discover form submission
-  // Parses the input, fetches playlist metadata, then navigates to the detail page
+  useEffect(() => {
+    loadLibrary();
+  }, [loadLibrary]);
+
+  // Called by PlatformSwitcherSidebar when the user picks a different account.
+  // The sidebar already called persistActiveAccount() to sync localStorage before this runs,
+  // so getUserId() will return the new account's userId when loadLibrary fires.
+  const handleAccountSwitch = (userId: string) => {
+    // Refresh the displayed account info in the header
+    const accounts = getAccounts();
+    const account = accounts.find(a => a.userId === userId) ?? null;
+    setActiveAccount(account);
+    // Reset select mode so stale selections from the old account don't carry over
+    exitSelectMode();
+    // Re-fetch playlists for the newly active account
+    loadLibrary();
+  };
+
+  // Handles the discover form submission.
+  // extractPlaylistId returns either a bare platform ID (Spotify) or a full URL (SoundCloud).
+  // Full URLs can't be resolved client-side and are sent to the server for slug → ID resolution.
   const handleDiscover = async () => {
     setDiscoverError(null);
-    const playlistId = extractPlaylistId(discoverInput);
+    const extracted = extractPlaylistId(discoverInput);
 
-    if (!playlistId) {
-      setDiscoverError('Please enter a valid Spotify playlist URL or ID');
+    if (!extracted) {
+      setDiscoverError('Please enter a valid Spotify or SoundCloud playlist URL or ID');
       return;
     }
 
     setDiscoverLoading(true);
 
     try {
-      const playlist = await discoverPlaylist(getUserId(), playlistId);
+      // SoundCloud URLs start with https://soundcloud.com — the server resolves the slug to an ID
+      const playlist = extracted.startsWith('https://soundcloud.com')
+        ? await discoverPlaylistByUrl(getUserId(), extracted)
+        : await discoverPlaylist(getUserId(), extracted);
       navigate(`/playlist/${playlist.platformId}`, {
         state: { ownerId: playlist.ownerId, name: playlist.name },
       });
@@ -206,16 +242,54 @@ export default function Dashboard() {
 
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-border-color px-8 py-6 bg-bg-secondary">
-        <Link to="/dashboard" className="flex items-center gap-3 cursor-pointer w-fit">
-          <img src="/favicon.svg" alt="TuneCraft icon" className="h-12 w-12" />
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">
-              Tune<span className="text-accent">Craft</span>
-            </h1>
-            <p className="text-text-muted text-sm mt-0.5">Your music, engineered.</p>
-          </div>
-        </Link>
+        <div className="flex items-center justify-between">
+          <Link to="/dashboard" className="flex items-center gap-3 cursor-pointer w-fit">
+            <img src="/favicon.svg" alt="TuneCraft icon" className="h-12 w-12" />
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">
+                Tune<span className="text-accent">Craft</span>
+              </h1>
+              <p className="text-text-muted text-sm mt-0.5">Your music, engineered.</p>
+            </div>
+          </Link>
+
+          {/* Account switcher button — shows the active platform and opens the sidebar */}
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-full border border-border-color
+                       bg-bg-card hover:border-accent/50 hover:bg-bg-secondary
+                       transition-all duration-200 hover:scale-105 active:scale-95"
+            aria-label="Switch platform account"
+          >
+            <span className="text-sm font-semibold text-text-primary truncate max-w-[140px]">
+              {activeAccount?.displayName || activeAccount?.platform || 'Account'}
+            </span>
+            {/* Small platform colour dot */}
+            {activeAccount && (
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{
+                  backgroundColor:
+                    activeAccount.platform === 'SPOTIFY'
+                      ? '#1DB954'
+                      : activeAccount.platform === 'SOUNDCLOUD'
+                      ? '#FF5500'
+                      : '#a855f7',
+                }}
+              />
+            )}
+            <span className="text-text-muted text-xs">▼</span>
+          </button>
+        </div>
       </div>
+
+      {/* Platform Switcher Sidebar */}
+      <PlatformSwitcherSidebar
+        isOpen={sidebarOpen}
+        activeUserId={activeAccount?.userId ?? ''}
+        onClose={() => setSidebarOpen(false)}
+        onSwitch={handleAccountSwitch}
+      />
 
       <div className="px-8 py-10">
         {/* Playlist Discovery Search Bar — unchanged */}
@@ -232,7 +306,8 @@ export default function Dashboard() {
                 setDiscoverError(null);
               }}
               onKeyDown={e => e.key === 'Enter' && handleDiscover()}
-              placeholder="Paste a Spotify playlist URL or ID..."
+              aria-label="Discover any playlist"
+              placeholder="Paste a Spotify or SoundCloud playlist URL..."
               className="flex-1 bg-bg-card border border-border-color rounded-full px-5 py-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 transition-colors duration-200"
             />
             <button
@@ -269,7 +344,12 @@ export default function Dashboard() {
             >
               {/* Checkbox — hover-reveal in normal mode, always visible in select mode */}
               <div
+                role="checkbox"
+                aria-checked={isLikedSelected}
+                aria-label="Select Liked Songs for merge"
+                tabIndex={0}
                 onClick={e => handleCheckboxClick(e, LIKED_SONGS_ID)}
+                onKeyDown={e => e.key === ' ' && handleCheckboxClick(e as any, LIKED_SONGS_ID)}
                 className={[
                   'absolute top-2 right-2 z-10 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-150',
                   isLikedSelected
@@ -308,7 +388,12 @@ export default function Dashboard() {
                 >
                   {/* Checkbox — hover-reveal in normal mode, always visible in select mode */}
                   <div
+                    role="checkbox"
+                    aria-checked={isSelected}
+                    aria-label={`Select ${playlist.name} for merge`}
+                    tabIndex={0}
                     onClick={e => handleCheckboxClick(e, playlist.platformId)}
+                    onKeyDown={e => e.key === ' ' && handleCheckboxClick(e as any, playlist.platformId)}
                     className={[
                       'absolute top-2 right-2 z-10 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-150',
                       isSelected

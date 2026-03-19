@@ -3,7 +3,7 @@ import { useParams, useLocation, Link } from 'react-router-dom';
 import { fetchTracksPage, fetchPendingFeatures } from '../api/tracks';
 import type { Track, PlaylistAverages } from '../api/tracks';
 import { formatDuration } from '../api/tracks';
-import { getPlatformTrackUrl, getPlatformLabel } from '../utils/platform';
+import { getPlatformTrackUrl, getPlatformLabel, getPlatformPlaylistUrl } from '../utils/platform';
 import AudioFeatureChart from '../components/AudioFeatureChart';
 import { AUDIO_FEATURES } from '../constants/audioFeatures';
 import PlaylistCompositionCharts from '../components/PlaylistCompositionCharts';
@@ -68,6 +68,19 @@ export default function PlaylistDetail() {
 
   const [tracks, setTracks] = useState<Track[]>([]);
   const [averages, setAverages] = useState<PlaylistAverages | null>(null);
+
+  // Fraction of loaded tracks that have at least one non-null audio feature.
+  // SoundCloud tracks without an ISRC return all-null features (no ReccoBeats match).
+  // When coverage is below 20%, audio feature charts and split strategies are hidden
+  // so the UI doesn't show misleading averages computed from a tiny unrepresentative sample.
+  const audioFeatureCoverage = useMemo(() => {
+    if (tracks.length === 0) return 1; // default to 1 while tracks haven't loaded yet
+    const withFeatures = tracks.filter(t =>
+      Object.values(t.audioFeatures).some(v => v !== null)
+    ).length;
+    return withFeatures / tracks.length;
+  }, [tracks]);
+
   const [total, setTotal] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -537,22 +550,30 @@ export default function PlaylistDetail() {
                 type="button"
                 onClick={() => {
                   if (!playlistId) return;
-                  const url = playlistId === 'liked'
-                    ? 'https://open.spotify.com/collection/tracks'
-                    : `https://open.spotify.com/playlist/${playlistId}`;
+                  // Use the platform of the first loaded track to build the correct URL.
+                  // Falls back to Spotify if no tracks have loaded yet.
+                  const platform = tracks[0]?.platform;
+                  const url = getPlatformPlaylistUrl(platform, playlistId);
                   window.open(url, '_blank', 'noopener,noreferrer');
                 }}
+                title={getPlatformLabel(tracks[0]?.platform)}
                 className="text-lg font-semibold text-left text-text-primary hover:text-accent hover:underline cursor-pointer truncate max-w-xs block"
               >
                 {name}
               </button>
             )}
             {/* Shows live loading progress as pages stream in */}
-            <p className="text-text-muted text-sm">
+            <p className="text-text-muted text-sm flex items-center gap-2">
               {loadingMore
                 ? `Loading... ${tracks.length} of ${total} tracks`
                 : `${tracks.length} tracks`
               }
+              {/* Platform badge — shown once tracks have loaded so we know the platform */}
+              {tracks.length > 0 && tracks[0]?.platform && tracks[0].platform !== 'SPOTIFY' && (
+                <span className="text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/20">
+                  {tracks[0].platform === 'SOUNDCLOUD' ? 'SoundCloud' : tracks[0].platform}
+                </span>
+              )}
             </p>
           </div>
 
@@ -664,20 +685,30 @@ export default function PlaylistDetail() {
 
           {insightsOpen && averages && (
             <div className="px-6 pb-6">
-              {/* Row 1 — Audio feature donut charts */}
-              <div className="grid grid-cols-4 md:grid-cols-7 gap-6 justify-items-center mb-8">
-                {AUDIO_FEATURES.map(feature => (
-                  <AudioFeatureChart
-                    key={feature.key}
-                    label={feature.label}
-                    value={averages[feature.key as keyof PlaylistAverages]}
-                    isTempo={feature.isTempo}
-                    isLoading={loadingMore}
-                  />
-                ))}
-              </div>
+              {/* Row 1 — Audio feature donut charts.
+                  Hidden when <20% of tracks have audio features (e.g. SoundCloud playlists
+                  with mostly indie uploads that have no ISRC → no ReccoBeats match).
+                  Showing averages from 1-2 matched tracks would be misleading. */}
+              {audioFeatureCoverage >= 0.2 ? (
+                <div className="grid grid-cols-4 md:grid-cols-7 gap-6 justify-items-center mb-8">
+                  {AUDIO_FEATURES.map(feature => (
+                    <AudioFeatureChart
+                      key={feature.key}
+                      label={feature.label}
+                      value={averages[feature.key as keyof PlaylistAverages]}
+                      isTempo={feature.isTempo}
+                      isLoading={loadingMore}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 text-text-muted text-sm mb-8 px-1 py-3 bg-bg-secondary rounded-xl border border-border-color">
+                  <span className="text-2xl shrink-0 pl-1">🎙️</span>
+                  <span>Audio feature data isn't available for most tracks here — this often happens with independent SoundCloud uploads that aren't on major streaming services.</span>
+                </div>
+              )}
 
-              {/* Row 2 — Genre and decade pie charts */}
+              {/* Row 2 — Genre and decade pie charts (always shown; sourced from Last.fm, not audio features) */}
               <PlaylistCompositionCharts
                 tracks={tracks}
                 isLoading={loadingMore}
@@ -776,6 +807,17 @@ export default function PlaylistDetail() {
             </span>
           </button>
         </div>
+
+        {/* Empty state — shown when loading is complete but no tracks exist */}
+        {!loading && !loadingMore && tracks.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
+            <span className="text-5xl">🎵</span>
+            <p className="text-text-primary font-semibold">This playlist is empty.</p>
+            <p className="text-text-muted text-sm">
+              Add tracks on your streaming platform to get started.
+            </p>
+          </div>
+        )}
 
         <div className="flex flex-col gap-2">
           {(() => {
@@ -1030,6 +1072,7 @@ export default function PlaylistDetail() {
         playlistName={name || 'My Playlist'}
         tracks={tracks}
         isLoading={splitLoading}
+        audioFeatureCoverage={audioFeatureCoverage}
         onClose={() => setSplitModalOpen(false)}
         onConfirm={handleConfirmSplit}
       />

@@ -67,6 +67,31 @@ export const discoverPlaylist = async (
   return response.json();
 };
 
+// Resolves a full platform URL (e.g. https://soundcloud.com/user/sets/name) to a playlist.
+// Used when extractPlaylistId returns a URL rather than a bare numeric/alphanumeric ID.
+// The server handles the slug → numeric ID resolution via the platform's resolve API.
+export const discoverPlaylistByUrl = async (
+  userId: string,
+  url: string
+): Promise<{
+  platformId: string;
+  name: string;
+  ownerId: string;
+  trackCount: number;
+  imageUrl: string | null;
+}> => {
+  const response = await fetch(
+    `${API_BASE_URL}/playlists/${userId}/discover?url=${encodeURIComponent(url)}`
+  );
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.error || 'Failed to fetch playlist');
+  }
+
+  return response.json();
+};
+
 // Shuffles a playlist on the platform using the chosen algorithms
 export const shufflePlaylist = async (
   userId: string,

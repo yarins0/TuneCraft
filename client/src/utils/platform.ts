@@ -21,8 +21,14 @@ export const extractPlaylistId = (input: string): string | null => {
     return trimmed;
   }
 
-  // Future platforms can add their URL patterns here, e.g.:
-  //   if (trimmed.includes('soundcloud.com/')) { ... }
+  // SoundCloud playlist URLs look like: soundcloud.com/username/sets/playlist-name
+  // The slug can't be resolved client-side — the server calls GET /resolve?url=... to
+  // translate it to a numeric ID. We return the normalized https:// URL as a signal
+  // to the caller that it needs server-side resolution (not a direct platform ID).
+  const scMatch = trimmed.match(/(?:https?:\/\/)?(?:www\.)?soundcloud\.com\/([^/?#]+)\/sets\/([^/?#]+)/);
+  if (scMatch) {
+    return `https://soundcloud.com/${scMatch[1]}/sets/${scMatch[2]}`;
+  }
 
   return null;
 };
@@ -36,13 +42,35 @@ export const getPlatformTrackUrl = (platform: string | undefined, trackId: strin
   switch ((platform ?? 'SPOTIFY').toUpperCase()) {
     case 'SPOTIFY':
       return `https://open.spotify.com/track/${trackId}`;
-    // Future platforms:
-    // case 'SOUNDCLOUD':
-    //   return `https://soundcloud.com/tracks/${trackId}`;
+    case 'SOUNDCLOUD':
+      // SoundCloud track URLs use the numeric track ID directly
+      return `https://soundcloud.com/tracks/${trackId}`;
     // case 'APPLE_MUSIC':
     //   return `https://music.apple.com/us/song/${trackId}`;
     default:
       return `https://open.spotify.com/track/${trackId}`;
+  }
+};
+
+// Returns the external URL to open a playlist on its native platform.
+// The 'liked' pseudo-ID is handled specially — it maps to each platform's liked/saved library.
+export const getPlatformPlaylistUrl = (
+  platform: string | undefined,
+  playlistId: string
+): string => {
+  switch ((platform ?? 'SPOTIFY').toUpperCase()) {
+    case 'SPOTIFY':
+      return playlistId === 'liked'
+        ? 'https://open.spotify.com/collection/tracks'
+        : `https://open.spotify.com/playlist/${playlistId}`;
+    case 'SOUNDCLOUD':
+      return playlistId === 'liked'
+        ? 'https://soundcloud.com/you/likes'
+        : `https://soundcloud.com/playlists/${playlistId}`;
+    default:
+      return playlistId === 'liked'
+        ? 'https://open.spotify.com/collection/tracks'
+        : `https://open.spotify.com/playlist/${playlistId}`;
   }
 };
 

@@ -21,20 +21,24 @@ router.get('/login', (req, res) => {
   }
 });
 
-// GET /auth/callback
-// Handles the OAuth redirect after the user grants permission.
-// Exchanges the one-time code for tokens and upserts the user in the database.
-// Currently only Spotify sends users here — future platforms will need their own redirect URIs
-// or a platform= query param forwarded through the OAuth state parameter.
-router.get('/callback', async (req, res) => {
+// GET /auth/spotify/callback
+// Handles the Spotify OAuth redirect after the user grants permission.
+// Registered as the redirect URI in the Spotify Developer Dashboard.
+router.get('/spotify/callback', async (req, res) => {
   const code = req.query.code as string;
+  const error = req.query.error as string | undefined;
+
+  // User denied permission on the Spotify consent screen
+  if (error) {
+    res.redirect(`${process.env.FRONTEND_URL}/login?error=denied`);
+    return;
+  }
 
   if (!code) {
     res.status(400).json({ error: 'Authorization code missing' });
     return;
   }
 
-  // Only Spotify is active — the callback always routes through the Spotify adapter
   const platform: Platform = 'SPOTIFY';
 
   try {
@@ -42,9 +46,11 @@ router.get('/callback', async (req, res) => {
       await getAdapter(platform).exchangeCode(code);
 
     // upsert means "update if the user exists, create if not" — handles returning users and
-    // first-time logins in one operation
+    // first-time logins in one operation.
+    // The unique key is (platformUserId + platform) together — Spotify and SoundCloud have
+    // separate ID namespaces, so the same numeric ID could exist on both platforms.
     const user = await prisma.user.upsert({
-      where: { platformUserId },
+      where: { platformUserId_platform: { platformUserId, platform } },
       update: { accessToken, refreshToken, tokenExpiresAt: expiresAt },
       create: {
         platformUserId,
@@ -57,12 +63,59 @@ router.get('/callback', async (req, res) => {
       },
     });
 
-    // Redirect to the frontend callback page with the internal userId and platform user ID
     res.redirect(
-      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}`
+      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}&platform=${platform}&displayName=${encodeURIComponent(user.displayName ?? '')}`
     );
   } catch (error) {
-    console.error('Auth error:', error);
+    console.error('Spotify auth error:', error);
+    res.status(500).json({ error: 'Authentication failed' });
+  }
+});
+
+// GET /auth/soundcloud/callback
+// Handles the SoundCloud OAuth redirect after the user grants permission.
+// SoundCloud requires a separate redirect URI registered in the developer app —
+// that's why this is a different endpoint rather than reusing /auth/callback.
+router.get('/soundcloud/callback', async (req, res) => {
+  const code = req.query.code as string;
+  const error = req.query.error as string | undefined;
+
+  // User denied permission on the SoundCloud consent screen
+  if (error) {
+    res.redirect(`${process.env.FRONTEND_URL}/login?error=denied`);
+    return;
+  }
+
+  if (!code) {
+    res.status(400).json({ error: 'Authorization code missing' });
+    return;
+  }
+
+  const platform: Platform = 'SOUNDCLOUD';
+
+  try {
+    const { accessToken, refreshToken, expiresAt, platformUserId, displayName, email } =
+      await getAdapter(platform).exchangeCode(code);
+
+    const user = await prisma.user.upsert({
+      where: { platformUserId_platform: { platformUserId, platform } },
+      update: { accessToken, refreshToken, tokenExpiresAt: expiresAt },
+      create: {
+        platformUserId,
+        displayName,
+        email,
+        accessToken,
+        refreshToken,
+        tokenExpiresAt: expiresAt,
+        platform,
+      },
+    });
+
+    res.redirect(
+      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}&platform=${platform}&displayName=${encodeURIComponent(user.displayName ?? '')}`
+    );
+  } catch (error) {
+    console.error('SoundCloud auth error:', error);
     res.status(500).json({ error: 'Authentication failed' });
   }
 });

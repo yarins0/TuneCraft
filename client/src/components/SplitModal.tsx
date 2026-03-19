@@ -9,6 +9,10 @@ interface Props {
   playlistName: string;   // Used to prefix each new playlist name e.g. "My Playlist — Rock"
   tracks: Track[];        // The full loaded track list from PlaylistDetail
   isLoading: boolean;
+  // Fraction (0–1) of tracks that have at least one non-null audio feature.
+  // When below 0.2 the audio-feature split strategies are disabled — they'd produce
+  // meaningless groups if only a handful of tracks have feature data.
+  audioFeatureCoverage?: number;
   onClose: () => void;
   // Called when the user confirms — receives only the checked groups, with final names applied
   onConfirm: (groups: SplitGroup[]) => void;
@@ -27,6 +31,12 @@ const STRATEGIES: { value: SplitStrategy; label: string; description: string; em
   { value: 'speechiness',      label: 'Speechiness',      description: 'low / medium / high',                emoji: '🗣️' },
   { value: 'tempo',            label: 'Tempo',            description: 'chill / groove / upbeat / high',     emoji: '⏱️' },
 ];
+
+// Strategies that require audio feature data (energy, danceability, etc.)
+// These are disabled when fewer than 20% of tracks have feature data available.
+const AUDIO_FEATURE_STRATEGIES = new Set<SplitStrategy>([
+  'energy', 'danceability', 'valence', 'acousticness', 'instrumentalness', 'speechiness', 'tempo',
+]);
 
 // The action popover that appears on a track row inside an expanded group.
 // Uses a two-level drill-down pattern:
@@ -158,6 +168,7 @@ export default function SplitModal({
   playlistName,
   tracks,
   isLoading,
+  audioFeatureCoverage = 1,
   onClose,
   onConfirm,
 }: Props) {
@@ -240,16 +251,21 @@ export default function SplitModal({
     }
   }, [isOpen, strategy, tracks]);
 
-  // Reset UI state when modal opens fresh
+  // Reset UI state when modal opens fresh.
+  // Audio-feature strategies are always reset to 'genre' — even if the user previously
+  // selected an AF strategy, opening the modal again on a low-coverage playlist should
+  // not leave them staring at a disabled selection with no indication of what happened.
   useEffect(() => {
     if (isOpen) {
-      setStrategy('genre');
+      setStrategy(prev =>
+        AUDIO_FEATURE_STRATEGIES.has(prev) && audioFeatureCoverage < 0.2 ? 'genre' : prev
+      );
       setGroupMeta({});
       setEditingGroupId(null);
       setMergeTarget(null);
       setOpenPopover(null);
     }
-  }, [isOpen]);
+  }, [isOpen, audioFeatureCoverage]);
 
   if (!isOpen) return null;
 
@@ -466,25 +482,34 @@ export default function SplitModal({
               Split by
             </p>
             <div className="flex flex-col gap-0.5 overflow-y-auto custom-scrollbar">
-              {STRATEGIES.map(s => (
-                <button
-                  key={s.value}
-                  type="button"
-                  onClick={() => setStrategy(s.value)}
-                  className={[
-                    'flex items-center gap-3 px-3 py-1 rounded-xl border text-left transition-all duration-150',
-                    strategy === s.value
-                      ? 'border-accent bg-accent/10 text-text-primary'
-                      : 'border-border-color bg-bg-secondary hover:border-accent/40 text-text-muted',
-                  ].join(' ')}
-                >
-                  <span className="text-xl shrink-0">{s.emoji}</span>
-                  <div>
-                    <p className="text-sm font-semibold leading-tight">{s.label}</p>
-                    <p className="text-xs text-text-muted leading-tight mt-0.5">{s.description}</p>
-                  </div>
-                </button>
-              ))}
+              {STRATEGIES.map(s => {
+                // Audio-feature strategies are disabled when fewer than 20% of tracks
+                // have feature data — the resulting groups would be nearly empty or random.
+                const isDisabled = AUDIO_FEATURE_STRATEGIES.has(s.value) && audioFeatureCoverage < 0.2;
+                return (
+                  <button
+                    key={s.value}
+                    type="button"
+                    disabled={isDisabled}
+                    onClick={() => !isDisabled && setStrategy(s.value)}
+                    title={isDisabled ? 'Audio features unavailable for most tracks in this playlist' : undefined}
+                    className={[
+                      'flex items-center gap-3 px-3 py-1 rounded-xl border text-left transition-all duration-150',
+                      isDisabled
+                        ? 'border-border-color bg-bg-secondary text-text-muted opacity-35 cursor-not-allowed'
+                        : strategy === s.value
+                          ? 'border-accent bg-accent/10 text-text-primary'
+                          : 'border-border-color bg-bg-secondary hover:border-accent/40 text-text-muted',
+                    ].join(' ')}
+                  >
+                    <span className="text-xl shrink-0">{s.emoji}</span>
+                    <div>
+                      <p className="text-sm font-semibold leading-tight">{s.label}</p>
+                      <p className="text-xs text-text-muted leading-tight mt-0.5">{s.description}</p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

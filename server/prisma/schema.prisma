@@ -27,7 +27,7 @@ enum Platform {
 
 model User {
   id             String     @id @default(cuid())  // unique internal ID
-  platformUserId String     @unique               // the platform's own user ID (e.g. Spotify "id" field)
+  platformUserId String                           // the platform's own user ID (e.g. Spotify "id" field)
   displayName    String
   email          String?                          // optional, not all Spotify accounts have email
   accessToken    String
@@ -38,6 +38,10 @@ model User {
 
   // One user can have many playlists
   playlists      Playlist[]
+
+  // platformUserId alone is not globally unique — Spotify and SoundCloud have separate
+  // ID namespaces that could collide. The combination of (platformUserId, platform) is unique.
+  @@unique([platformUserId, platform])
 }
 
 model Playlist {
