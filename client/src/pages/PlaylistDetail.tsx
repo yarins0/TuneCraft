@@ -280,7 +280,7 @@ export default function PlaylistDetail() {
                   disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full
                   border border-border-color transition-all duration-200 hover:border-accent/50"
                 >
-                  <span className="inline-block min-w-[90px] text-center">
+                  <span className="inline-block w-[90px] text-center">
                     {saveLoading ? saveLabel : '💾 Save'}
                   </span>
                 </button>
@@ -294,7 +294,7 @@ export default function PlaylistDetail() {
                       disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full
                       border border-border-color transition-all duration-200 hover:border-accent/50"
           >
-            <span className="inline-block min-w-[150px] text-center">
+            <span className="inline-block w-[150px] text-center">
               {saveLoading ? copyLabel : '💾 Save as copy'}
             </span>
           </button>
