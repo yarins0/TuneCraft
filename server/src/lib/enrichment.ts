@@ -16,10 +16,10 @@ const chunkArray = (arr: string[], size: number): string[][] =>
 // Strips the `href` field that ReccoBeats includes in its audio-feature payloads.
 // That field is a Spotify URL we don't need to store. Also handles the case where
 // Prisma returns JSON columns as strings on some DB drivers — always parses to object first.
-const sanitizeAudioFeatures = (features: any): object => {
+const sanitizeAudioFeatures = (features: unknown): Record<string, unknown> => {
   const parsed = typeof features === 'string' ? JSON.parse(features) : features;
   if (!parsed || typeof parsed !== 'object') return {};
-  const { href, ...rest } = parsed;
+  const { href, ...rest } = parsed as Record<string, unknown>;
   return rest;
 };
 
@@ -146,6 +146,11 @@ export const backgroundEnrichTracks = async (
     spotifyToPlatformId[t.spotifyId as string] = t.platformId;
   });
 
+  // Shape of a single entry returned by the ReccoBeats batch ID endpoint:
+  //   href — Spotify track URL (used to extract the Spotify ID)
+  //   id   — ReccoBeats internal track ID (used to fetch audio features)
+  interface ReccoBeatsIdEntry { href: string; id: string }
+
   const reccoBeatsIdMap: Record<string, string> = {}; // spotifyId → reccoBeatsId
   let genreResults: { id: string; name: string; genres: string[] }[] = [];
 
@@ -157,7 +162,7 @@ export const backgroundEnrichTracks = async (
       const chunks = chunkArray(spotifyIds, 40);
 
       for (const chunk of chunks) {
-        let result: any[] = [];
+        let result: ReccoBeatsIdEntry[] = [];
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             const r = await axios.get('https://api.reccobeats.com/v1/track', {
@@ -179,9 +184,10 @@ export const backgroundEnrichTracks = async (
 
         // ReccoBeats returns { href: "https://api.spotify.com/v1/tracks/{id}", id: "reccoId" }
         // Extract the Spotify ID from the href to build the spotifyId → reccoBeatsId map.
-        result.forEach((feature: any) => {
+        result.forEach((feature: ReccoBeatsIdEntry) => {
           if (feature?.href && feature?.id) {
-            const spotifyId = feature.href.split('/').pop();
+            // .pop() is safe here — href is a valid Spotify URL, so it always has a trailing segment
+            const spotifyId = feature.href.split('/').pop()!;
             reccoBeatsIdMap[spotifyId] = feature.id;
           }
         });
@@ -207,7 +213,7 @@ export const backgroundEnrichTracks = async (
               name,
               genres: (r.data.toptags?.tag || [])
                 .slice(0, 3)
-                .map((tag: any) => tag.name.toLowerCase()),
+                .map((tag: { name: string }) => tag.name.toLowerCase()),
             }))
             .catch(() => ({ id, name, genres: [] as string[] }))
         )
@@ -220,7 +226,7 @@ export const backgroundEnrichTracks = async (
   // Each track is written to TrackCache immediately after its fetch succeeds so the
   // polling client can pick features up one by one as they arrive.
   for (const [spotifyId, reccoId] of Object.entries(reccoBeatsIdMap)) {
-    let features: any = null;
+    let features: Record<string, unknown> | null = null;
 
     while (true) {
       try {
@@ -255,8 +261,9 @@ export const backgroundEnrichTracks = async (
       prisma.trackCache
         .upsert({
           where: { platformTrackId: platformId },
-          update: { audioFeatures: features, cachedAt: new Date() },
-          create: { platformTrackId: platformId, audioFeatures: features },
+          // Prisma's JSON column type requires a cast — features is a plain object at runtime
+          update: { audioFeatures: features as object, cachedAt: new Date() },
+          create: { platformTrackId: platformId, audioFeatures: features as object },
         })
         .catch(() => {});
     }

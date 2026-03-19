@@ -1,4 +1,5 @@
 import cron from 'node-cron';
+import type { Playlist } from '@prisma/client';
 import prisma from '../prisma';
 import { applyShuffle } from '../shuffleAlgorithms';
 import { getAdapter, getValidAccessToken } from '../platform/registry';
@@ -10,14 +11,11 @@ import type { Platform } from '../platform/types';
 //   3. Applies the stored shuffle algorithms
 //   4. Writes the shuffled order back to the platform
 //   5. Updates the DB record with the new lastReshuffledAt and nextReshuffleAt
-const reshufflePlaylist = async (playlist: any): Promise<void> => {
-  console.log(`Auto-reshuffling: ${playlist.name} [${playlist.platform}] (id: ${playlist.platformPlaylistId})`);
-
+//
+// Returns a status string consumed by the caller to build a summary log line.
+const reshufflePlaylist = async (playlist: Playlist): Promise<'shuffled' | 'deleted' | 'skipped'> => {
   const accessToken = await getValidAccessToken(playlist.userId);
-  if (!accessToken) {
-    console.error(`No valid token for user ${playlist.userId}, skipping`);
-    return;
-  }
+  if (!accessToken) return 'skipped';
 
   try {
     // Resolve the correct adapter for this playlist's platform
@@ -34,52 +32,56 @@ const reshufflePlaylist = async (playlist: any): Promise<void> => {
     };
 
     const shuffled = applyShuffle(tracks, algorithms);
-    const trackIds = shuffled.map((t: any) => t.id);
+    const trackIds = shuffled.map(t => t.id);
 
     // Write the shuffled order back to the platform
     await adapter.replacePlaylistTracks(accessToken, playlist.platformPlaylistId, trackIds);
 
     // Advance the schedule window
     const nextReshuffleAt = new Date();
-    nextReshuffleAt.setDate(nextReshuffleAt.getDate() + playlist.intervalDays);
+    nextReshuffleAt.setDate(nextReshuffleAt.getDate() + (playlist.intervalDays ?? 1));
 
     await prisma.playlist.update({
       where: { id: playlist.id },
       data: { lastReshuffledAt: new Date(), nextReshuffleAt },
     });
 
-    console.log(`✅ Reshuffled: ${playlist.name}, next at ${nextReshuffleAt.toISOString()}`);
+    return 'shuffled';
   } catch (error: any) {
     // If the platform returns 404, the playlist was deleted — clean up the orphaned schedule
     if (error.response?.status === 404) {
       await prisma.playlist.delete({ where: { id: playlist.id } }).catch(() => {});
-      console.log(`🗑️ Removed orphaned schedule for deleted playlist: ${playlist.name}`);
-      return;
+      return 'deleted';
     }
     console.error(`Failed to reshuffle ${playlist.name}:`, error.message);
+    return 'skipped';
   }
 };
 
 // Fires at minute 0 of every hour.
 // Queries only playlists that are due (autoReshuffle=true and nextReshuffleAt <= now)
 // and reshuffles them one by one to avoid concurrent writes for the same user.
+// Emits a single summary line instead of per-playlist logs.
 export const startReshuffleCron = (): void => {
   cron.schedule('0 * * * *', async () => {
-    console.log('🕐 Reshuffle cron: checking for due playlists...');
-
     const now = new Date();
     const due = await prisma.playlist.findMany({
       where: { autoReshuffle: true, nextReshuffleAt: { lte: now } },
     });
 
-    if (due.length === 0) {
-      console.log('Reshuffle cron: no playlists due.');
-      return;
+    if (due.length === 0) return;
+
+    let shuffled = 0;
+    let deleted = 0;
+
+    for (const playlist of due) {
+      const result = await reshufflePlaylist(playlist);
+      if (result === 'shuffled') shuffled++;
+      if (result === 'deleted') deleted++;
     }
 
-    console.log(`Reshuffle cron: ${due.length} playlist(s) due`);
-    for (const playlist of due) {
-      await reshufflePlaylist(playlist);
-    }
+    console.log(
+      `Reshuffle cron: ${shuffled} shuffled, ${deleted} deleted (of ${due.length} due)`
+    );
   });
 };

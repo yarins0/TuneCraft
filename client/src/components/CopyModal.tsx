@@ -19,7 +19,7 @@ export default function CopyModal({ isOpen, defaultName, isLoading, onClose, onC
   const mouseDownOnBackdrop = useRef(false);
 
   // Animates the confirm button label while the copy request is in flight
-  const saveLabel = useAnimatedLabel(isLoading, 'Saveing');
+  const saveLabel = useAnimatedLabel(isLoading, 'Saving');
 
   // Sync the input value whenever the modal opens with a new default name
   useEffect(() => {

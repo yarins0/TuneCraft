@@ -26,15 +26,21 @@ const enqueueWrite = <T>(userId: string, fn: () => Promise<T>): Promise<T> => {
   return result;
 };
 
+// Minimum track shape required for average calculation.
+// The platform adapters return objects with this structure (audio features may be null on first load).
+interface TrackWithFeatures {
+  audioFeatures: Record<string, number | null>;
+}
+
 // Calculates the average value of each audio feature across all tracks in a page.
 // Used to display playlist-level stats in the track list UI.
-const calculateAverages = (tracks: any[]) => {
+const calculateAverages = (tracks: TrackWithFeatures[]) => {
   const average = (key: string) => {
     const values = tracks
-      .map((t: any) => t.audioFeatures[key])
-      .filter((v: any) => v !== null);
+      .map(t => t.audioFeatures[key])
+      .filter((v): v is number => v !== null);
     return values.length
-      ? Math.round((values.reduce((a: number, b: number) => a + b, 0) / values.length) * 100) / 100
+      ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 100) / 100
       : null;
   };
 
@@ -46,7 +52,7 @@ const calculateAverages = (tracks: any[]) => {
     instrumentalness: average('instrumentalness'),
     speechiness: average('speechiness'),
     tempo: Math.round(
-      tracks.reduce((sum: number, t: any) => sum + (t.audioFeatures.tempo ?? 0), 0) / tracks.length
+      tracks.reduce((sum, t) => sum + (t.audioFeatures.tempo ?? 0), 0) / tracks.length
     ),
   };
 };
@@ -186,11 +192,12 @@ router.get('/:userId/features', refreshTokenMiddleware, async (req, res) => {
       select: { platformTrackId: true, audioFeatures: true },
     });
 
-    const features: Record<string, any> = {};
+    const features: Record<string, Record<string, unknown>> = {};
     cached.forEach(entry => {
-      const f = typeof entry.audioFeatures === 'string'
-        ? JSON.parse(entry.audioFeatures)
-        : entry.audioFeatures as any;
+      const f: Record<string, unknown> =
+        typeof entry.audioFeatures === 'string'
+          ? JSON.parse(entry.audioFeatures)
+          : (entry.audioFeatures as Record<string, unknown>);
       const { href, ...rest } = f;
       features[entry.platformTrackId] = rest;
     });
@@ -299,7 +306,7 @@ router.post('/:userId/:playlistId/shuffle', refreshTokenMiddleware, async (req, 
   const adapter = getAdapter((req as any).userPlatform as Platform);
 
   try {
-    const trackIds = tracks.map((t: any) => t.id);
+    const trackIds = tracks.map((t: { id: string }) => t.id);
 
     await enqueueWrite(userId, () =>
       adapter.replacePlaylistTracks(accessToken, playlistId, trackIds)
@@ -351,7 +358,7 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
   const adapter = getAdapter((req as any).userPlatform as Platform);
 
   try {
-    const trackIds = tracks.map((t: any) => t.id);
+    const trackIds = tracks.map((t: { id: string }) => t.id);
 
     const { id: newPlaylistId, ownerId } = await enqueueWrite(userId, async () => {
       const playlist = await adapter.createPlaylist(accessToken, name, 'Created by Tunecraft');
@@ -379,7 +386,7 @@ router.post('/:userId/merge', refreshTokenMiddleware, async (req, res) => {
   const adapter = getAdapter((req as any).userPlatform as Platform);
 
   try {
-    const trackIds = tracks.map((t: any) => t.id);
+    const trackIds = tracks.map((t: { id: string }) => t.id);
 
     const { id: newPlaylistId, ownerId } = await enqueueWrite(userId, async () => {
       const playlist = await adapter.createPlaylist(accessToken, name, 'Merged by Tunecraft');
@@ -419,7 +426,7 @@ router.post('/:userId/split', refreshTokenMiddleware, async (req, res) => {
           group.name,
           `${group.description} - Created by TuneCraft Split`
         );
-        const trackIds = group.tracks.map((t: any) => t.id);
+        const trackIds = group.tracks.map((t: { id: string }) => t.id);
         await adapter.addTracksToPlaylist(accessToken, playlist.id, trackIds);
         results.push({ platformId: playlist.id, name: group.name, ownerId: playlist.ownerId, platform: adapter.platform });
       }
@@ -445,7 +452,7 @@ router.put('/:userId/:playlistId/save', refreshTokenMiddleware, async (req, res)
   const adapter = getAdapter((req as any).userPlatform as Platform);
 
   try {
-    const trackIds = tracks.map((t: any) => t.id);
+    const trackIds = tracks.map((t: { id: string }) => t.id);
 
     await enqueueWrite(userId, () =>
       adapter.replacePlaylistTracks(accessToken, playlistId, trackIds)
