@@ -182,24 +182,43 @@ router.get('/:userId/discover/:playlistId', refreshTokenMiddleware, async (req, 
 // GET /playlists/:userId/features?ids=id1,id2,...
 // Returns cached audio features for specific track IDs — reads DB only, no external API calls.
 // Used by the client to poll for features being fetched in the background.
+//
+// The query column depends on the authenticated user's platform:
+//   SPOTIFY    → query by spotifyId (Spotify track IDs)
+//   SOUNDCLOUD → query by soundcloudId (SoundCloud numeric IDs, stored as strings)
 router.get('/:userId/features', refreshTokenMiddleware, async (req, res) => {
   const ids = ((req.query.ids as string) || '').split(',').filter(Boolean);
   if (ids.length === 0) return res.json({ features: {} });
 
+  const userPlatform = (req as any).userPlatform as Platform;
+  const isSoundCloud = userPlatform === 'SOUNDCLOUD';
+
   try {
-    const cached = await prisma.trackCache.findMany({
-      where: { platformTrackId: { in: ids } },
-      select: { platformTrackId: true, audioFeatures: true },
-    });
+    // Query and select from the correct platform-specific ID column.
+    const cached = isSoundCloud
+      ? await prisma.trackCache.findMany({
+          where: { soundcloudId: { in: ids } },
+          select: { soundcloudId: true, audioFeatures: true },
+        })
+      : await prisma.trackCache.findMany({
+          where: { spotifyId: { in: ids } },
+          select: { spotifyId: true, audioFeatures: true },
+        });
 
     const features: Record<string, Record<string, unknown>> = {};
     cached.forEach(entry => {
+      // Resolve the native platform ID from whichever column was queried.
+      const nativeId = isSoundCloud
+        ? (entry as { soundcloudId: string | null; audioFeatures: unknown }).soundcloudId
+        : (entry as { spotifyId: string | null; audioFeatures: unknown }).spotifyId;
+      if (!nativeId) return;
+
       const f: Record<string, unknown> =
         typeof entry.audioFeatures === 'string'
           ? JSON.parse(entry.audioFeatures)
           : (entry.audioFeatures as Record<string, unknown>);
       const { href, ...rest } = f;
-      features[entry.platformTrackId] = rest;
+      features[nativeId] = rest;
     });
 
     res.json({ features });

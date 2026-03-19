@@ -300,6 +300,7 @@ export class SoundCloudAdapter implements PlatformAdapter {
       artistId: scId(t.user.id),
       artistName: t.user.username,
       isrc: t.publisher_metadata?.isrc || undefined,
+      platform: 'SOUNDCLOUD' as const,
     }));
 
     const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
@@ -373,6 +374,7 @@ export class SoundCloudAdapter implements PlatformAdapter {
       artistId: scId(t.user.id),
       artistName: t.user.username,
       isrc: t.publisher_metadata?.isrc || undefined,
+      platform: 'SOUNDCLOUD' as const,
     }));
 
     const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =

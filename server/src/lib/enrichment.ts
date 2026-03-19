@@ -1,6 +1,7 @@
 import axios from 'axios';
 import prisma from './prisma';
 import { isrcLookup } from './isrcLookup';
+import type { Platform } from './platform/types';
 
 // Pauses execution for ms milliseconds.
 // Used between sequential API calls to stay within external rate limits.
@@ -37,13 +38,16 @@ const sanitizeAudioFeatures = (features: unknown): Record<string, unknown> => {
 //
 //   isrc       — International Standard Recording Code. Present on commercially released tracks.
 //                SoundCloud provides this via publisher_metadata.isrc.
-//                Used to cross-reference the track to a Spotify ID for ReccoBeats.
+//                Spotify provides this via external_ids.isrc.
+//                Stored in TrackCache so future cross-platform lookups skip ReccoBeats entirely.
 export interface EnrichmentTrack {
   platformId: string;
   spotifyId: string | null;
   artistId: string;
   artistName: string;
   isrc?: string;
+  // Which streaming platform this track ID came from — determines which TrackCache column to query/write.
+  platform: Platform;
 }
 
 // ─── readEnrichmentCache ───────────────────────────────────────────────────────
@@ -56,6 +60,12 @@ export interface EnrichmentTrack {
 //   missedTracks       — tracks whose audio features were not in the cache
 //   uniqueMissedArtists — deduplicated artists whose genres were not in the cache
 //
+// Cross-platform deduplication:
+//   A single TrackCache row represents one unique recording.
+//   When a SoundCloud track has an ISRC that matches a row stored via Spotify,
+//   this function returns the existing features and backfills the soundcloudId
+//   on that row (fire-and-forget) so future queries can find it without ISRC.
+//
 // The caller fires backgroundEnrichTracks for misses and returns tracks immediately —
 // features are null on the first load but arrive via the /features polling endpoint.
 export const readEnrichmentCache = async (
@@ -66,18 +76,67 @@ export const readEnrichmentCache = async (
   missedTracks: EnrichmentTrack[];
   uniqueMissedArtists: { id: string; name: string }[];
 }> => {
-  const platformIds = tracks.map(t => t.platformId);
+  // Separate platform-native IDs by platform so we query the right columns.
+  const spotifyIds = tracks.filter(t => t.platform === 'SPOTIFY').map(t => t.platformId);
+  const soundcloudIds = tracks.filter(t => t.platform === 'SOUNDCLOUD').map(t => t.platformId);
+  const isrcs = tracks.filter(t => t.isrc).map(t => t.isrc as string);
   const artistIds = [...new Set(tracks.map(t => t.artistId))];
 
+  // Build OR conditions — only include non-empty arrays to avoid Prisma warnings.
+  // We match rows by spotifyId, soundcloudId, or ISRC in a single DB round-trip.
+  const orConditions: object[] = [];
+  if (spotifyIds.length > 0)    orConditions.push({ spotifyId:    { in: spotifyIds } });
+  if (soundcloudIds.length > 0) orConditions.push({ soundcloudId: { in: soundcloudIds } });
+  if (isrcs.length > 0)         orConditions.push({ isrc:         { in: isrcs } });
+
   const [cachedTracks, cachedArtists] = await Promise.all([
-    prisma.trackCache.findMany({ where: { platformTrackId: { in: platformIds } } }),
+    orConditions.length > 0
+      ? prisma.trackCache.findMany({ where: { OR: orConditions } })
+      : Promise.resolve([]),
     prisma.artistCache.findMany({ where: { artistId: { in: artistIds } } }),
   ]);
 
+  // Build a platformId → features map.
+  // A cache row may be found in three ways:
+  //   1. Direct spotifyId match (Spotify track was already cached)
+  //   2. Direct soundcloudId match (SC track was already cached)
+  //   3. ISRC match (same recording cached under a different platform ID)
+  //      → this is the cross-platform deduplication case
   const audioFeaturesMap: Record<string, any> = {};
-  cachedTracks.forEach(entry => {
-    audioFeaturesMap[entry.platformTrackId] = sanitizeAudioFeatures(entry.audioFeatures);
-  });
+
+  for (const row of cachedTracks) {
+    const features = sanitizeAudioFeatures(row.audioFeatures);
+
+    // Cases 1 and 2: direct platform ID match — map the native ID to features.
+    if (row.spotifyId)    audioFeaturesMap[row.spotifyId]    = features;
+    if (row.soundcloudId) audioFeaturesMap[row.soundcloudId] = features;
+
+    // Case 3: ISRC cross-platform hit.
+    // The row was found via ISRC but may not yet have the current platform's ID stored.
+    // Map the incoming track's platformId to the features, and backfill the ID so
+    // the next request can find this row by platform ID directly (skipping ISRC lookup).
+    if (row.isrc) {
+      for (const track of tracks) {
+        if (track.isrc !== row.isrc) continue;
+
+        // Map features to this track's native ID (may duplicate a case-1/2 hit; harmless).
+        audioFeaturesMap[track.platformId] = features;
+
+        // Backfill: link the platform ID to this existing row if it is not already there.
+        // Fire-and-forget — the polling endpoint will pick it up on the next poll.
+        if (track.platform === 'SOUNDCLOUD' && !row.soundcloudId) {
+          prisma.trackCache
+            .update({ where: { id: row.id }, data: { soundcloudId: track.platformId } })
+            .catch(() => {});
+        }
+        if (track.platform === 'SPOTIFY' && !row.spotifyId) {
+          prisma.trackCache
+            .update({ where: { id: row.id }, data: { spotifyId: track.platformId } })
+            .catch(() => {});
+        }
+      }
+    }
+  }
 
   const artistGenreMap: Record<string, string[]> = {};
   cachedArtists.forEach(entry => {
@@ -104,8 +163,14 @@ export const readEnrichmentCache = async (
 // then persists the results. Designed to run as a fire-and-forget background task —
 // callers do NOT await this. The next request (or the /features poll) sees the results.
 //
+// Cross-platform deduplication strategy:
+//   Each TrackCache row represents one unique recording — identified by ISRC when available.
+//   When a SoundCloud track with ISRC resolves to a Spotify ID that already has a row,
+//   the upsert by ISRC updates that row to add the soundcloudId instead of creating a duplicate.
+//   ReccoBeats is therefore never called twice for the same recording.
+//
 // Works for all platforms:
-//   Spotify    — spotifyId already set (equals platformId); ISRC step is skipped.
+//   Spotify    — spotifyId already set (equals platformId); ISRC passed in from external_ids.
 //   SoundCloud — spotifyId starts null; resolved from isrc via isrcLookup in Phase 0.
 //                Tracks with no ISRC or no Spotify match get no audio features (graceful).
 //
@@ -116,7 +181,6 @@ export const readEnrichmentCache = async (
 //   │           Last.fm genre lookup        ─┘                                │
 //   │  Phase 2: Per-track audio features (sequential, 300ms gap, rate limit)  │
 //   │  Phase 3: Persist genres to ArtistCache                                 │
-//   │  Storage: TrackCache keyed by platformId (NOT spotifyId)                │
 //   └──────────────────────────────────────────────────────────────────────────┘
 export const backgroundEnrichTracks = async (
   missedTracks: EnrichmentTrack[],
@@ -139,8 +203,8 @@ export const backgroundEnrichTracks = async (
   const spotifyIds = tracksWithSpotifyId.map(t => t.spotifyId as string);
 
   // Build reverse map: spotifyId → platformId for correct TrackCache storage.
-  // The polling endpoint (GET /features?ids=...) queries by platformId, so we
-  // must store features keyed by platformId — not by the spotifyId used internally.
+  // The polling endpoint (GET /features?ids=...) queries by platform-native ID,
+  // so we must store features keyed by platformId — not by the spotifyId used internally.
   const spotifyToPlatformId: Record<string, string> = {};
   tracksWithSpotifyId.forEach(t => {
     spotifyToPlatformId[t.spotifyId as string] = t.platformId;
@@ -184,11 +248,11 @@ export const backgroundEnrichTracks = async (
 
         // ReccoBeats returns { href: "https://api.spotify.com/v1/tracks/{id}", id: "reccoId" }
         // Extract the Spotify ID from the href to build the spotifyId → reccoBeatsId map.
-        result.forEach((feature: ReccoBeatsIdEntry) => {
-          if (feature?.href && feature?.id) {
+        result.forEach((entry: ReccoBeatsIdEntry) => {
+          if (entry?.href && entry?.id) {
             // .pop() is safe here — href is a valid Spotify URL, so it always has a trailing segment
-            const spotifyId = feature.href.split('/').pop()!;
-            reccoBeatsIdMap[spotifyId] = feature.id;
+            const spotifyId = entry.href.split('/').pop()!;
+            reccoBeatsIdMap[spotifyId] = entry.id;
           }
         });
       }
@@ -253,17 +317,53 @@ export const backgroundEnrichTracks = async (
       }
     }
 
-    if (features) {
-      // Always store by platformId — for Spotify this equals spotifyId,
-      // for SoundCloud it's the SC numeric ID (what the browser polls with).
-      const platformId = spotifyToPlatformId[spotifyId] ?? spotifyId;
+    if (!features) continue;
 
+    // Retrieve the track object so we know its platform, ISRC, and native platform ID.
+    const platformId = spotifyToPlatformId[spotifyId] ?? spotifyId;
+    const track = tracksWithSpotifyId.find(t => t.platformId === platformId);
+    if (!track) continue;
+
+    // Upsert strategy — keyed by ISRC when available (links the recording across platforms),
+    // otherwise keyed by the platform-specific ID column.
+    //
+    // ISRC upsert (preferred):
+    //   create — new row with all known IDs (spotifyId, soundcloudId if SC, isrc)
+    //   update — add soundcloudId if this is a SC track hitting a Spotify-created row;
+    //            always refresh audioFeatures and cachedAt
+    //
+    // Platform-ID upsert (fallback, Spotify tracks with no ISRC):
+    //   create — new row keyed by spotifyId only
+    //   update — refresh audioFeatures and cachedAt
+    if (track.isrc) {
       prisma.trackCache
         .upsert({
-          where: { platformTrackId: platformId },
-          // Prisma's JSON column type requires a cast — features is a plain object at runtime
+          where: { isrc: track.isrc },
+          create: {
+            isrc: track.isrc,
+            spotifyId: track.spotifyId,
+            // Only set soundcloudId if the track came from SoundCloud (platformId is the SC ID).
+            soundcloudId: track.platform === 'SOUNDCLOUD' ? platformId : null,
+            audioFeatures: features as object,
+          },
+          update: {
+            audioFeatures: features as object,
+            cachedAt: new Date(),
+            // Add the SC ID to an existing Spotify-sourced row when a SC track triggers this upsert.
+            ...(track.platform === 'SOUNDCLOUD' ? { soundcloudId: platformId } : {}),
+            // Add the Spotify ID to an existing SC-sourced row (should not occur in practice).
+            ...(track.platform === 'SPOTIFY' ? { spotifyId: track.spotifyId } : {}),
+          },
+        })
+        .catch(() => {});
+    } else {
+      // Tracks without ISRC can only be keyed by their Spotify ID (SC tracks without
+      // ISRC never reach Phase 2 — they have no spotifyId and are filtered out above).
+      prisma.trackCache
+        .upsert({
+          where: { spotifyId: platformId },
+          create: { spotifyId: platformId, audioFeatures: features as object },
           update: { audioFeatures: features as object, cachedAt: new Date() },
-          create: { platformTrackId: platformId, audioFeatures: features as object },
         })
         .catch(() => {});
     }

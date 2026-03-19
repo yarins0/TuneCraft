@@ -67,9 +67,16 @@ model Playlist {
 
 model TrackCache {
   id            String   @id @default(cuid())
-  platformTrackId String  @unique               // track ID on the platform
+
+  // One column per platform — keyed by ISRC when available so the same recording
+  // is never fetched from ReccoBeats twice, no matter which platform surfaces it.
+  // All three are optional because a row may be created before all IDs are resolved.
+  isrc          String?  @unique   // International Standard Recording Code (cross-platform)
+  spotifyId     String?  @unique   // Spotify track ID
+  soundcloudId  String?  @unique   // SoundCloud track ID (numeric, stored as string)
+  // Add more platform ID columns here as new adapters are built (e.g. appleMusicId, tidalId)
+
   audioFeatures Json
-  platform      Platform @default(SPOTIFY)     // platform that issued this track ID
   cachedAt      DateTime @default(now())
 }
 

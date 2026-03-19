@@ -245,11 +245,15 @@ export class SpotifyAdapter implements PlatformAdapter {
 
     // For Spotify, platformId === spotifyId — the Spotify track ID is used for both
     // cache storage (platformId) and ReccoBeats lookup (spotifyId).
+    // isrc is stored so that if the same recording appears later on another platform
+    // (e.g. SoundCloud), the cache can be reused without a second ReccoBeats call.
     const enrichmentInput: EnrichmentTrack[] = rawTracks.map((t: any) => ({
       platformId: t.id,
       spotifyId: t.id,
       artistId: t.artists[0].id,
       artistName: t.artists[0].name,
+      isrc: t.external_ids?.isrc ?? undefined,
+      platform: 'SPOTIFY' as const,
     }));
 
     const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
@@ -316,6 +320,8 @@ export class SpotifyAdapter implements PlatformAdapter {
       spotifyId: t.id,
       artistId: t.artists[0].id,
       artistName: t.artists[0].name,
+      isrc: t.external_ids?.isrc ?? undefined,
+      platform: 'SPOTIFY' as const,
     }));
 
     const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
