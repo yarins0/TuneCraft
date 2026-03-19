@@ -96,6 +96,15 @@ router.get('/:userId/discover', refreshTokenMiddleware, async (req, res) => {
     return;
   }
 
+  // Guard: the user must be logged in with SoundCloud to call SoundCloud's API.
+  // A Spotify-only user pasting a SC URL would otherwise send their Spotify token
+  // to SoundCloud, which returns a 401 that bubbles up as a confusing 500.
+  const userPlatform = (req as any).userPlatform as string;
+  if (userPlatform !== 'SOUNDCLOUD') {
+    res.status(400).json({ error: 'Connect a SoundCloud account first to discover SoundCloud playlists.' });
+    return;
+  }
+
   const adapter = getAdapter('SOUNDCLOUD');
 
   try {

@@ -379,12 +379,19 @@ cp server/.env.example server/.env
 ```env
 SPOTIFY_CLIENT_ID=your_spotify_client_id
 SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+SPOTIFY_REDIRECT_URI=http://127.0.0.1:3000/auth/spotify/callback
+
+SOUNDCLOUD_CLIENT_ID=your_soundcloud_client_id
+SOUNDCLOUD_CLIENT_SECRET=your_soundcloud_client_secret
+SOUNDCLOUD_REDIRECT_URI=http://127.0.0.1:3000/auth/soundcloud/callback
+
 LASTFM_API_KEY=your_lastfm_api_key
 LASTFM_SECRET=your_lastfm_secret
-RECCOBEATS_API_KEY=your_reccobeats_api_key
-SPOTIFY_REDIRECT_URI=http://127.0.0.1:3000/auth/callback
-FRONTEND_URL=http://127.0.0.1:5173
+
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DB_NAME?schema=public
+DIRECT_DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DB_NAME?schema=public
+
+FRONTEND_URL=http://127.0.0.1:5173
 PORT=3000
 ```
 

@@ -5,7 +5,7 @@ Each has enough context to be picked up without re-reading the original conversa
 
 ---
 
-## Platform Switcher Sidebar
+## ~~Platform Switcher Sidebar~~ ✅ DONE
 
 **What:** A sidebar or dropdown triggered from the Dashboard header that lets users switch between their Spotify library view and their SoundCloud library view without re-logging in.
 

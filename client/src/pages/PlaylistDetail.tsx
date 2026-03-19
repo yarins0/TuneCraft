@@ -73,13 +73,19 @@ export default function PlaylistDetail() {
   // SoundCloud tracks without an ISRC return all-null features (no ReccoBeats match).
   // When coverage is below 20%, audio feature charts and split strategies are hidden
   // so the UI doesn't show misleading averages computed from a tiny unrepresentative sample.
+  //
+  // Coverage is only evaluated once all pages have loaded (loadingMore === false).
+  // During streaming, pages arrive in arbitrary order and early pages may be unrepresentative
+  // (e.g. a mixed SC playlist's first 50 tracks are all indie uploads → coverage 0 → charts hide,
+  // then later pages have commercial tracks → coverage climbs → charts reappear = flicker).
+  // Defaulting to 1 while loading keeps charts visible until we have the full picture.
   const audioFeatureCoverage = useMemo(() => {
-    if (tracks.length === 0) return 1; // default to 1 while tracks haven't loaded yet
+    if (tracks.length === 0 || loadingMore) return 1;
     const withFeatures = tracks.filter(t =>
       Object.values(t.audioFeatures).some(v => v !== null)
     ).length;
     return withFeatures / tracks.length;
-  }, [tracks]);
+  }, [tracks, loadingMore]);
 
   const [total, setTotal] = useState<number>(0);
   const [loading, setLoading] = useState(true);

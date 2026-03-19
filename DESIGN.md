@@ -212,11 +212,26 @@ When fewer than 20% of playlist tracks have audio feature data (common for Sound
 
 ---
 
-## Platform Switcher (Planned)
+## Platform Switcher
 
-A sidebar triggered from the dashboard header to switch between platform-specific library views
-(e.g. Spotify library ↔ SoundCloud library). Not yet implemented. Design to be defined when
-multi-platform simultaneous login is live.
+A slide-in sidebar triggered from the Dashboard header account button (top-right). Lists all
+connected accounts as cards — each with platform colour dot, display name, and "Active" badge.
+Tapping an account card switches the active library view and re-fetches playlists.
+Lives in `client/src/components/PlatformSwitcherSidebar.tsx`.
+
+```
+┌────────────────────────────┐
+│  YOUR ACCOUNTS          ✕  │
+├────────────────────────────┤
+│  🎵  Yarin Shitrit         │
+│      Spotify       Active  │ ← accent border + ring
+├────────────────────────────┤
+│  🔊  yarin_sc              │
+│      SoundCloud            │
+├────────────────────────────┤
+│   + Connect another        │
+└────────────────────────────┘
+```
 
 ---
 
