@@ -182,7 +182,8 @@ export default function Dashboard() {
   // Called when a checkbox is clicked — enters select mode on the first check
   // stopPropagation prevents the click from bubbling up to the card's onClick (which would navigate)
   const handleCheckboxClick = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
+    e.stopPropagation(); // stop the click bubbling to the Link's onClick
+    e.preventDefault();  // stop the browser following the anchor's href (stopPropagation alone doesn't prevent this)
     if (!selectMode) setSelectMode(true);
     toggleSelection(id);
   };
