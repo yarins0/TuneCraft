@@ -68,6 +68,9 @@ export default function PlaylistDetail() {
 
   const [tracks, setTracks] = useState<Track[]>([]);
   const [averages, setAverages] = useState<PlaylistAverages | null>(null);
+  const [total, setTotal] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Fraction of loaded tracks that have at least one non-null audio feature.
   // SoundCloud tracks without an ISRC return all-null features (no ReccoBeats match).
@@ -86,10 +89,6 @@ export default function PlaylistDetail() {
     ).length;
     return withFeatures / tracks.length;
   }, [tracks, loadingMore]);
-
-  const [total, setTotal] = useState<number>(0);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [openTrackIds, setOpenTrackIds] = useState<Set<string>>(() => new Set());
