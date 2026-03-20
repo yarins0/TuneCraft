@@ -3,6 +3,7 @@ import Login from './pages/Login';
 import Callback from './pages/Callback';
 import Dashboard from './pages/Dashboard';
 import PlaylistDetail from './pages/PlaylistDetail.tsx';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 
 // Checks if a userId exists in session storage.
 // Used to protect routes that require authentication.
@@ -20,6 +21,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Login />} />
         <Route path="/callback" element={<Callback />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route
           path="/dashboard"
           element={
@@ -40,3 +42,5 @@ export default function App() {
     </BrowserRouter>
   );
 }
+
+        /*<Route path="/contact" element={<Contact />} />*/

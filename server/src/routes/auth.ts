@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import prisma from '../lib/prisma';
 import { getAdapter } from '../lib/platform/registry';
+import { TidalAdapter } from '../lib/platform/tidal';
 import type { Platform } from '../lib/platform/types';
 
 // Router groups related routes into a modular unit
@@ -116,6 +117,67 @@ router.get('/soundcloud/callback', async (req, res) => {
     );
   } catch (error) {
     console.error('SoundCloud auth error:', error);
+    res.status(500).json({ error: 'Authentication failed' });
+  }
+});
+
+// GET /auth/tidal/callback
+// Handles the Tidal OAuth PKCE redirect after the user grants permission.
+// Unlike Spotify/SoundCloud, Tidal uses PKCE — the callback receives a `state` parameter
+// that we use to retrieve the code_verifier we stashed before redirecting the user.
+// The verifier must be sent to the token endpoint to complete the exchange.
+router.get('/tidal/callback', async (req, res) => {
+  const code  = req.query.code  as string | undefined;
+  const state = req.query.state as string | undefined;
+  const error = req.query.error as string | undefined;
+
+  // User denied permission on the Tidal consent screen
+  if (error) {
+    res.redirect(`${process.env.FRONTEND_URL}/login?error=denied`);
+    return;
+  }
+
+  if (!code || !state) {
+    res.status(400).json({ error: 'Authorization code or state missing' });
+    return;
+  }
+
+  // The TidalAdapter stores PKCE verifiers keyed by state. Cast to access the method
+  // since the PlatformAdapter interface does not expose it (it's Tidal-specific).
+  const tidalAdapter = getAdapter('TIDAL') as TidalAdapter;
+  const verifier = tidalAdapter.consumeVerifier(state);
+
+  if (!verifier) {
+    // State unknown or expired — likely a replay attack or the server restarted mid-flow
+    res.status(400).json({ error: 'Invalid or expired state parameter' });
+    return;
+  }
+
+  const platform: Platform = 'TIDAL';
+
+  try {
+    const { accessToken, refreshToken, expiresAt, platformUserId, displayName, email } =
+      await tidalAdapter.exchangeCode(code, verifier);
+
+    const user = await prisma.user.upsert({
+      where: { platformUserId_platform: { platformUserId, platform } },
+      update: { accessToken, refreshToken, tokenExpiresAt: expiresAt },
+      create: {
+        platformUserId,
+        displayName,
+        email,
+        accessToken,
+        refreshToken,
+        tokenExpiresAt: expiresAt,
+        platform,
+      },
+    });
+
+    res.redirect(
+      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}&platform=${platform}&displayName=${encodeURIComponent(user.displayName ?? '')}`
+    );
+  } catch (error) {
+    console.error('Tidal auth error:', error);
     res.status(500).json({ error: 'Authentication failed' });
   }
 });

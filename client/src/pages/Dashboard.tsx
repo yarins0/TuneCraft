@@ -540,6 +540,23 @@ export default function Dashboard() {
           ⚠️ {mergeError}
         </div>
       )}
+
+      {/* Footer — z-index is below the action bar (z-40)
+          so the action bar naturally covers it when select mode is active. */}
+      <footer className="bottom-1 left-0 right-0 z-10 flex justify-between px-5 py-2 bg-bg-primary border-t border-border-color">
+        <p className="font-mono text-xs text-text-muted">
+          © 2026 TuneCraft · Personal portfolio project · Non-commercial
+        </p>
+        <p className="font-mono text-xs text-text-muted">
+          Built with ♪ by Yarin Solomon
+        </p>
+        <Link to="/contact" className="text-text-muted text-xs hover:text-text-primary transition-colors duration-200">
+          Contact me
+        </Link>
+        <Link to="/privacy" className="text-text-muted text-xs hover:text-text-primary transition-colors duration-200">
+          Privacy Policy
+        </Link>
+      </footer>
     </div>
   );
 }

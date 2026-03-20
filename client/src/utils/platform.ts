@@ -43,8 +43,9 @@ export const getPlatformTrackUrl = (platform: string | undefined, trackId: strin
     case 'SPOTIFY':
       return `https://open.spotify.com/track/${trackId}`;
     case 'SOUNDCLOUD':
-      // SoundCloud track URLs use the numeric track ID directly
       return `https://soundcloud.com/tracks/${trackId}`;
+    case 'TIDAL':
+      return `https://tidal.com/browse/track/${trackId}`;
     // case 'APPLE_MUSIC':
     //   return `https://music.apple.com/us/song/${trackId}`;
     default:
@@ -67,6 +68,10 @@ export const getPlatformPlaylistUrl = (
       return playlistId === 'liked'
         ? 'https://soundcloud.com/you/likes'
         : `https://soundcloud.com/playlists/${playlistId}`;
+    case 'TIDAL':
+      return playlistId === 'liked'
+        ? 'https://tidal.com/browse/my-collection/tracks'
+        : `https://tidal.com/browse/playlist/${playlistId}`;
     default:
       return playlistId === 'liked'
         ? 'https://open.spotify.com/collection/tracks'
@@ -81,6 +86,8 @@ export const getPlatformLabel = (platform: string | undefined): string => {
       return 'Open in Spotify';
     case 'SOUNDCLOUD':
       return 'Open in SoundCloud';
+    case 'TIDAL':
+      return 'Open in Tidal';
     case 'APPLE_MUSIC':
       return 'Open in Apple Music';
     default:

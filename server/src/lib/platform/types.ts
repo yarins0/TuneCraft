@@ -1,6 +1,6 @@
 // Platform identifies which streaming service a resource belongs to.
 // Values match the Prisma Platform enum — keep them in sync if you add new platforms.
-export type Platform = 'SPOTIFY' | 'SOUNDCLOUD' | 'APPLE_MUSIC';
+export type Platform = 'SPOTIFY' | 'SOUNDCLOUD' | 'TIDAL' | 'APPLE_MUSIC';
 
 // A playlist with enough data to render a dashboard card.
 // Uses a generic `id` field — routes expose it as `platformId` in JSON responses.

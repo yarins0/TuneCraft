@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { API_BASE_URL } from '../api/config';
 
 // Redirects the user to the selected platform's OAuth login flow via the Tunecraft backend.
@@ -12,6 +13,7 @@ const handleLogin = (platform: string) => {
 const PLATFORMS = [
   { id: 'SPOTIFY',     label: 'Spotify',     available: true,  color: '#1DB954' },
   { id: 'SOUNDCLOUD',  label: 'SoundCloud',  available: true,  color: '#FF5500' },
+  { id: 'TIDAL',       label: 'Tidal',       available: true,  color: '#00FFFF' },
   { id: 'APPLE_MUSIC', label: 'Apple Music', available: false, color: '#fc3c44' },
 ];
 
@@ -22,7 +24,7 @@ export default function Login() {
   const denied = new URLSearchParams(window.location.search).get('error') === 'denied';
 
   return (
-    <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+    <div className="relative min-h-screen bg-bg-primary flex items-center justify-center">
       {/* Glowing background orb */}
       <div className="absolute w-[500px] h-[500px] bg-accent/20 rounded-full blur-[120px] pointer-events-none" />
 
@@ -85,6 +87,14 @@ export default function Login() {
           Tunecraft never stores your passwords.
         </p>
       </div>
+
+      {/* Privacy link at the bottom of the page — only visible when the page is scrolled/expanded */}
+      <Link
+        to="/privacy"
+        className="absolute bottom-4 left-0 right-0 text-center text-text-muted text-xs hover:text-text-primary transition-colors duration-200"
+      >
+        Privacy Policy
+      </Link>
     </div>
   );
 }

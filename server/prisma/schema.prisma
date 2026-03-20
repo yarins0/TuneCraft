@@ -22,6 +22,7 @@ datasource db {
 enum Platform {
   SPOTIFY
   SOUNDCLOUD
+  TIDAL
   APPLE_MUSIC
 }
 
@@ -74,7 +75,8 @@ model TrackCache {
   isrc          String?  @unique   // International Standard Recording Code (cross-platform)
   spotifyId     String?  @unique   // Spotify track ID
   soundcloudId  String?  @unique   // SoundCloud track ID (numeric, stored as string)
-  // Add more platform ID columns here as new adapters are built (e.g. appleMusicId, tidalId)
+  tidalId       String?  @unique   // Tidal track ID (numeric, stored as string)
+  // Add more platform ID columns here as new adapters are built (e.g. appleMusicId)
 
   audioFeatures Json
   cachedAt      DateTime @default(now())

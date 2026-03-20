@@ -49,6 +49,30 @@ Each has enough context to be picked up without re-reading the original conversa
 
 ---
 
+## Tidal end-to-end testing (deferred — no API credentials in env yet)
+
+**What:** Manually test every Tidal flow once `TIDAL_CLIENT_ID` and `TIDAL_CLIENT_SECRET` are added to `server/.env` and a redirect URI is registered in the Tidal developer dashboard.
+
+**Checklist:**
+- [ ] Tidal OAuth login end-to-end (Login page → consent screen → Callback → Dashboard)
+- [ ] Denying Tidal OAuth → `/login?error=denied` banner appears
+- [ ] Tidal library loads in Dashboard (playlists + liked songs count)
+- [ ] Platform Switcher: connect both Spotify + Tidal, switch between them, library reloads correctly
+- [ ] Open a Tidal playlist: "Tidal" badge visible, "Open in" button links to correct Tidal URL, tracks load with enrichment
+- [ ] Shuffle + Save writes new track order back to Tidal
+- [ ] Save as Copy creates a new Tidal playlist
+- [ ] Liked tracks load from Tidal favorites
+- [ ] Auto-reshuffle cron fires for a Tidal playlist and writes back correctly
+- [ ] PKCE state missing/tampered in callback → server returns 400, does not crash
+
+**Why deferred:** Requires a Tidal developer app at developer.tidal.com/dashboard with `TIDAL_CLIENT_ID` + `TIDAL_CLIENT_SECRET` in `server/.env`. Redirect URI `http://127.0.0.1:3000/auth/tidal/callback` must be registered.
+
+**Effort:** S (human: ~1–2 hours manual testing once credentials are ready)
+**Priority:** P1 (must complete before publish)
+**Depends on:** Tidal developer app registered + credentials filled in `.env`
+
+---
+
 ## ~~SoundCloud playlist URL parsing in the Discover flow~~ ✅ DONE
 
 **What:** Add SoundCloud URL parsing to `extractPlaylistId()` in `client/src/utils/platform.ts` so SoundCloud users can paste a playlist URL into the "Discover any playlist" box on the dashboard.

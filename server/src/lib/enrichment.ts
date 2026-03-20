@@ -77,16 +77,18 @@ export const readEnrichmentCache = async (
   uniqueMissedArtists: { id: string; name: string }[];
 }> => {
   // Separate platform-native IDs by platform so we query the right columns.
-  const spotifyIds = tracks.filter(t => t.platform === 'SPOTIFY').map(t => t.platformId);
+  const spotifyIds    = tracks.filter(t => t.platform === 'SPOTIFY').map(t => t.platformId);
   const soundcloudIds = tracks.filter(t => t.platform === 'SOUNDCLOUD').map(t => t.platformId);
-  const isrcs = tracks.filter(t => t.isrc).map(t => t.isrc as string);
-  const artistIds = [...new Set(tracks.map(t => t.artistId))];
+  const tidalIds      = tracks.filter(t => t.platform === 'TIDAL').map(t => t.platformId);
+  const isrcs         = tracks.filter(t => t.isrc).map(t => t.isrc as string);
+  const artistIds     = [...new Set(tracks.map(t => t.artistId))];
 
   // Build OR conditions — only include non-empty arrays to avoid Prisma warnings.
-  // We match rows by spotifyId, soundcloudId, or ISRC in a single DB round-trip.
+  // We match rows by spotifyId, soundcloudId, tidalId, or ISRC in a single DB round-trip.
   const orConditions: object[] = [];
   if (spotifyIds.length > 0)    orConditions.push({ spotifyId:    { in: spotifyIds } });
   if (soundcloudIds.length > 0) orConditions.push({ soundcloudId: { in: soundcloudIds } });
+  if (tidalIds.length > 0)      orConditions.push({ tidalId:      { in: tidalIds } });
   if (isrcs.length > 0)         orConditions.push({ isrc:         { in: isrcs } });
 
   const [cachedTracks, cachedArtists] = await Promise.all([
@@ -110,6 +112,7 @@ export const readEnrichmentCache = async (
     // Cases 1 and 2: direct platform ID match — map the native ID to features.
     if (row.spotifyId)    audioFeaturesMap[row.spotifyId]    = features;
     if (row.soundcloudId) audioFeaturesMap[row.soundcloudId] = features;
+    if (row.tidalId)      audioFeaturesMap[row.tidalId]      = features;
 
     // Case 3: ISRC cross-platform hit.
     // The row was found via ISRC but may not yet have the current platform's ID stored.
@@ -132,6 +135,11 @@ export const readEnrichmentCache = async (
         if (track.platform === 'SPOTIFY' && !row.spotifyId) {
           prisma.trackCache
             .update({ where: { id: row.id }, data: { spotifyId: track.platformId } })
+            .catch(() => {});
+        }
+        if (track.platform === 'TIDAL' && !row.tidalId) {
+          prisma.trackCache
+            .update({ where: { id: row.id }, data: { tidalId: track.platformId } })
             .catch(() => {});
         }
       }
@@ -342,17 +350,18 @@ export const backgroundEnrichTracks = async (
           create: {
             isrc: track.isrc,
             spotifyId: track.spotifyId,
-            // Only set soundcloudId if the track came from SoundCloud (platformId is the SC ID).
+            // Only set the platform-native ID column that matches the originating platform.
             soundcloudId: track.platform === 'SOUNDCLOUD' ? platformId : null,
+            tidalId:      track.platform === 'TIDAL'      ? platformId : null,
             audioFeatures: features as object,
           },
           update: {
             audioFeatures: features as object,
             cachedAt: new Date(),
-            // Add the SC ID to an existing Spotify-sourced row when a SC track triggers this upsert.
+            // Backfill the platform-native ID onto an existing row sourced from another platform.
             ...(track.platform === 'SOUNDCLOUD' ? { soundcloudId: platformId } : {}),
-            // Add the Spotify ID to an existing SC-sourced row (should not occur in practice).
-            ...(track.platform === 'SPOTIFY' ? { spotifyId: track.spotifyId } : {}),
+            ...(track.platform === 'TIDAL'      ? { tidalId:      platformId } : {}),
+            ...(track.platform === 'SPOTIFY'    ? { spotifyId: track.spotifyId } : {}),
           },
         })
         .catch(() => {});

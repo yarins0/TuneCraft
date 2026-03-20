@@ -13,7 +13,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 //   - On any other error: rethrows immediately (no silent swallowing).
 //   - After maxRetries exhausted: rethrows the last error.
 export const requestWithRetry = async (
-  method: 'get' | 'post' | 'put',
+  method: 'get' | 'post' | 'put' | 'delete',
   url: string,
   config: object,
   data?: any,
@@ -22,9 +22,10 @@ export const requestWithRetry = async (
 ): Promise<any> => {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      if (method === 'get') return await axios.get(url, config);
-      if (method === 'post') return await axios.post(url, data, config);
-      if (method === 'put') return await axios.put(url, data, config);
+      if (method === 'get')    return await axios.get(url, config);
+      if (method === 'post')   return await axios.post(url, data, config);
+      if (method === 'put')    return await axios.put(url, data, config);
+      if (method === 'delete') return await axios.delete(url, config);
     } catch (error: any) {
       const status = error.response?.status;
       const retryAfter = error.response?.headers?.['retry-after'];
