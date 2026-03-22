@@ -79,21 +79,52 @@ export function getActiveAccount(): StoredAccount | null {
 
   if (accounts.length === 0) return null;
 
-  const activeId = localStorage.getItem('activeUserId');
+  // sessionStorage takes priority — it's a per-tab override written by setSessionAccount()
+  // when the tab was opened via "open in new tab" from the account switcher.
+  const activeId = sessionStorage.getItem('activeUserId') ?? localStorage.getItem('activeUserId');
   // Fall back to the first account if activeUserId points to a removed account.
   return accounts.find(a => a.userId === activeId) ?? accounts[0];
 }
 
-// Switches the active account and syncs the legacy 'userId' key.
+// Switches the active account for the current tab and persists it globally.
+//
+// Writes to both localStorage (global default) and sessionStorage (per-tab override).
+// sessionStorage must be kept in sync because getUserId() reads it first — without this,
+// a tab that has a sessionStorage override (e.g. opened via ?switchTo) would ignore
+// the account switch and keep returning the stale sessionStorage value.
 export function setActiveAccount(userId: string): void {
   const accounts = getAccounts();
   const account = accounts.find(a => a.userId === userId);
   if (!account) return;
 
   localStorage.setItem('activeUserId', userId);
-  // Keep legacy keys in sync so existing API call code keeps working.
   localStorage.setItem('userId', account.userId);
   localStorage.setItem('platformUserId', account.platformUserId);
+
+  // Mirror to sessionStorage so this tab's getUserId() sees the update immediately.
+  // sessionStorage is per-tab so other open tabs are not affected.
+  sessionStorage.setItem('activeUserId', userId);
+  sessionStorage.setItem('userId', account.userId);
+  sessionStorage.setItem('platformUserId', account.platformUserId);
+}
+
+// Activates an account for the current tab only, without touching localStorage.
+//
+// localStorage is shared across every tab — writing to it from a new tab would
+// switch the account in the original tab too. sessionStorage is isolated per tab,
+// so this is used when a tab is opened via the "open in new tab" flow.
+//
+// getActiveAccount() and getUserId() check sessionStorage first, so the tab
+// behaves as if this account is active without affecting any other tab.
+export function setSessionAccount(userId: string): void {
+  const accounts = getAccounts(); // the accounts list itself lives in localStorage and is shared — that's fine
+  const account = accounts.find(a => a.userId === userId);
+  if (!account) return;
+
+  sessionStorage.setItem('activeUserId', userId);
+  // Mirror the legacy keys so getUserId() / getPlatformUserId() picks them up.
+  sessionStorage.setItem('userId', account.userId);
+  sessionStorage.setItem('platformUserId', account.platformUserId);
 }
 
 // Removes all stored accounts and resets all auth keys.

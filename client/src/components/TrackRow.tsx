@@ -165,19 +165,20 @@ export default function TrackRow({
           </div>
 
           <div className="flex-1 min-w-0">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const url = getPlatformTrackUrl(track.platform, track.id);
-                window.open(url, '_blank', 'noopener,noreferrer');
-              }}
+            {/* Real <a> tag so the browser recognises it as a link —
+                enables middle-click, Ctrl+click, and right-click "Open in new tab".
+                onDoubleClick stopPropagation prevents a double-click on the title
+                from bubbling up to the parent div and toggling audio features. */}
+            <a
+              href={getPlatformTrackUrl(track.platform, track.id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onDoubleClick={e => e.stopPropagation()}
               className="text-sm font-medium truncate text-left text-text-primary hover:text-accent hover:underline cursor-pointer"
               title={getPlatformLabel(track.platform)}
             >
               {track.name}
-            </button>
+            </a>
             <div className="flex items-center gap-2 mt-0.5">
               <p className="text-text-muted text-xs truncate">{track.artist}</p>
               {track.genres.slice(0, 2).map(genre => (

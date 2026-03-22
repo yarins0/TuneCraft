@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { getAccounts, setActiveAccount, type StoredAccount } from '../utils/accounts';
 import { PLATFORM_COLORS, PLATFORM_LABELS, PLATFORM_ICONS } from '../utils/platform';
 
@@ -28,7 +28,6 @@ export default function PlatformSwitcherSidebar({
 }: PlatformSwitcherSidebarProps) {
   const accounts = getAccounts();
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
 
   // Close sidebar on Escape key
   useEffect(() => {
@@ -105,9 +104,21 @@ export default function PlatformSwitcherSidebar({
               const icon = PLATFORM_ICONS[account.platform] ?? '🎵';
 
               return (
-                <button
+                // Real <a> tag so middle-click / Ctrl+click opens a new tab.
+                // href encodes the target userId so the new tab knows which account to activate.
+                // Plain left-click calls handleSwitch() in-place and prevents the default
+                // navigation — same behaviour as before.
+                // Ctrl+click / Meta+click lets the browser open a new tab; we don't prevent
+                // default so the URL carries the userId to Dashboard.
+                <a
                   key={account.userId}
-                  onClick={() => handleSwitch(account)}
+                  href={`/dashboard?switchTo=${account.userId}`}
+                  onClick={(e) => {
+                    if (!e.ctrlKey && !e.metaKey) {
+                      e.preventDefault();
+                      handleSwitch(account);
+                    }
+                  }}
                   className={`
                     w-full flex items-center gap-4 px-4 py-3 rounded-xl border text-left
                     transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]
@@ -117,7 +128,6 @@ export default function PlatformSwitcherSidebar({
                     }
                   `}
                   aria-label={`Switch to ${label} account${account.displayName ? ` (${account.displayName})` : ''}`}
-                  aria-pressed={isActive}
                 >
                   {/* Platform colour dot / avatar */}
                   <div
@@ -142,7 +152,7 @@ export default function PlatformSwitcherSidebar({
                   {isActive && (
                     <span className="text-accent text-xs font-semibold shrink-0">Active</span>
                   )}
-                </button>
+                </a>
               );
             })
           )}
@@ -150,14 +160,18 @@ export default function PlatformSwitcherSidebar({
 
         {/* Footer — connect another platform */}
         <div className="px-4 py-4 border-t border-border-color">
-          <button
-            onClick={() => { onClose(); navigate('/'); }}
+          {/* <Link> renders as a real <a> tag, enabling middle-click and Ctrl+click
+              to open the login page in a new tab. onClick still closes the sidebar
+              on a regular left-click so the UX is unchanged for that case. */}
+          <Link
+            to="/"
+            onClick={onClose}
             className="block w-full text-center bg-bg-secondary hover:bg-bg-primary border border-border-color
                        hover:border-accent/50 text-text-primary font-semibold px-5 py-2 rounded-full
                        transition-all duration-200 hover:scale-105 active:scale-95 text-sm"
           >
             + Connect another platform
-          </button>
+          </Link>
         </div>
       </div>
     </div>

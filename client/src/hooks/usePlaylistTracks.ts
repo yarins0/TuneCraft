@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { fetchTracksPage, fetchPendingFeatures } from '../api/tracks';
 import type { Track, PlaylistAverages } from '../api/tracks';
 
-const getUserId = () => localStorage.getItem('userId') || '';
+const getUserId = () => sessionStorage.getItem('userId') || localStorage.getItem('userId') || '';
 
 // Recalculates playlist averages from the full set of loaded tracks.
 // Called after each page loads and after feature polling updates arrive,
@@ -105,6 +105,14 @@ export const usePlaylistTracks = (
     // Adds null-feature tracks to the pending set and starts polling if not already running.
     // The poll hits the lightweight /features endpoint (DB cache only) every second.
     // When features arrive they're merged into track state and averages are recalculated.
+    //
+    // Polling stops automatically when either:
+    //   a) all pending IDs resolve (normal completion), or
+    //   b) 30 consecutive polls return nothing new (enrichment finished with no data for those tracks).
+    // The consecutive-miss counter resets whenever any feature arrives, so mixed playlists
+    // (some tracks enrichable, some not) still wait long enough for the resolvable ones.
+    const MAX_EMPTY_POLLS = 30;
+
     const scheduleFeaturePolling = (newTracks: Track[]) => {
       const missing = newTracks.filter(t =>
         Object.values(t.audioFeatures).every(v => v === null)
@@ -114,6 +122,8 @@ export const usePlaylistTracks = (
       missing.forEach(t => pendingFeatureIds.current.add(t.id));
 
       if (featurePollingRef.current) return; // interval already running
+
+      let consecutiveEmptyPolls = 0;
 
       featurePollingRef.current = setInterval(async () => {
         const pending = Array.from(pendingFeatureIds.current);
@@ -128,8 +138,22 @@ export const usePlaylistTracks = (
           const arrived = Object.entries(features).filter(
             ([, f]) => f && Object.values(f).some(v => v !== null)
           );
-          if (arrived.length === 0) return;
 
+          if (arrived.length === 0) {
+            consecutiveEmptyPolls++;
+            // Give up on remaining IDs after 30s of no progress — the background
+            // enrichment has finished and these tracks simply have no audio features
+            // (ReccoBeats doesn't cover them, or no Spotify ID could be resolved).
+            if (consecutiveEmptyPolls >= MAX_EMPTY_POLLS) {
+              clearInterval(featurePollingRef.current!);
+              featurePollingRef.current = null;
+              pendingFeatureIds.current.clear();
+            }
+            return;
+          }
+
+          // New features arrived — reset the timeout and apply the updates
+          consecutiveEmptyPolls = 0;
           arrived.forEach(([id]) => pendingFeatureIds.current.delete(id));
           const featureMap = Object.fromEntries(arrived);
 
@@ -139,7 +163,9 @@ export const usePlaylistTracks = (
             )
           );
         } catch {
-          // Polling errors are silent — will retry on the next interval tick
+          // Network errors are silent — will retry on the next interval tick.
+          // Importantly, errors do NOT increment the empty-poll counter so a brief
+          // network hiccup doesn't cause premature polling shutdown.
         }
       }, 1000);
     };

@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
 import type { PlaylistAverages } from '../api/tracks';
 import { getPlatformPlaylistUrl, getPlatformLabel, getPlatformBadgeStyle, getPlatformConfig, PLATFORM_LABELS } from '../utils/platform';
-import { getActiveAccount } from '../utils/accounts';
+import { getActiveAccount, setSessionAccount } from '../utils/accounts';
 import AudioFeatureChart from '../components/AudioFeatureChart';
 import { AUDIO_FEATURES } from '../constants/audioFeatures';
 import PlaylistCompositionCharts from '../components/PlaylistCompositionCharts';
@@ -19,7 +19,8 @@ import { useReshuffleSchedule } from '../hooks/useReshuffleSchedule';
 import { findDuplicates } from '../utils/findDuplicates';
 import AppFooter from '../components/AppFooter';
 
-const getPlatformUserId = () => localStorage.getItem('platformUserId') || '';
+const getUserId = () => sessionStorage.getItem('userId') || localStorage.getItem('userId') || '';
+const getPlatformUserId = () => sessionStorage.getItem('platformUserId') || localStorage.getItem('platformUserId') || '';
 
 export default function PlaylistDetail() {
   const { playlistId } = useParams<{ playlistId: string }>();
@@ -29,12 +30,22 @@ export default function PlaylistDetail() {
   // searchParams is the fallback for when the page is opened in a new tab (e.g. after copy)
   // — new tabs don't carry React Router state, so we encode the info in the URL instead.
   const searchParams = new URLSearchParams(location.search);
+
+  // If this page was opened in a new tab (middle-click / Ctrl+click from Dashboard),
+  // React Router state is lost. The URL carries ?userId so we can activate the correct
+  // account for this tab. Must run synchronously here — before any hook effects fire —
+  // so getUserId() in usePlaylistTracks reads the right userId on its first call.
+  const urlUserId = searchParams.get('userId');
+  if (urlUserId && !sessionStorage.getItem('userId')) {
+    setSessionAccount(urlUserId);
+  }
+
   const state = (location.state || {}) as { ownerId?: string; name?: string; platform?: string; trackCount?: number };
   const ownerId = state.ownerId || searchParams.get('ownerId') || undefined;
   const name = state.name || searchParams.get('name') || undefined;
   // trackCount from the dashboard playlist card — used as a display fallback for Tidal,
   // which doesn't always return meta.total in its API responses.
-  const dashboardTrackCount = state.trackCount ?? null;
+  const dashboardTrackCount = state.trackCount ?? (parseInt(searchParams.get('trackCount') ?? '', 10) || null);
   // platform in state lets us detect cross-platform navigation before the API call.
   // Only populated when navigating from within the app (Dashboard links pass it).
   const playlistPlatform = (state.platform || searchParams.get('platform') || undefined)?.toUpperCase();
@@ -137,6 +148,7 @@ export default function PlaylistDetail() {
       setOpenTrackIds(new Set());
       setInsightsOpen(false);
     },
+    onCopyComplete: () => setCopyModalOpen(false),
     onSuccess: showSuccess,
     onError: showError,
   });
@@ -260,8 +272,10 @@ export default function PlaylistDetail() {
       <div className="sticky top-0 z-10 border-b border-border-color px-8 py-6 flex items-center justify-between bg-bg-secondary">
         <div className="flex items-center gap-4">
 
-          {/* Logo — clicking navigates back to dashboard */}
-          <Link to="/dashboard" className="flex items-center gap-2 cursor-pointer shrink-0">
+          {/* Logo — clicking navigates back to dashboard.
+              ?switchTo encodes the active userId so middle-click / Ctrl+click opens a new
+              tab on the correct platform instead of falling back to localStorage. */}
+          <Link to={`/dashboard?switchTo=${getUserId()}`} className="flex items-center gap-2 cursor-pointer shrink-0">
             <img src="/favicon.svg" alt="TuneCraft icon" className="h-7 w-7" />
             <h1 className="text-2xl font-bold tracking-tight">
               Tune<span className="text-accent">Craft</span>
@@ -273,19 +287,19 @@ export default function PlaylistDetail() {
           {/* Playlist name + live track count */}
           <div className="min-w-0">
             {name && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (!playlistId) return;
-                  const platform = tracks[0]?.platform;
-                  const url = getPlatformPlaylistUrl(platform, playlistId);
-                  window.open(url, '_blank', 'noopener,noreferrer');
-                }}
+              // Real <a> tag so the browser recognises this as a link —
+              // enables middle-click, Ctrl+click, and right-click "Open in new tab".
+              // href is undefined until tracks load (no platform yet), which safely
+              // disables the link without hiding the title text.
+              <a
+                href={tracks[0]?.platform ? getPlatformPlaylistUrl(tracks[0].platform, playlistId!) : undefined}
+                target="_blank"
+                rel="noopener noreferrer"
                 title={getPlatformLabel(tracks[0]?.platform)}
                 className="text-lg font-semibold text-left text-text-primary hover:text-accent hover:underline cursor-pointer truncate max-w-xs block"
               >
                 {name}
-              </button>
+              </a>
             )}
             <p className="text-text-muted text-sm flex items-center gap-2">
               {loadingMore

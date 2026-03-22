@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { fetchPlaylists, fetchLikedSongs } from '../api/playlists';
 import type { Playlist } from '../api/playlists';
 import { extractPlaylistId } from '../utils/platform';
@@ -7,20 +7,42 @@ import { discoverPlaylist, discoverPlaylistByUrl } from '../api/playlists';
 import MergeModal from '../components/MergeModal';
 import { mergePlaylist } from '../api/playlists';
 import { buildMergedTrackList } from '../utils/mergePlaylists';
-import { getActiveAccount, getAccounts, type StoredAccount } from '../utils/accounts';
+import { getActiveAccount, getAccounts, setSessionAccount, type StoredAccount } from '../utils/accounts';
 import PlatformSwitcherSidebar from '../components/PlatformSwitcherSidebar';
 import AppFooter from '../components/AppFooter';
 import { PLATFORM_COLORS, PLATFORM_LABELS } from '../utils/platform';
 import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
 
-// Reads the active userId from localStorage — synced by setActiveAccount() on every switch.
-const getUserId = () => localStorage.getItem('userId') || '';
-const getPlatformUserId = () => localStorage.getItem('platformUserId');
+// Reads the active userId — checks sessionStorage first (per-tab override for multi-tab
+// use) then falls back to localStorage (shared across tabs).
+const getUserId = () => sessionStorage.getItem('userId') || localStorage.getItem('userId') || '';
+const getPlatformUserId = () => sessionStorage.getItem('platformUserId') || localStorage.getItem('platformUserId');
 
 // Sentinel ID used to represent Liked Songs in the selection set
 // Liked Songs have no real Spotify playlist ID, so we use this constant as a stand-in
 // The backend merge handler will detect this value and fetch /me/tracks instead of /playlists/:id/items
 const LIKED_SONGS_ID = 'liked';
+
+// Builds a playlist URL with all context encoded as query params.
+// React Router state is lost when a link is opened in a new tab — URL params are the
+// only way to carry context (account, platform, name, etc.) to PlaylistDetail.
+// PlaylistDetail already reads these as fallbacks; this ensures they're always present.
+function buildPlaylistUrl(platformId: string, opts: {
+  userId: string;
+  ownerId: string;
+  name: string;
+  platform: string;
+  trackCount?: number | null;
+}): string {
+  const q = new URLSearchParams({
+    userId:   opts.userId,
+    ownerId:  opts.ownerId,
+    name:     opts.name,
+    platform: opts.platform,
+  });
+  if (opts.trackCount != null) q.set('trackCount', String(opts.trackCount));
+  return `/playlist/${platformId}?${q}`;
+}
 
 export default function Dashboard() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -50,6 +72,7 @@ export default function Dashboard() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Animates "Loading your music." → ".." → "..." while the library is fetching.
   const loadingLabel = useAnimatedLabel(loading, 'Loading your music');
@@ -87,6 +110,10 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    // Skip if ?switchTo is present — the switchTo effect below will activate the correct
+    // account and call loadLibrary() itself. Without this guard, the initial load would
+    // run with the old localStorage account and briefly show the wrong playlists.
+    if (new URLSearchParams(window.location.search).get('switchTo')) return;
     loadLibrary();
   }, [loadLibrary]);
 
@@ -103,6 +130,24 @@ export default function Dashboard() {
     // Re-fetch playlists for the newly active account
     loadLibrary();
   };
+
+  // When Dashboard is opened in a new tab via a ?switchTo=userId link (e.g. from the
+  // platform switcher sidebar), activate that account and re-fetch the library.
+  // We strip the param from the URL immediately so refreshing the tab doesn't re-trigger.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const switchTo = params.get('switchTo');
+    if (!switchTo) return;
+
+    // Write to sessionStorage only — this tab gets the target account without
+    // affecting localStorage (which would silently switch every other open tab).
+    setSessionAccount(switchTo);
+    handleAccountSwitch(switchTo);
+
+    // Replace the current URL without the query param
+    navigate('/dashboard', { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Intentionally empty — runs once on mount; location.search is stable at that point
 
   // Handles the discover form submission.
   // extractPlaylistId returns either a bare platform ID or a full URL (SoundCloud only),
@@ -135,11 +180,12 @@ export default function Dashboard() {
       const path = `/playlist/${playlist.platformId}`;
 
       if (openInNewTab) {
-        const params = new URLSearchParams({
-          ownerId: playlist.ownerId,
-          name:    playlist.name,
-        });
-        window.open(`${path}?${params}`, '_blank');
+        window.open(buildPlaylistUrl(playlist.platformId, {
+          userId:   getUserId(),
+          ownerId:  playlist.ownerId,
+          name:     playlist.name,
+          platform: activeAccount?.platform ?? '',
+        }), '_blank');
       } else {
         navigate(path, {
           state: { ownerId: playlist.ownerId, name: playlist.name, platform: activeAccount?.platform },
@@ -260,7 +306,9 @@ export default function Dashboard() {
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-border-color px-8 py-6 bg-bg-secondary">
         <div className="flex items-center justify-between">
-          <Link to="/dashboard" className="flex items-center gap-3 cursor-pointer w-fit">
+          {/* ?switchTo encodes the active userId so middle-click / Ctrl+click opens a new
+              tab on the correct platform instead of falling back to localStorage. */}
+          <Link to={`/dashboard?switchTo=${getUserId()}`} className="flex items-center gap-3 cursor-pointer w-fit">
             <img src="/favicon.svg" alt="TuneCraft icon" className="h-12 w-12" />
             <div>
               <h1 className="text-3xl font-bold tracking-tight">
@@ -379,7 +427,7 @@ export default function Dashboard() {
 
             {/* Liked Songs card — selectable like owned playlists, handled with LIKED_SONGS_ID */}
             <Link
-              to="/playlist/liked"
+              to={buildPlaylistUrl('liked', { userId: getUserId(), ownerId: getPlatformUserId(), name: 'Liked Songs', platform: activeAccount?.platform ?? '' })}
               state={{ ownerId: getPlatformUserId(), name: 'Liked Songs', platform: activeAccount?.platform }}
               onClick={handleLikedCardClick}
               className={[
@@ -423,7 +471,7 @@ export default function Dashboard() {
               return (
                 <Link
                   key={playlist.platformId}
-                  to={`/playlist/${playlist.platformId}`}
+                  to={buildPlaylistUrl(playlist.platformId, { userId: getUserId(), ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform, trackCount: playlist.trackCount })}
                   state={{ ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform, trackCount: playlist.trackCount }}
                   onClick={(e) => handleCardClick(e, playlist)}
                   className={[
@@ -492,7 +540,7 @@ export default function Dashboard() {
               {followingPlaylists.map(playlist => (
                 <Link
                   key={playlist.platformId}
-                  to={`/playlist/${playlist.platformId}`}
+                  to={buildPlaylistUrl(playlist.platformId, { userId: getUserId(), ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform, trackCount: playlist.trackCount })}
                   state={{ ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform, trackCount: playlist.trackCount }}
                   onClick={(e) => { if (selectMode) e.preventDefault(); }}
                   className={[

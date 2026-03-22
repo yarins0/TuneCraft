@@ -6,7 +6,7 @@ import type { SplitGroup } from '../utils/splitPlaylist';
 import { findDuplicates } from '../utils/findDuplicates';
 import type { ReshuffleSchedule } from '../api/reshuffle';
 
-const getUserId = () => localStorage.getItem('userId') || '';
+const getUserId = () => sessionStorage.getItem('userId') || localStorage.getItem('userId') || '';
 
 interface Options {
   playlistId: string | undefined;
@@ -17,6 +17,8 @@ interface Options {
   setReshuffleSchedule: React.Dispatch<React.SetStateAction<ReshuffleSchedule | null>>;
   // Called after a shuffle so the parent can close the ShuffleModal and reset open row state
   onShuffleApplied: () => void;
+  // Called after a successful copy so the parent can close the CopyModal
+  onCopyComplete: () => void;
   onSuccess: (msg: string, durationMs?: number) => void;
   onError: (msg: string, durationMs?: number) => void;
 }
@@ -58,6 +60,7 @@ export const usePlaylistActions = ({
   reshuffleSchedule,
   setReshuffleSchedule,
   onShuffleApplied,
+  onCopyComplete,
   onSuccess,
   onError,
 }: Options): UsePlaylistActionsResult => {
@@ -158,6 +161,7 @@ export const usePlaylistActions = ({
         copyName
       );
       setHasUnsavedChanges(false);
+      onCopyComplete();
       onSuccess('Copy saved to your library!');
 
       const params = new URLSearchParams({

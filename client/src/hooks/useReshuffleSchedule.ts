@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { enableReshuffle, disableReshuffle, fetchReshuffleSchedule } from '../api/reshuffle';
 import type { ReshuffleSchedule } from '../api/reshuffle';
 
-const getUserId = () => localStorage.getItem('userId') || '';
+const getUserId = () => sessionStorage.getItem('userId') || localStorage.getItem('userId') || '';
 
 interface Options {
   playlistId: string | undefined;
