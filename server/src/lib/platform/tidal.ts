@@ -586,7 +586,7 @@ export class TidalAdapter implements PlatformAdapter {
       platformId: t.platformId, artistName: t.artistName, isrc: t.isrc,
     })));
 
-    const { audioFeaturesMap, artistGenreMap, missedTracks } =
+    const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
       await readEnrichmentCache(enrichmentInput);
 
     console.log('[Tidal DEBUG] cache result — hits:', Object.keys(audioFeaturesMap).length,
@@ -594,8 +594,9 @@ export class TidalAdapter implements PlatformAdapter {
       '| missedISRCs:', missedTracks.map(t => t.isrc ?? '(no isrc)'));
 
     if (missedTracks.length > 0) {
-      // Pass [] for uniqueMissedArtists — Tidal provides native genre tags, so Last.fm is not needed.
-      backgroundEnrichTracks(missedTracks, []).catch(err =>
+      // Tidal's native genre API returns empty for most tracks, so we fall back to Last.fm
+      // for genre lookup — the same approach SoundCloud uses.
+      backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
         console.error('[Tidal] Background enrichment error:', err)
       );
     }
@@ -705,8 +706,8 @@ export class TidalAdapter implements PlatformAdapter {
       await readEnrichmentCache(enrichmentInput);
 
     if (missedTracks.length > 0) {
-      // Pass [] for uniqueMissedArtists — Tidal provides native genre tags, so Last.fm is not needed.
-      backgroundEnrichTracks(missedTracks, []).catch(err =>
+      // Tidal's native genre API returns empty for most tracks, so fall back to Last.fm.
+      backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
         console.error('[Tidal] Background enrichment error:', err)
       );
     }

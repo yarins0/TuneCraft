@@ -30,7 +30,10 @@ export const requestWithRetry = async (
       const status = error.response?.status;
       const retryAfter = error.response?.headers?.['retry-after'];
       if (status === 429 && attempt < maxRetries - 1) {
-        const waitSeconds = Math.min(retryAfter ? parseInt(retryAfter) : 5, 30);
+        // Respect the full Retry-After value Spotify/Tidal sends — capping at 30s was causing
+        // retries to land inside the same rate-limit window and fail again immediately.
+        // Cap raised to 120s so a single request can survive realistic rate-limit windows.
+        const waitSeconds = Math.min(retryAfter ? parseInt(retryAfter) : 5, 120);
         console.warn(`${label} rate limit hit — waiting ${waitSeconds}s (retry ${attempt + 1}/${maxRetries})`);
         await sleep(waitSeconds * 1000);
         continue;

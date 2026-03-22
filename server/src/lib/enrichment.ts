@@ -142,7 +142,7 @@ export const readEnrichmentCache = async (
         if (!(row as any)[track.idField]) {
           prisma.trackCache
             .update({ where: { id: row.id }, data: { [track.idField]: track.platformId } })
-            .catch(() => {});
+            .catch(e => console.error('[Enrichment] TrackCache backfill failed:', e.message));
         }
       }
     }
@@ -192,13 +192,29 @@ export const readEnrichmentCache = async (
 //   │  Phase 2: Per-track audio features (sequential, 300ms gap, rate limit)  │
 //   │  Phase 3: Persist genres to ArtistCache                                 │
 //   └──────────────────────────────────────────────────────────────────────────┘
+// Tracks whose enrichment is currently in flight (keyed by platformId).
+// Prevents duplicate enrichment when the user reloads before the first run completes —
+// each reload would otherwise fire a new backgroundEnrichTracks for the same tracks,
+// stacking concurrent ISRC lookups and compounding rate-limit penalties.
+const enrichingIds = new Set<string>();
+
 export const backgroundEnrichTracks = async (
   missedTracks: EnrichmentTrack[],
   uniqueMissedArtists: { id: string; name: string }[]
 ): Promise<void> => {
-  console.log('[Enrichment DEBUG] backgroundEnrichTracks called with', missedTracks.length, 'tracks:',
-    missedTracks.map(t => ({ platformId: t.platformId, idField: t.idField, isrc: t.isrc ?? '(none)', spotifyId: t.spotifyId }))
+  // Skip any tracks already being enriched by a previous in-flight call.
+  const tracks = missedTracks.filter(t => !enrichingIds.has(t.platformId));
+  if (tracks.length === 0) {
+    console.log('[Enrichment DEBUG] all tracks already in-flight, skipping duplicate enrichment');
+    return;
+  }
+  tracks.forEach(t => enrichingIds.add(t.platformId));
+
+  console.log('[Enrichment DEBUG] backgroundEnrichTracks called with', tracks.length, 'tracks:',
+    tracks.map(t => ({ platformId: t.platformId, idField: t.idField, isrc: t.isrc ?? '(none)', spotifyId: t.spotifyId }))
   );
+
+  try {
   // --- Phase 0: Resolve ISRC → Spotify ID for tracks that need it ---
   //
   // Tracks where spotifyId is already set (Spotify platform) skip this phase entirely.
@@ -209,15 +225,16 @@ export const backgroundEnrichTracks = async (
   //   Spotify's client credentials token has a strict rate limit on the search endpoint.
   //   Running even 3 concurrent requests reliably triggers a 30s Retry-After penalty.
   //   Sequential with a 300ms gap stays well within the limit for any realistic playlist size.
-  const ISRC_DELAY = 300; // ms between sequential ISRC lookups
+  const ISRC_DELAY = 1000; // ms between sequential ISRC lookups — keeps well under Spotify's ~1 req/sec search limit
 
-  const isrcNeedingTracks = missedTracks.filter(t => t.spotifyId === null && t.isrc);
-  const noIsrcTracks      = missedTracks.filter(t => t.spotifyId === null && !t.isrc);
+  const isrcNeedingTracks = tracks.filter(t => t.spotifyId === null && t.isrc);
+  const noIsrcTracks      = tracks.filter(t => t.spotifyId === null && !t.isrc);
 
   console.log(`[Enrichment DEBUG] Phase 0 — ${isrcNeedingTracks.length} tracks need ISRC→Spotify lookup, ${noIsrcTracks.length} have no ISRC (will get no features)`);
 
   for (let i = 0; i < isrcNeedingTracks.length; i++) {
     const track = isrcNeedingTracks[i];
+    console.log(`[Enrichment DEBUG] ISRC lookup starting (${i + 1}/${isrcNeedingTracks.length}): ${track.isrc}`);
     track.spotifyId = await isrcLookup(track.isrc!);
     console.log(`[Enrichment DEBUG] ISRC ${track.isrc} → spotifyId: ${track.spotifyId ?? 'null (no match)'}`);
     if (i < isrcNeedingTracks.length - 1) await sleep(ISRC_DELAY);
@@ -226,7 +243,7 @@ export const backgroundEnrichTracks = async (
   // Only tracks with a resolved Spotify ID can be submitted to ReccoBeats.
   // SoundCloud indie uploads without ISRC will have spotifyId: null — they
   // skip audio feature enrichment and receive null features (displayed gracefully in UI).
-  const tracksWithSpotifyId = missedTracks.filter(t => t.spotifyId !== null);
+  const tracksWithSpotifyId = tracks.filter(t => t.spotifyId !== null);
   const spotifyIds = tracksWithSpotifyId.map(t => t.spotifyId as string);
 
   console.log(`[Enrichment DEBUG] After ISRC phase: ${tracksWithSpotifyId.length}/${missedTracks.length} tracks have a spotifyId → submitting to ReccoBeats`);
@@ -392,7 +409,7 @@ export const backgroundEnrichTracks = async (
             ...nativeIdData,
           },
         })
-        .catch(() => {});
+        .catch(e => console.error('[Enrichment] TrackCache upsert failed (isrc):', e.message));
     } else {
       // Tracks without ISRC can only be keyed by their Spotify ID (SC tracks without
       // ISRC never reach Phase 2 — they have no spotifyId and are filtered out above).
@@ -402,7 +419,7 @@ export const backgroundEnrichTracks = async (
           create: { spotifyId: platformId, audioFeatures: features as object },
           update: { audioFeatures: features as object, cachedAt: new Date() },
         })
-        .catch(() => {});
+        .catch(e => console.error('[Enrichment] TrackCache upsert failed (spotifyId):', e.message));
     }
 
     await sleep(300);
@@ -426,4 +443,9 @@ export const backgroundEnrichTracks = async (
   console.log(
     `Background enrichment complete: ${Object.keys(reccoBeatsIdMap).length} track(s) feature-cached`
   );
+  } finally {
+    // Always release the lock — even if an error occurs mid-enrichment,
+    // so the next page load can retry rather than being permanently blocked.
+    tracks.forEach(t => enrichingIds.delete(t.platformId));
+  }
 };

@@ -4,7 +4,7 @@ import type { PlatformConfig } from './types';
 // Mirrors the server-side SoundCloudAdapter — presentation data and URL logic only, no API calls.
 export const soundcloudConfig: PlatformConfig = {
   label:  'SoundCloud',
-  icon:   '🔊',
+  icon:   '☁️',
   cssVar: '--color-platform-soundcloud',
 
   available:              false,

@@ -69,7 +69,7 @@ export const isrcLookup = async (isrc: string | undefined | null): Promise<strin
         params: { q: `isrc:${isrc}`, type: 'track', limit: 1 },
       },
       undefined,
-      3,
+      5,       // 5 retries — ISRC search hits a stricter rate limit than other Spotify endpoints
       'ISRC search'
     );
 
