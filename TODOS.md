@@ -75,16 +75,11 @@ Also fixed the client-side polling loop: it now stops after 30 consecutive empty
 
 ---
 
-## Tidal genres never appear — verify raw API response before falling back to Last.fm
+## ~~Tidal genres never appear — verify raw API response before falling back to Last.fm~~ ✅ DONE
 
-**What:** Genre tags are empty for all Tidal tracks. We currently fall back to Last.fm, but it's unclear whether Tidal's API actually returns genre data and we're just parsing it wrong, or whether it genuinely returns nothing.
+**What was done:** Logged the raw first-track response from the Tidal v2 playlist API. `relationships.genres.data` is `[]` for all tracks — Tidal's `links.self` for the genre relationship is a standard JSON:API self-link, not a hidden data source. Tidal simply does not return genre data via its API. Reverted `buildTrackV2` to use `artistGenreMap` (Last.fm) as the genre source, the same approach used for SoundCloud.
 
-**What to do:** Log the raw genre relationships from the Tidal v2 API response for a known track that should have genres. Confirm whether `relationships.genres.data` is empty or populated, and what `attributes` look like on genre resources. Only rely on Last.fm fallback if Tidal genuinely returns no data.
-
-**Where to start:** `server/src/lib/platform/tidal.ts` — `buildTrackV2`, the `genresMap` and `genreRefs` logging added during debugging.
-
-**Effort:** S
-**Priority:** P1
+**File changed:** `server/src/lib/platform/tidal.ts`
 
 ---
 

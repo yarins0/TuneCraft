@@ -125,20 +125,9 @@ const buildTrackV2 = (
     }
   }
 
-  // Use Tidal's native per-track genre tags exclusively.
-  // Each genre ref in relationships.genres.data points to a resource in genresMap.
-  // Tidal v2 genre resources use attributes.text for the display label (e.g. "Pop", "Hip-Hop/Rap"),
-  // unlike the more common JSON:API convention of attributes.name.
-  // We do NOT fall back to Last.fm artistGenreMap — Tidal's tags are per-track and more accurate.
-  // Tracks with no genre relationship simply get an empty array.
-  const genreRefs: any[] = item.relationships?.genres?.data ?? [];
-  const genres = genreRefs
-    .map((ref: any) => {
-      const g = genresMap.get(String(ref.id));
-      // Tidal uses attributes.text; fall back to attributes.name as a safety net.
-      return g?.attributes?.text ?? g?.attributes?.name;
-    })
-    .filter(Boolean) as string[];
+  // Tidal's v2 API returns relationships.genres.data: [] for all tracks — confirmed via raw API
+  // inspection. We fall back to Last.fm artist-level genre tags (same approach as SoundCloud).
+  const genres: string[] = artistGenreMap[artistId] ?? [];
 
   // In Tidal v2, release date is on the album resource, not the track.
   // albumData.attributes.releaseDate is an ISO date string (e.g. "2023-05-12").
