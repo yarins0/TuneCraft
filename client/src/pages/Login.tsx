@@ -1,6 +1,6 @@
 import { API_BASE_URL } from '../api/config';
 import AppFooter from '../components/AppFooter';
-import { PLATFORM_COLORS, PLATFORM_LABELS } from '../utils/platform';
+import { getAllPlatformConfigs, PLATFORM_COLORS } from '../utils/platform';
 
 // Redirects the user to the selected platform's OAuth login flow via the Tunecraft backend.
 // The platform query param tells the server which adapter to use.
@@ -8,17 +8,14 @@ const handleLogin = (platform: string) => {
   window.location.href = `${API_BASE_URL}/auth/login?platform=${platform}`;
 };
 
-// Each platform option in the picker.
-// `color` is pulled from the shared PLATFORM_COLORS constant so there's one place to update.
-// `darkText` flags platforms whose brand colour is too bright for white text (WCAG AA contrast).
-const PLATFORMS = [
-  { id: 'SPOTIFY',     available: true,  darkText: false },
-  { id: 'SOUNDCLOUD',  available: true,  darkText: false },
-  // Tidal's brand cyan (#00FFFF) is too bright for white text (~1.25:1 contrast ratio).
-  // darkText forces black text so the button passes WCAG AA on this background.
-  { id: 'TIDAL',       available: true,  darkText: true  },
-  { id: 'APPLE_MUSIC', available: false, darkText: false },
-].map(p => ({ ...p, color: PLATFORM_COLORS[p.id], label: PLATFORM_LABELS[p.id] }));
+// Derived from the platform registry — no platform names are hardcoded here.
+// To add a platform to the Login picker, set `available: true` in its config file.
+const PLATFORMS = getAllPlatformConfigs().map(p => ({
+  id:        p.id,
+  label:     p.label,
+  available: p.available,
+  color:     PLATFORM_COLORS[p.id],
+}));
 
 export default function Login() {
   // The OAuth callback redirects back here with ?error=denied when the user cancels
@@ -65,17 +62,20 @@ export default function Login() {
 
           {/* Platform picker */}
           <div className="flex flex-col gap-3 w-full max-w-xs">
-            {PLATFORMS.map(({ id, label, available, color, darkText }) => (
+            {PLATFORMS.map(({ id, label, available, color }) => (
               <button
                 key={id}
                 onClick={available ? () => handleLogin(id) : undefined}
                 disabled={!available}
                 title={available ? undefined : 'Coming soon'}
-                style={available ? { backgroundColor: color } : undefined}
+                // --btn-color exposes the brand colour as a CSS custom property so Tailwind's
+                // arbitrary-value utilities can reference it for border, glow, and hover effects
+                // without hardcoding any hex values in the className string.
+                style={{ '--btn-color': color } as React.CSSProperties}
                 className={
                   available
-                    ? `${darkText ? 'text-black' : 'text-white'} font-bold px-10 py-4 rounded-full text-lg transition-all duration-300 hover:scale-105 active:scale-95 hover:brightness-110`
-                    : 'bg-bg-secondary text-text-muted font-bold px-10 py-4 rounded-full text-lg opacity-40 cursor-not-allowed relative'
+                    ? 'relative text-text-primary font-bold px-10 py-4 rounded-full text-lg border-2 border-[var(--btn-color)] bg-transparent transition-all duration-300 hover:scale-105 active:scale-95 hover:[box-shadow:0_0_24px_color-mix(in_srgb,var(--btn-color)_55%,transparent)]'
+                    : 'relative text-text-muted font-bold px-10 py-4 rounded-full text-lg border-2 border-border-color bg-transparent opacity-40 cursor-not-allowed'
                 }
               >
                 Connect {label}

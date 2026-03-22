@@ -140,10 +140,11 @@ const buildTrackV2 = (
     })
     .filter(Boolean) as string[];
 
-  // Parse the 4-digit release year from Tidal's ISO date string (e.g. "2023-05-12").
-  // releaseDate lives in track attributes for v2 API tracks.
-  const releaseYear = attrs.releaseDate
-    ? parseInt(String(attrs.releaseDate).slice(0, 4), 10) || null
+  // In Tidal v2, release date is on the album resource, not the track.
+  // albumData.attributes.releaseDate is an ISO date string (e.g. "2023-05-12").
+  const albumAttrs  = albumData?.attributes ?? {};
+  const releaseYear = albumAttrs.releaseDate
+    ? parseInt(String(albumAttrs.releaseDate).slice(0, 4), 10) || null
     : null;
 
   const features = audioFeaturesMap[id] || {};
@@ -562,8 +563,35 @@ export class TidalAdapter implements PlatformAdapter {
       };
     });
 
+    // DEBUG: log raw track data to diagnose missing genres / ISRC / release year
+    console.log('[Tidal DEBUG] tracks from API:', rawTracks.map((t: any) => {
+      const albRef  = t.relationships?.albums?.data?.[0];
+      const albData = albRef ? albumsMap.get(String(albRef.id)) : null;
+      return {
+        id:                  String(t.id),
+        title:               t.attributes?.title,
+        isrc:                t.attributes?.isrc,
+        trackReleaseDate:    t.attributes?.releaseDate,
+        albumReleaseDate:    albData?.attributes?.releaseDate,
+        genreRefs:           t.relationships?.genres?.data ?? [],
+        genreNames:          (t.relationships?.genres?.data ?? []).map((ref: any) =>
+          genresMap.get(String(ref.id))?.attributes
+        ),
+      };
+    }));
+    console.log('[Tidal DEBUG] genresMap entries:', [...genresMap.entries()].map(([id, g]) => ({
+      id, attributes: g?.attributes,
+    })));
+    console.log('[Tidal DEBUG] enrichmentInput:', enrichmentInput.map(t => ({
+      platformId: t.platformId, artistName: t.artistName, isrc: t.isrc,
+    })));
+
     const { audioFeaturesMap, artistGenreMap, missedTracks } =
       await readEnrichmentCache(enrichmentInput);
+
+    console.log('[Tidal DEBUG] cache result — hits:', Object.keys(audioFeaturesMap).length,
+      '| misses:', missedTracks.length,
+      '| missedISRCs:', missedTracks.map(t => t.isrc ?? '(no isrc)'));
 
     if (missedTracks.length > 0) {
       // Pass [] for uniqueMissedArtists — Tidal provides native genre tags, so Last.fm is not needed.

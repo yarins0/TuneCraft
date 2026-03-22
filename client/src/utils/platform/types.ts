@@ -9,6 +9,21 @@ export interface PlatformConfig {
   // CSS custom-property name defined in index.css — the single source of truth for brand colours.
   // Never hardcode hex values here; referencing the variable lets theme changes propagate everywhere.
   cssVar: string;
+
+  // Whether this platform is live and connectable via OAuth.
+  // false = shown on the Login page with a "coming soon" badge, button disabled.
+  available: boolean;
+  // True when the platform restricts reading playlists owned by other users.
+  // PlaylistDetail reads this to show an ownership-specific error instead of a generic one.
+  ownershipRestricted: boolean;
+  // False when the platform's API does not reliably return a total track count during pagination.
+  // PlaylistDetail falls back to the dashboard's known count when this is false.
+  totalTracksReliable: boolean;
+  // Optional human-readable hint explaining why audio features may be missing for this platform.
+  // Shown in PlaylistDetail when fewer than 20% of tracks have feature data.
+  // undefined = show a generic fallback message with no platform-specific context.
+  audioFeaturesMissingHint?: string;
+
   // Returns the external deep-link to open a single track on the native platform
   trackUrl: (trackId: string) => string;
   // Returns the external deep-link to open a playlist, or the liked/saved library when id === 'liked'

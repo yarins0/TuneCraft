@@ -12,6 +12,7 @@ export type { PlatformConfig };
 
 // Maps platform keys (matching the Prisma Platform enum) to their config objects.
 // To add a new platform: create a file in platform/, export a PlatformConfig, add it here.
+// Order matters — getAllPlatformConfigs() preserves insertion order for the Login picker.
 const PLATFORM_CONFIGS: Record<string, PlatformConfig> = {
   SPOTIFY:     spotifyConfig,
   SOUNDCLOUD:  soundcloudConfig,
@@ -19,10 +20,36 @@ const PLATFORM_CONFIGS: Record<string, PlatformConfig> = {
   APPLE_MUSIC: appleMusicConfig,
 };
 
-// Resolves the config for a platform key, falling back to Spotify for unknown values.
-// All exported utility functions use this so they handle undefined/unknown platforms gracefully.
+// Safe fallback used when the platform key is unknown or undefined.
+// All behavioral flags default to the least-surprising value so no platform-specific
+// error messages or restrictions are shown for an unrecognised platform.
+const defaultConfig: PlatformConfig = {
+  label:                   'Unknown',
+  icon:                    '?',
+  cssVar:                  '--color-platform-spotify',
+  available:               false,
+  ownershipRestricted:     false,
+  totalTracksReliable:     true,
+  audioFeaturesMissingHint: undefined,
+  trackUrl:                () => '#',
+  playlistUrl:             () => '#',
+  extractPlaylistId:       () => null,
+};
+
+// Resolves the config for a platform key.
+// Falls back to defaultConfig (neutral/safe values) for unknown or undefined platforms
+// so callers never inherit another platform's behavioral flags by accident.
 const getConfig = (platform: string | undefined): PlatformConfig =>
-  PLATFORM_CONFIGS[(platform ?? 'SPOTIFY').toUpperCase()] ?? PLATFORM_CONFIGS.SPOTIFY;
+  PLATFORM_CONFIGS[(platform ?? '').toUpperCase()] ?? defaultConfig;
+
+// Exported for components that need the full config object (e.g. PlaylistDetail
+// reading ownershipRestricted, totalTracksReliable, audioFeaturesMissingHint).
+export const getPlatformConfig = getConfig;
+
+// Returns all platform configs as an ordered array with their registry key attached.
+// Used by Login to render the platform picker without hardcoding any platform names.
+export const getAllPlatformConfigs = (): Array<{ id: string } & PlatformConfig> =>
+  Object.entries(PLATFORM_CONFIGS).map(([id, config]) => ({ id, ...config }));
 
 // ─── Derived constants ────────────────────────────────────────────────────────
 

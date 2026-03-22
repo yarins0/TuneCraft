@@ -7,6 +7,13 @@ export const soundcloudConfig: PlatformConfig = {
   icon:   '🔊',
   cssVar: '--color-platform-soundcloud',
 
+  available:              false,
+  ownershipRestricted:    false,
+  totalTracksReliable:    true,
+  // Independent SoundCloud uploads often lack an ISRC, which means ReccoBeats can't be reached
+  // for them — audio features will be missing for a large share of indie-heavy playlists.
+  audioFeaturesMissingHint: "This often happens with independent SoundCloud uploads that aren't on major streaming services.",
+
   trackUrl: id => `https://soundcloud.com/tracks/${id}`,
 
   playlistUrl: id =>

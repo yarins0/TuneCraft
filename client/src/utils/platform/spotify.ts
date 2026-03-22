@@ -7,6 +7,11 @@ export const spotifyConfig: PlatformConfig = {
   icon:   '🎵',
   cssVar: '--color-platform-spotify',
 
+  available:              true,
+  ownershipRestricted:    true,  // Spotify API blocks reading playlists owned by other users
+  totalTracksReliable:    true,
+  audioFeaturesMissingHint: undefined,
+
   trackUrl: id => `https://open.spotify.com/track/${id}`,
 
   playlistUrl: id =>

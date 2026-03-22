@@ -29,17 +29,16 @@ const sanitizeAudioFeatures = (features: unknown): Record<string, unknown> => {
 
 // A track ready for audio-feature and genre enrichment.
 //
-//   platformId — the ID on the originating platform (Spotify ID or SoundCloud numeric ID).
+//   platformId — the native ID on the originating platform.
 //                Used as the TrackCache lookup key — the browser polls with this ID.
 //
 //   spotifyId  — the Spotify track ID required by ReccoBeats.
-//                Spotify:     always equal to platformId.
-//                SoundCloud:  null initially; resolved from isrc inside backgroundEnrichTracks.
-//                             If no ISRC match exists, stays null → track gets no audio features.
+//                Platforms whose native ID is a Spotify ID set this equal to platformId.
+//                Other platforms start with null; resolved from ISRC inside backgroundEnrichTracks.
+//                If no ISRC match exists, stays null → track gets no audio features.
 //
 //   isrc       — International Standard Recording Code. Present on commercially released tracks.
-//                SoundCloud provides this via publisher_metadata.isrc.
-//                Spotify provides this via external_ids.isrc.
+//                Provided by each platform via its own metadata field (varies per adapter).
 //                Stored in TrackCache so future cross-platform lookups skip ReccoBeats entirely.
 export interface EnrichmentTrack {
   platformId: string;
@@ -67,8 +66,8 @@ export interface EnrichmentTrack {
 //
 // Cross-platform deduplication:
 //   A single TrackCache row represents one unique recording.
-//   When a SoundCloud track has an ISRC that matches a row stored via Spotify,
-//   this function returns the existing features and backfills the soundcloudId
+//   When a track has an ISRC that matches a row stored under a different platform's ID,
+//   this function returns the existing features and backfills the current platform's ID
 //   on that row (fire-and-forget) so future queries can find it without ISRC.
 //
 // The caller fires backgroundEnrichTracks for misses and returns tracks immediately —
@@ -108,9 +107,9 @@ export const readEnrichmentCache = async (
 
   // Build a platformId → features map.
   // A cache row may be found in three ways:
-  //   1. Direct spotifyId match (Spotify track was already cached)
-  //   2. Direct soundcloudId match (SC track was already cached)
-  //   3. ISRC match (same recording cached under a different platform ID)
+  //   1. Direct platform ID match via the adapter-declared idField (track already cached on this platform)
+  //   2. Direct platform ID match via a different idField (same row, multi-platform)
+  //   3. ISRC match (same recording cached under a different platform's ID)
   //      → this is the cross-platform deduplication case
   const audioFeaturesMap: Record<string, any> = {};
 
@@ -120,7 +119,7 @@ export const readEnrichmentCache = async (
   for (const row of cachedTracks) {
     const features = sanitizeAudioFeatures(row.audioFeatures);
 
-    // Cases 1 and 2: direct platform ID match.
+    // Cases 1 and 2: direct platform ID match via adapter-declared idField.
     // For each idField used in this batch, map the stored native ID to features.
     for (const field of usedIdFields) {
       const id = (row as any)[field];
@@ -176,18 +175,18 @@ export const readEnrichmentCache = async (
 //
 // Cross-platform deduplication strategy:
 //   Each TrackCache row represents one unique recording — identified by ISRC when available.
-//   When a SoundCloud track with ISRC resolves to a Spotify ID that already has a row,
-//   the upsert by ISRC updates that row to add the soundcloudId instead of creating a duplicate.
-//   ReccoBeats is therefore never called twice for the same recording.
+//   When a track's ISRC resolves to a Spotify ID that already has a cached row,
+//   the upsert by ISRC updates that row to add the native platform ID instead of creating a duplicate.
+//   ReccoBeats is therefore never called twice for the same recording across platforms.
 //
 // Works for all platforms:
-//   Spotify    — spotifyId already set (equals platformId); ISRC passed in from external_ids.
-//   SoundCloud — spotifyId starts null; resolved from isrc via isrcLookup in Phase 0.
-//                Tracks with no ISRC or no Spotify match get no audio features (graceful).
+//   Platforms whose native ID is a Spotify ID — spotifyId already set (equals platformId).
+//   Other platforms — spotifyId starts null; resolved from ISRC via isrcLookup in Phase 0.
+//                     Tracks with no ISRC or no Spotify match get no audio features (graceful).
 //
 // Data flow:
 //   ┌──────────────────────────────────────────────────────────────────────────┐
-//   │  Phase 0: ISRC → Spotify ID (batches of 3, 500ms gap, SC + Tidal)       │
+//   │  Phase 0: ISRC → Spotify ID (batches of 3, 500ms gap, non-Spotify only) │
 //   │  Phase 1: ReccoBeats batch ID lookup ─┐ (parallel)                      │
 //   │           Last.fm genre lookup        ─┘                                │
 //   │  Phase 2: Per-track audio features (sequential, 300ms gap, rate limit)  │
@@ -197,36 +196,31 @@ export const backgroundEnrichTracks = async (
   missedTracks: EnrichmentTrack[],
   uniqueMissedArtists: { id: string; name: string }[]
 ): Promise<void> => {
+  console.log('[Enrichment DEBUG] backgroundEnrichTracks called with', missedTracks.length, 'tracks:',
+    missedTracks.map(t => ({ platformId: t.platformId, idField: t.idField, isrc: t.isrc ?? '(none)', spotifyId: t.spotifyId }))
+  );
   // --- Phase 0: Resolve ISRC → Spotify ID for tracks that need it ---
   //
   // Tracks where spotifyId is already set (Spotify platform) skip this phase entirely.
-  // For SoundCloud and Tidal, the track's ISRC is the bridge to a Spotify ID, which
-  // ReccoBeats requires in Phase 1. We fetch them in small parallel batches rather than
-  // one-at-a-time to balance speed against Spotify's client credentials rate limit.
+  // For SoundCloud and Tidal, the track's ISRC is the bridge to a Spotify ID which
+  // ReccoBeats requires. Requests are sequential with a 300ms gap between each one.
   //
-  // Why batches of 3 with 500ms between:
-  //   Sequential at 100ms → 10 req/sec → hits Spotify's search rate limit on large playlists.
-  //   3 concurrent + 500ms inter-batch gap → ~3–4 req/sec → comfortably within limits.
-  //   Natural API round-trip (~150–300ms per call) further throttles each batch organically.
-  const ISRC_BATCH  = 3;
-  const ISRC_DELAY  = 500; // ms between batches
+  // Why sequential (not batched):
+  //   Spotify's client credentials token has a strict rate limit on the search endpoint.
+  //   Running even 3 concurrent requests reliably triggers a 30s Retry-After penalty.
+  //   Sequential with a 300ms gap stays well within the limit for any realistic playlist size.
+  const ISRC_DELAY = 300; // ms between sequential ISRC lookups
 
   const isrcNeedingTracks = missedTracks.filter(t => t.spotifyId === null && t.isrc);
+  const noIsrcTracks      = missedTracks.filter(t => t.spotifyId === null && !t.isrc);
 
-  for (let i = 0; i < isrcNeedingTracks.length; i += ISRC_BATCH) {
-    const batch = isrcNeedingTracks.slice(i, i + ISRC_BATCH);
+  console.log(`[Enrichment DEBUG] Phase 0 — ${isrcNeedingTracks.length} tracks need ISRC→Spotify lookup, ${noIsrcTracks.length} have no ISRC (will get no features)`);
 
-    // Run the batch concurrently — each call resolves independently.
-    // Results are written back onto the track objects in-place so the filter
-    // in `tracksWithSpotifyId` below sees the resolved values.
-    await Promise.all(
-      batch.map(async track => {
-        track.spotifyId = await isrcLookup(track.isrc!);
-      })
-    );
-
-    // Pause between batches only when there are more tracks to process.
-    if (i + ISRC_BATCH < isrcNeedingTracks.length) await sleep(ISRC_DELAY);
+  for (let i = 0; i < isrcNeedingTracks.length; i++) {
+    const track = isrcNeedingTracks[i];
+    track.spotifyId = await isrcLookup(track.isrc!);
+    console.log(`[Enrichment DEBUG] ISRC ${track.isrc} → spotifyId: ${track.spotifyId ?? 'null (no match)'}`);
+    if (i < isrcNeedingTracks.length - 1) await sleep(ISRC_DELAY);
   }
 
   // Only tracks with a resolved Spotify ID can be submitted to ReccoBeats.
@@ -234,6 +228,8 @@ export const backgroundEnrichTracks = async (
   // skip audio feature enrichment and receive null features (displayed gracefully in UI).
   const tracksWithSpotifyId = missedTracks.filter(t => t.spotifyId !== null);
   const spotifyIds = tracksWithSpotifyId.map(t => t.spotifyId as string);
+
+  console.log(`[Enrichment DEBUG] After ISRC phase: ${tracksWithSpotifyId.length}/${missedTracks.length} tracks have a spotifyId → submitting to ReccoBeats`);
 
   // Build reverse map: spotifyId → platformId for correct TrackCache storage.
   // The polling endpoint (GET /features?ids=...) queries by platform-native ID,
@@ -356,6 +352,8 @@ export const backgroundEnrichTracks = async (
     const platformId = spotifyToPlatformId[spotifyId] ?? spotifyId;
     const track = tracksWithSpotifyId.find(t => t.platformId === platformId);
     if (!track) continue;
+
+    console.log(`[Enrichment DEBUG] Phase 2 — writing features for spotifyId=${spotifyId} → ${track.idField}=${platformId} (isrc=${track.isrc ?? 'none'})`);
 
     // Upsert strategy — keyed by ISRC when available (links the recording across platforms),
     // otherwise keyed by the platform-specific ID column.

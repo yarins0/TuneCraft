@@ -55,3 +55,17 @@ Each has enough context to be picked up without re-reading the original conversa
 
 ---
 
+## ~~Server-side comment cleanup — remove platform-specific references from generic files~~ ✅ DONE
+
+**What:** Update comments in `server/src/lib/enrichment.ts` and `server/src/routes/playlists.ts` that reference Spotify/SoundCloud/Tidal by name in code that is otherwise platform-agnostic. Replace with generic terms like "platform-native ID", "adapter-declared idField", etc.
+
+**Why:** Consistent with the principle that non-platform-specific files should have zero knowledge of which platforms exist. Currently only comments are affected — no behavioral impact — but stale coupling in docs misleads future contributors.
+
+**Where to start:** Search for `Spotify`, `SoundCloud`, `Tidal` in `enrichment.ts` lines 31–55 and `playlists.ts` lines 155–165. All changes are comment-only.
+
+**Effort:** XS (human: ~15 minutes / CC: ~2 minutes)
+**Priority:** P3 (polish, no behavioral impact)
+**Depends on:** Nothing — standalone cleanup, safe to do any time
+
+---
+

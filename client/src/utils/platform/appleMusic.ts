@@ -8,6 +8,11 @@ export const appleMusicConfig: PlatformConfig = {
   icon:   '🍎',
   cssVar: '--color-platform-apple-music',
 
+  available:              false, // Adapter not yet built
+  ownershipRestricted:    false,
+  totalTracksReliable:    true,
+  audioFeaturesMissingHint: undefined,
+
   trackUrl: id => `https://music.apple.com/us/song/${id}`,
 
   playlistUrl: id =>

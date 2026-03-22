@@ -154,10 +154,8 @@ router.get('/:userId/discover/:playlistId', refreshTokenMiddleware, async (req, 
 // Returns cached audio features for specific track IDs — reads DB only, no external API calls.
 // Used by the client to poll for features being fetched in the background.
 //
-// The query column depends on the authenticated user's platform:
-//   SPOTIFY    → query by spotifyId (Spotify track IDs)
-//   SOUNDCLOUD → query by soundcloudId (SoundCloud numeric IDs, stored as strings)
-//   TIDAL      → query by tidalId (Tidal track IDs, numeric stored as strings)
+// The query column is declared by each platform's adapter via trackCacheIdField —
+// no per-platform branching needed here. Adding a new platform requires no changes to this route.
 router.get('/:userId/features', refreshTokenMiddleware, async (req, res) => {
   const ids = ((req.query.ids as string) || '').split(',').filter(Boolean);
   if (ids.length === 0) return res.json({ features: {} });
@@ -168,11 +166,15 @@ router.get('/:userId/features', refreshTokenMiddleware, async (req, res) => {
   const idField = adapter.trackCacheIdField;
 
   try {
+    console.log(`[Features DEBUG] polling ${ids.length} ids via ${idField}:`, ids);
+
     // Query the correct column and select it back so we can map results to platform IDs.
     const cached = await prisma.trackCache.findMany({
       where:  { [idField]: { in: ids } },
       select: { [idField]: true, audioFeatures: true },
     });
+
+    console.log(`[Features DEBUG] DB returned ${cached.length} rows for ${idField}`);
 
     const features: Record<string, Record<string, unknown>> = {};
     cached.forEach(entry => {

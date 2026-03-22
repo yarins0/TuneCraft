@@ -7,6 +7,11 @@ export const tidalConfig: PlatformConfig = {
   icon:   '🌊',
   cssVar: '--color-platform-tidal',
 
+  available:              true,
+  ownershipRestricted:    false,
+  totalTracksReliable:    false, // Tidal's API often omits meta.total — fall back to dashboard count
+  audioFeaturesMissingHint: undefined,
+
   trackUrl: id => `https://tidal.com/browse/track/${id}`,
 
   playlistUrl: id =>

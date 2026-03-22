@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
 import type { PlaylistAverages } from '../api/tracks';
-import { getPlatformPlaylistUrl, getPlatformLabel, getPlatformBadgeStyle, PLATFORM_LABELS } from '../utils/platform';
+import { getPlatformPlaylistUrl, getPlatformLabel, getPlatformBadgeStyle, getPlatformConfig, PLATFORM_LABELS } from '../utils/platform';
 import { getActiveAccount } from '../utils/accounts';
 import AudioFeatureChart from '../components/AudioFeatureChart';
 import { AUDIO_FEATURES } from '../constants/audioFeatures';
@@ -38,6 +38,10 @@ export default function PlaylistDetail() {
   // platform in state lets us detect cross-platform navigation before the API call.
   // Only populated when navigating from within the app (Dashboard links pass it).
   const playlistPlatform = (state.platform || searchParams.get('platform') || undefined)?.toUpperCase();
+
+  // Resolved once here so no component below needs to compare against platform name strings.
+  // Falls back to defaultConfig (all-safe values) when platform is unknown or undefined.
+  const platformConfig = getPlatformConfig(playlistPlatform);
 
   // Check if the user is trying to view a playlist from a different platform than they're logged in as.
   // We only check when we have platform info from nav state — direct URL visits fall through to the server error.
@@ -220,20 +224,19 @@ export default function PlaylistDetail() {
   if (error) return (
     <div className="min-h-screen bg-bg-primary flex items-center justify-center px-8">
       <div className="text-center max-w-md">
-        {/* Ownership restrictions only apply to Spotify — other platforms allow accessing any playlist */}
-        <p className="text-4xl mb-4">{!isOwner && playlistPlatform === 'SPOTIFY' ? '🔒' : '⚠️'}</p>
+        {/* ownershipRestricted is declared per-platform in the platform config — no string comparison needed */}
+        <p className="text-4xl mb-4">{!isOwner && platformConfig.ownershipRestricted ? '🔒' : '⚠️'}</p>
         <p className="text-text-primary text-lg font-semibold mb-2">
-          {!isOwner && playlistPlatform === 'SPOTIFY' ? 'Playlist Unavailable' : 'Something went wrong'}
+          {!isOwner && platformConfig.ownershipRestricted ? 'Playlist Unavailable' : 'Something went wrong'}
         </p>
         <p className="text-text-muted text-sm mb-2">{error}</p>
-        {!isOwner && playlistPlatform === 'SPOTIFY' && (
+        {!isOwner && platformConfig.ownershipRestricted && (
           <p className="text-text-muted text-sm mb-4">
-            Spotify restricts access to playlists owned by other users.
+            {platformConfig.label} restricts access to playlists owned by other users.
           </p>
         )}
-        {/* Cross-platform hint — shown for all non-Spotify-ownership errors.
-            Covers both the "wrong account" case and generic failures on any platform. */}
-        {(isOwner || playlistPlatform !== 'SPOTIFY') && (
+        {/* Cross-platform hint — shown whenever the error is not an ownership restriction. */}
+        {(isOwner || !platformConfig.ownershipRestricted) && (
           <p className="text-text-muted text-sm mb-6">
             If this playlist belongs to a different platform than the one you're currently logged into,
             try switching accounts on the dashboard.
@@ -287,16 +290,15 @@ export default function PlaylistDetail() {
             <p className="text-text-muted text-sm flex items-center gap-2">
               {loadingMore
                 ? (() => {
-                    // For Tidal: the API often doesn't return meta.total, so `total` equals the
-                    // accumulated page count (same as tracks.length). In that case, fall back to
-                    // the trackCount the dashboard already knew from the playlist list API.
-                    const isTidal = playlistPlatform === 'TIDAL';
+                    // When totalTracksReliable is false (e.g. Tidal), the API often omits meta.total,
+                    // so `total` equals the accumulated page count rather than the real track count.
+                    // Fall back to the count the dashboard already knew from the playlist list API.
                     const displayTotal =
                       total > tracks.length
-                        ? total                               // real total from the API (any platform)
-                        : isTidal && dashboardTrackCount
-                          ? dashboardTrackCount              // dashboard fallback for Tidal
-                          : null;                            // unknown — don't show "X of Y"
+                        ? total                                            // real total from the API
+                        : !platformConfig.totalTracksReliable && dashboardTrackCount
+                          ? dashboardTrackCount                            // dashboard fallback
+                          : null;                                         // unknown — don't show "X of Y"
                     return displayTotal
                       ? `Loading... ${tracks.length} of ${displayTotal} tracks`
                       : `Loading... ${tracks.length} tracks`;
@@ -428,7 +430,11 @@ export default function PlaylistDetail() {
               ) : (
                 <div className="flex items-center gap-3 text-text-muted text-sm mb-8 px-1 py-3 bg-bg-secondary rounded-xl border border-border-color">
                   <span className="text-2xl shrink-0 pl-1">🎙️</span>
-                  <span>Audio feature data isn't available for most tracks here — this often happens with independent SoundCloud uploads that aren't on major streaming services.</span>
+                  <span>
+                    {platformConfig.audioFeaturesMissingHint
+                      ? `Audio feature data isn't available for most tracks here — ${platformConfig.audioFeaturesMissingHint}`
+                      : "Audio feature data isn't available for most tracks here."}
+                  </span>
                 </div>
               )}
               {/* Genre and decade charts — always shown; sourced from Last.fm */}
