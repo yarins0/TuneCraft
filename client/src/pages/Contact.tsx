@@ -1,130 +1,16 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import AppFooter from '../components/AppFooter';
 
-// Metadata for each data type TuneCraft stores.
-// Rendered as a table so users can scan what's collected, where, and why at a glance.
-const DATA_COLLECTED = [
-  {
-    data: 'OAuth access & refresh tokens',
-    stored: 'TuneCraft server database',
-    purpose: 'Authenticating API requests to connected platforms on your behalf, including background jobs like auto-reshuffle',
-  },
-  {
-    data: 'Display name & email address',
-    stored: 'TuneCraft server database',
-    purpose: 'Pulled from your platform profile at login. Email is optional and only stored if the platform provides it',
-  },
-  {
-    data: 'Platform user ID',
-    stored: 'TuneCraft database + browser localStorage',
-    purpose: 'Identifying your account across sessions',
-  },
-  {
-    data: 'Auto-reshuffle schedule config',
-    stored: 'TuneCraft database (Neon / PostgreSQL)',
-    purpose: 'Storing which playlists to reshuffle, how often, and which algorithms to apply',
-  },
-  {
-    data: 'Track & artist metadata cache',
-    stored: 'TuneCraft database',
-    purpose: 'Reducing repeat API calls for audio features and genre data. Contains no personal information',
-  },
-];
-
-// Things TuneCraft explicitly does NOT collect — important for user trust.
-const NOT_COLLECTED = [
-  'We do not store your passwords — authentication is handled entirely by each platform\'s OAuth flow',
-  'We do not sell, share, or monetise any data',
-  'We do not use tracking cookies or run analytics on user behaviour',
-  'We do not serve advertisements of any kind',
-  'We do not collect payment information — TuneCraft is free and non-commercial',
-];
-
-// Controls the user has over their own data.
-const USER_CONTROLS = [
-  'Revoke TuneCraft\'s access to your Spotify, SoundCloud, or TIDAL account at any time via each platform\'s connected apps settings',
-  'Log out of TuneCraft at any time to clear your session tokens from your browser',
-  'Request deletion of any data TuneCraft holds about you by contacting us (see below)',
-  'Disable any active reshuffle schedules directly from within the app',
-];
-
-// Third-party APIs that receive anonymised track or artist identifiers — never personal data.
-const THIRD_PARTY_APIS = [
-  { name: 'ReccoBeats', desc: 'Audio feature data (energy, danceability, tempo, etc.)' },
-  { name: 'Last.fm', desc: 'Artist genre tags' },
-  { name: 'Songstats', desc: 'Cross-platform track metadata (pending API access)' },
-];
-
-// Each numbered section of the policy. Rendered in order.
-// `label` is the monospaced section counter shown above the heading.
-const SECTIONS = [
-  { id: 'overview', label: '01 / Overview' },
-  { id: 'integrations', label: '02 / Integrations' },
-  { id: 'collection', label: '03 / Data collection' },
-  { id: 'not-collected', label: '04 / What we don\'t do' },
-  { id: 'third-party', label: '05 / Third-party services' },
-  { id: 'retention', label: '06 / Retention' },
-  { id: 'rights', label: '07 / Your rights' },
-  { id: 'hosting', label: '08 / Infrastructure' },
-  { id: 'changes', label: '09 / Updates' },
-  { id: 'contact', label: '10 / Contact' },
-];
-
-// Small monospaced section counter displayed above each h2.
-// Matches the "section label" typography token from DESIGN.md.
-function SectionLabel({ text }: { text: string }) {
-  return (
-    <p className="font-mono text-xs uppercase tracking-widest text-accent opacity-80 mb-3">
-      {text}
-    </p>
-  );
-}
-
-// Thin accent-coloured divider used between major page sections.
-function Divider() {
-  return (
-    <div
-      className="my-12"
-      style={{
-        height: 1,
-        background: 'linear-gradient(90deg, var(--color-accent) 0%, transparent 60%)',
-        opacity: 0.4,
-      }}
-    />
-  );
-}
-
-// Card container — matches the card pattern from DESIGN.md:
-// bg-bg-card, rounded-2xl, border border-border-color.
-function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="bg-bg-card border border-border-color rounded-2xl p-6 mt-5">
-      {children}
-    </div>
-  );
-}
-
-// Bulleted list item used inside Card components.
-// The em-dash bullet is styled with the accent colour to match the original design.
-function BulletItem({ text }: { text: string }) {
-  return (
-    <li className="relative pl-5 text-text-muted text-sm leading-relaxed">
-      <span className="absolute left-0 text-accent opacity-60">—</span>
-      {text}
-    </li>
-  );
-}
-
-export default function PrivacyPolicy() {
-  // navigate(-1) sends the user back to wherever they came from (Login or Dashboard).
-  // Falls back to "/" if the user landed directly on this page with no prior history.
+export default function Contact() {
+  // navigate(-1) sends the user back to wherever they came from.
+  // Falls back to "/" if they landed directly on this page with no prior history.
   const navigate = useNavigate();
   const handleBack = () => (window.history.length > 1 ? navigate(-1) : navigate('/'));
 
   return (
-    // Full-page dark background matching the rest of the app.
-    <div className="min-h-screen bg-bg-primary text-text-primary relative">
+    <div className="min-h-screen bg-bg-primary text-text-primary relative flex flex-col">
 
-      {/* Subtle purple grid texture — same pattern used on the login page */}
+      {/* Subtle purple grid texture */}
       <div
         className="fixed inset-0 pointer-events-none z-0"
         style={{
@@ -147,262 +33,103 @@ export default function PrivacyPolicy() {
         }}
       />
 
-      {/* Page content — constrained to readable width */}
-      <div className="relative z-10 max-w-[760px] mx-auto px-6 py-16 pb-24">
+      {/* Page content */}
+      <div className="relative z-10 flex-1 max-w-[760px] mx-auto w-full px-6 py-16">
 
-        {/* ── Header ── */}
-        <header className="mb-16">
-          {/* Logo — navigates back to wherever the user came from */}
-          <button
-            onClick={handleBack}
-            className="inline-block text-2xl font-black tracking-tight mb-12 transition-all duration-200 hover:scale-105 active:scale-95"
-          >
-            Tune<span className="text-accent">Craft</span>
-          </button>
+        {/* Logo — navigates back to wherever the user came from */}
+        <button
+          onClick={handleBack}
+          className="inline-block text-2xl font-black tracking-tight mb-12 transition-all duration-200 hover:scale-105 active:scale-95"
+        >
+          Tune<span className="text-accent">Craft</span>
+        </button>
 
-          {/* "Legal" badge — matches accent pill pattern */}
-          <div className="inline-flex mb-5">
-            <span className="font-mono text-xs uppercase tracking-widest text-accent bg-accent/10 border border-border-color rounded-full px-3 py-1">
-              Legal
-            </span>
-          </div>
+        {/* Badge + heading */}
+        <div className="block mb-5">
+          <span className="font-mono text-xs uppercase tracking-widest text-accent bg-accent/10 border border-border-color rounded-full px-3 py-1">
+            Contact
+          </span>
+        </div>
 
-          <h1 className="text-5xl font-black tracking-tight leading-none mb-4">
-            Privacy Policy
-          </h1>
-          <p className="font-mono text-xs text-text-muted">
-            Last updated: March 2026 · Effective immediately
-          </p>
-        </header>
+        <h1 className="text-5xl font-black tracking-tight leading-none mb-4">
+          Get in touch
+        </h1>
+        <p className="font-mono text-xs text-text-muted mb-8">
+          Questions, feedback, or data deletion requests
+        </p>
 
-        <Divider />
-
-        {/* ── 01 Overview ── */}
-        <section className="mb-12" id={SECTIONS[0].id}>
-          <SectionLabel text={SECTIONS[0].label} />
-          <h2 className="text-xl font-bold tracking-tight mb-4">Who we are</h2>
-          <p className="text-text-muted text-sm leading-relaxed mb-3">
-            TuneCraft ("we", "our", or "the app") is a personal music engineering web application
-            that helps users manage, analyse, and reorganise their playlists across music platforms.
-            TuneCraft is a non-commercial portfolio project, not a commercial product or service.
-          </p>
-          <p className="text-text-muted text-sm leading-relaxed">
-            This Privacy Policy explains what information TuneCraft collects, how it is used,
-            and what controls you have over your data.
-          </p>
-        </section>
-
-        {/* ── 02 Integrations ── */}
-        <section className="mb-12" id={SECTIONS[1].id}>
-          <SectionLabel text={SECTIONS[1].label} />
-          <h2 className="text-xl font-bold tracking-tight mb-4">Platform integrations</h2>
-          <p className="text-text-muted text-sm leading-relaxed mb-4">
-            TuneCraft currently integrates with the following third-party platforms:
+        {/* Contact card */}
+        <div
+          className="border border-border-color rounded-2xl p-8"
+          style={{
+            background: 'linear-gradient(135deg, rgba(168,85,247,0.08), rgba(168,85,247,0.02))',
+          }}
+        >
+          <p className="text-text-muted text-sm leading-relaxed mb-6">
+            TuneCraft is built and maintained by{' '}
+            <span className="text-text-primary font-semibold">Yarin Solomon</span>.
+            It is a personal, non-commercial portfolio project.
           </p>
 
-          {/* Platform tags — styled like the secondary ghost button variant.
-              TIDAL is in the schema and .env but not yet fully launched, so it carries a "soon" badge. */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            {[
-              { label: 'Spotify',    comingSoon: false },
-              { label: 'SoundCloud', comingSoon: false },
-              { label: 'TIDAL',      comingSoon: true  },
-            ].map(({ label, comingSoon }) => (
-              <span
-                key={label}
-                className="relative font-mono text-sm px-4 py-1.5 rounded-lg bg-bg-secondary border border-border-color text-text-primary"
-              >
-                {label}
-                {comingSoon && (
-                  <span className="absolute -top-2 -right-2 text-[9px] font-semibold bg-bg-card border border-border-color text-text-muted px-1.5 py-0.5 rounded-full">
-                    soon
-                  </span>
-                )}
+          <div className="flex flex-col gap-5">
+            <div className="flex items-center gap-4">
+              <span className="font-mono text-xs uppercase tracking-widest text-accent opacity-80 w-20 shrink-0">
+                GITHUB
               </span>
-            ))}
+              <a
+                href="https://github.com/yarins0"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-text-primary hover:text-accent transition-colors duration-200"
+              >
+                github.com/yarins0
+              </a>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <span className="font-mono text-xs uppercase tracking-widest text-accent opacity-80 w-20 shrink-0">
+                LINKEDIN
+              </span>
+              <a
+                href="https://www.linkedin.com/in/yarin-solomon/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-text-primary hover:text-accent transition-colors duration-200"
+              >
+                linkedin.com/in/yarin-solomon/
+              </a>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <span className="font-mono text-xs uppercase tracking-widest text-accent opacity-80 w-20 shrink-0">
+              EMAIL
+              </span>
+              <a
+                href="mailto:yarinso39@gmail.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-text-primary hover:text-accent transition-colors duration-200"
+              >
+                yarinso39@gmail.com
+              </a>
+            </div>
+
+            <div className="flex items-start gap-4">
+              <span className="font-mono text-xs uppercase tracking-widest text-accent opacity-80 w-20 shrink-0 pt-0.5">
+                Data
+              </span>
+              <p className="text-sm text-text-muted leading-relaxed">
+                To request deletion of your data, open an issue on the GitHub repository
+                or reach out via any of the links above.
+              </p>
+            </div>
           </div>
+        </div>
 
-          <p className="text-text-muted text-sm leading-relaxed">
-            Connecting a platform account grants TuneCraft read access to your library and playlists
-            on that platform, as well as the ability to modify playlists you own.
-            You can revoke this access at any time from within each platform's account settings.
-          </p>
-        </section>
+      </div>
 
-        {/* ── 03 Data collection ── */}
-        <section className="mb-12" id={SECTIONS[2].id}>
-          <SectionLabel text={SECTIONS[2].label} />
-          <h2 className="text-xl font-bold tracking-tight mb-4">What data TuneCraft collects</h2>
-
-          {/* Data table — uses border-color tokens and muted text for secondary columns */}
-          <div className="overflow-x-auto mt-5">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr>
-                  {['Data', 'Where it\'s stored', 'Purpose'].map((col) => (
-                    <th
-                      key={col}
-                      className="font-mono text-xs uppercase tracking-widest text-text-muted text-left px-4 py-3 border-b border-border-color"
-                    >
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {DATA_COLLECTED.map((row, i) => (
-                  <tr key={i}>
-                    <td className="px-4 py-3 font-semibold text-text-primary border-b border-white/5 align-top whitespace-nowrap">
-                      {row.data}
-                    </td>
-                    <td className="px-4 py-3 text-text-muted border-b border-white/5 align-top">
-                      {row.stored}
-                    </td>
-                    <td className="px-4 py-3 text-text-muted border-b border-white/5 align-top">
-                      {row.purpose}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {/* ── 04 What we don't collect ── */}
-        <section className="mb-12" id={SECTIONS[3].id}>
-          <SectionLabel text={SECTIONS[3].label} />
-          <h2 className="text-xl font-bold tracking-tight mb-4">What TuneCraft does not collect</h2>
-          <Card>
-            <ul className="flex flex-col gap-3">
-              {NOT_COLLECTED.map((item, i) => (
-                <BulletItem key={i} text={item} />
-              ))}
-            </ul>
-          </Card>
-        </section>
-
-        {/* ── 05 Third-party APIs ── */}
-        <section className="mb-12" id={SECTIONS[4].id}>
-          <SectionLabel text={SECTIONS[4].label} />
-          <h2 className="text-xl font-bold tracking-tight mb-4">Third-party APIs used</h2>
-          <p className="text-text-muted text-sm leading-relaxed mb-1">
-            TuneCraft uses the following external APIs to enrich track data. These are server-side
-            calls — your personal data is never sent to these services:
-          </p>
-          <Card>
-            <ul className="flex flex-col gap-3">
-              {THIRD_PARTY_APIS.map((api) => (
-                <li key={api.name} className="relative pl-5 text-text-muted text-sm leading-relaxed">
-                  <span className="absolute left-0 text-accent opacity-60">—</span>
-                  <span className="text-text-primary font-semibold">{api.name}</span>
-                  {' '}— {api.desc}
-                </li>
-              ))}
-            </ul>
-          </Card>
-          <p className="text-text-muted text-sm leading-relaxed mt-4">
-            Each of these services has their own privacy policy. TuneCraft only passes anonymised
-            track or artist identifiers (e.g. Spotify track IDs) to these services — never your
-            personal information.
-          </p>
-        </section>
-
-        {/* ── 06 Retention ── */}
-        <section className="mb-12" id={SECTIONS[5].id}>
-          <SectionLabel text={SECTIONS[5].label} />
-          <h2 className="text-xl font-bold tracking-tight mb-4">How long we keep your data</h2>
-          <p className="text-text-muted text-sm leading-relaxed mb-3">
-            OAuth tokens are stored on TuneCraft's server database so that background jobs
-            (like auto-reshuffle) can act on your behalf without you being logged in.
-            Logging out clears your browser session; to fully revoke access, disconnect
-            TuneCraft from your platform's connected apps settings.
-          </p>
-          <p className="text-text-muted text-sm leading-relaxed mb-3">
-            Reshuffle schedule records are stored in TuneCraft's database for as long as you have
-            an active schedule enabled. Disabling a reshuffle schedule removes the associated record
-            from the database immediately.
-          </p>
-          <p className="text-text-muted text-sm leading-relaxed">
-            Cached track and artist metadata does not contain any personal information and is
-            retained to improve performance. It can be cleared on request.
-          </p>
-        </section>
-
-        {/* ── 07 Your rights ── */}
-        <section className="mb-12" id={SECTIONS[6].id}>
-          <SectionLabel text={SECTIONS[6].label} />
-          <h2 className="text-xl font-bold tracking-tight mb-4">Your controls</h2>
-          <Card>
-            <ul className="flex flex-col gap-3">
-              {USER_CONTROLS.map((item, i) => (
-                <BulletItem key={i} text={item} />
-              ))}
-            </ul>
-          </Card>
-        </section>
-
-        {/* ── 08 Hosting ── */}
-        <section className="mb-12" id={SECTIONS[7].id}>
-          <SectionLabel text={SECTIONS[7].label} />
-          <h2 className="text-xl font-bold tracking-tight mb-4">Where TuneCraft is hosted</h2>
-          <p className="text-text-muted text-sm leading-relaxed">
-            TuneCraft's frontend is hosted on{' '}
-            <span className="text-text-primary font-semibold">Vercel</span>.
-            The backend API and database are hosted on{' '}
-            <span className="text-text-primary font-semibold">Railway</span> or{' '}
-            <span className="text-text-primary font-semibold">Render</span>,
-            with the database managed via{' '}
-            <span className="text-text-primary font-semibold">Neon (PostgreSQL)</span>.
-            All services are located in the United States or European Union.
-          </p>
-        </section>
-
-        {/* ── 09 Changes ── */}
-        <section className="mb-12" id={SECTIONS[8].id}>
-          <SectionLabel text={SECTIONS[8].label} />
-          <h2 className="text-xl font-bold tracking-tight mb-4">Changes to this policy</h2>
-          <p className="text-text-muted text-sm leading-relaxed">
-            As TuneCraft grows and adds new platform integrations, this Privacy Policy may be
-            updated to reflect those changes. The "Last updated" date at the top of this page
-            will always reflect the most recent revision.
-          </p>
-        </section>
-
-        {/* ── 10 Contact ── */}
-        <section className="mb-12" id={SECTIONS[9].id}>
-          <SectionLabel text={SECTIONS[9].label} />
-          <h2 className="text-xl font-bold tracking-tight mb-4">Questions?</h2>
-
-          {/* Contact block — subtle accent gradient, matching the original design intent */}
-          <div
-            className="border border-border-color rounded-2xl p-7 mt-5"
-            style={{
-              background: 'linear-gradient(135deg, rgba(168,85,247,0.08), rgba(168,85,247,0.02))',
-            }}
-          >
-            <p className="text-text-muted text-sm leading-relaxed mb-2">
-              TuneCraft is built and maintained by{' '}
-              <span className="text-text-primary font-semibold">Yarin Solomon</span>.
-            </p>
-            <p className="text-text-muted text-sm leading-relaxed">
-              If you have any questions about this Privacy Policy or want to request data deletion,
-              please reach out via GitHub or the contact details on the project repository.
-            </p>
-          </div>
-        </section>
-
-        <Divider />
-
-        {/* ── Footer ── */}
-        <footer className="flex items-center justify-between flex-wrap gap-3">
-          <p className="font-mono text-xs text-text-muted">
-            © 2026 TuneCraft · Personal portfolio project · Non-commercial
-          </p>
-          <p className="font-mono text-xs text-text-muted">
-            Built with ♪ by Yarin Solomon
-          </p>
-        </footer>
-
+      <div className="relative z-10">
+        <AppFooter />
       </div>
     </div>
   );

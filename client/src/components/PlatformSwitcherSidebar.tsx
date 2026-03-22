@@ -1,25 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAccounts, setActiveAccount, type StoredAccount } from '../utils/accounts';
-
-// Platform brand colours — same values as Login.tsx and DESIGN.md.
-// Used as identity signals so users instantly recognise which account is which.
-const PLATFORM_COLORS: Record<string, string> = {
-  SPOTIFY: '#1DB954',
-  SOUNDCLOUD: '#FF5500',
-};
-
-const PLATFORM_LABELS: Record<string, string> = {
-  SPOTIFY: 'Spotify',
-  SOUNDCLOUD: 'SoundCloud',
-};
-
-// Emoji avatar — shown when the platform has no profile image stored.
-// (We don't fetch avatar images in the current data model.)
-const PLATFORM_ICONS: Record<string, string> = {
-  SPOTIFY: '🎵',
-  SOUNDCLOUD: '🔊',
-};
+import { PLATFORM_COLORS, PLATFORM_LABELS, PLATFORM_ICONS } from '../utils/platform';
 
 interface PlatformSwitcherSidebarProps {
   isOpen: boolean;
@@ -140,7 +122,10 @@ export default function PlatformSwitcherSidebar({
                   {/* Platform colour dot / avatar */}
                   <div
                     className="w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0"
-                    style={{ backgroundColor: `${color}22`, border: `2px solid ${color}` }}
+                    style={{
+                      backgroundColor: `color-mix(in srgb, ${color} 13%, transparent)`,
+                      border: `2px solid ${color}`,
+                    }}
                   >
                     {icon}
                   </div>

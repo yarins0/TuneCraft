@@ -11,8 +11,14 @@
     --color-accent-hover: #9333ea;
     --color-accent-glow: rgba(168, 85, 247, 0.5);
     --color-text-primary: #ffffff;
-    --color-text-muted: rgba(255, 255, 255, 0.4);
+    --color-text-muted: rgba(255, 255, 255, 0.55);
     --color-border: rgba(255, 255, 255, 0.1);
+
+    /* Platform brand colours — used for badges, trust signals, and platform-aware UI elements */
+    --color-platform-spotify: #1DB954;
+    --color-platform-soundcloud: #FF5500;
+    --color-platform-tidal: #96b1b1;
+    --color-platform-apple-music: #76adbb;
   }
 }
 

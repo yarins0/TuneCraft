@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
 import type { PlaylistAverages } from '../api/tracks';
-import { getPlatformPlaylistUrl, getPlatformLabel } from '../utils/platform';
+import { getPlatformPlaylistUrl, getPlatformLabel, getPlatformBadgeStyle, PLATFORM_LABELS } from '../utils/platform';
+import { getActiveAccount } from '../utils/accounts';
 import AudioFeatureChart from '../components/AudioFeatureChart';
 import { AUDIO_FEATURES } from '../constants/audioFeatures';
 import PlaylistCompositionCharts from '../components/PlaylistCompositionCharts';
@@ -16,6 +17,7 @@ import { usePlaylistTracks } from '../hooks/usePlaylistTracks';
 import { usePlaylistActions } from '../hooks/usePlaylistActions';
 import { useReshuffleSchedule } from '../hooks/useReshuffleSchedule';
 import { findDuplicates } from '../utils/findDuplicates';
+import AppFooter from '../components/AppFooter';
 
 const getPlatformUserId = () => localStorage.getItem('platformUserId') || '';
 
@@ -27,9 +29,23 @@ export default function PlaylistDetail() {
   // searchParams is the fallback for when the page is opened in a new tab (e.g. after copy)
   // — new tabs don't carry React Router state, so we encode the info in the URL instead.
   const searchParams = new URLSearchParams(location.search);
-  const state = (location.state || {}) as { ownerId?: string; name?: string };
+  const state = (location.state || {}) as { ownerId?: string; name?: string; platform?: string; trackCount?: number };
   const ownerId = state.ownerId || searchParams.get('ownerId') || undefined;
   const name = state.name || searchParams.get('name') || undefined;
+  // trackCount from the dashboard playlist card — used as a display fallback for Tidal,
+  // which doesn't always return meta.total in its API responses.
+  const dashboardTrackCount = state.trackCount ?? null;
+  // platform in state lets us detect cross-platform navigation before the API call.
+  // Only populated when navigating from within the app (Dashboard links pass it).
+  const playlistPlatform = (state.platform || searchParams.get('platform') || undefined)?.toUpperCase();
+
+  // Check if the user is trying to view a playlist from a different platform than they're logged in as.
+  // We only check when we have platform info from nav state — direct URL visits fall through to the server error.
+  const activeAccount = getActiveAccount();
+  const platformMismatch =
+    playlistPlatform &&
+    activeAccount &&
+    playlistPlatform !== activeAccount.platform.toUpperCase();
 
   const isOwner = ownerId === getPlatformUserId();
 
@@ -70,7 +86,8 @@ export default function PlaylistDetail() {
 
   // ─── Track loading ────────────────────────────────────────────────────────────
   const { tracks, setTracks, averages, total, loading, loadingMore, error } = usePlaylistTracks(
-    playlistId,
+    // Suppress loading entirely when we already know the platform is wrong
+    platformMismatch ? undefined : playlistId,
     () => {
       // Reset UI state when navigating to a different playlist
       setOpenTrackIds(new Set());
@@ -168,6 +185,32 @@ export default function PlaylistDetail() {
 
   // ─── Render ───────────────────────────────────────────────────────────────────
 
+  if (platformMismatch) return (
+    <div className="min-h-screen bg-bg-primary flex items-center justify-center px-8">
+      <div className="text-center max-w-md">
+        <p className="text-4xl mb-4">🔄</p>
+        <p className="text-text-primary text-lg font-semibold mb-2">Wrong Platform</p>
+        <p className="text-text-muted text-sm mb-6">
+          This playlist is from{' '}
+          <span className="text-text-primary font-medium">
+            {PLATFORM_LABELS[playlistPlatform!] ?? playlistPlatform}
+          </span>
+          , but you're currently logged in with{' '}
+          <span className="text-text-primary font-medium">
+            {PLATFORM_LABELS[activeAccount!.platform.toUpperCase()] ?? activeAccount!.platform}
+          </span>
+          . Switch accounts on the dashboard to view this playlist.
+        </p>
+        <Link
+          to="/dashboard"
+          className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-3 rounded-full transition-all duration-200 inline-block"
+        >
+          Back to Dashboard
+        </Link>
+      </div>
+    </div>
+  );
+
   if (loading) return (
     <div className="min-h-screen bg-bg-primary flex items-center justify-center">
       <div className="text-accent text-xl animate-pulse">Loading playlist...</div>
@@ -177,14 +220,23 @@ export default function PlaylistDetail() {
   if (error) return (
     <div className="min-h-screen bg-bg-primary flex items-center justify-center px-8">
       <div className="text-center max-w-md">
-        <p className="text-4xl mb-4">{isOwner ? '⚠️' : '🔒'}</p>
+        {/* Ownership restrictions only apply to Spotify — other platforms allow accessing any playlist */}
+        <p className="text-4xl mb-4">{!isOwner && playlistPlatform === 'SPOTIFY' ? '🔒' : '⚠️'}</p>
         <p className="text-text-primary text-lg font-semibold mb-2">
-          {isOwner ? 'Something went wrong' : 'Playlist Unavailable'}
+          {!isOwner && playlistPlatform === 'SPOTIFY' ? 'Playlist Unavailable' : 'Something went wrong'}
         </p>
         <p className="text-text-muted text-sm mb-2">{error}</p>
-        {!isOwner && (
+        {!isOwner && playlistPlatform === 'SPOTIFY' && (
+          <p className="text-text-muted text-sm mb-4">
+            Spotify restricts access to playlists owned by other users.
+          </p>
+        )}
+        {/* Cross-platform hint — shown for all non-Spotify-ownership errors.
+            Covers both the "wrong account" case and generic failures on any platform. */}
+        {(isOwner || playlistPlatform !== 'SPOTIFY') && (
           <p className="text-text-muted text-sm mb-6">
-            Tunecraft can only access playlists you own. Playlists created by other users are restricted.
+            If this playlist belongs to a different platform than the one you're currently logged into,
+            try switching accounts on the dashboard.
           </p>
         )}
         <Link
@@ -198,7 +250,8 @@ export default function PlaylistDetail() {
   );
 
   return (
-    <div className="min-h-screen bg-bg-primary text-text-primary">
+    <div className="bg-bg-primary text-text-primary flex flex-col">
+      <div className="min-h-screen">
 
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-border-color px-8 py-6 flex items-center justify-between bg-bg-secondary">
@@ -233,13 +286,30 @@ export default function PlaylistDetail() {
             )}
             <p className="text-text-muted text-sm flex items-center gap-2">
               {loadingMore
-                ? `Loading... ${tracks.length} of ${total} tracks`
+                ? (() => {
+                    // For Tidal: the API often doesn't return meta.total, so `total` equals the
+                    // accumulated page count (same as tracks.length). In that case, fall back to
+                    // the trackCount the dashboard already knew from the playlist list API.
+                    const isTidal = playlistPlatform === 'TIDAL';
+                    const displayTotal =
+                      total > tracks.length
+                        ? total                               // real total from the API (any platform)
+                        : isTidal && dashboardTrackCount
+                          ? dashboardTrackCount              // dashboard fallback for Tidal
+                          : null;                            // unknown — don't show "X of Y"
+                    return displayTotal
+                      ? `Loading... ${tracks.length} of ${displayTotal} tracks`
+                      : `Loading... ${tracks.length} tracks`;
+                  })()
                 : `${tracks.length} tracks`
               }
-              {/* Platform badge — only shown for non-Spotify playlists */}
-              {tracks.length > 0 && tracks[0]?.platform && tracks[0].platform !== 'SPOTIFY' && (
-                <span className="text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/20">
-                  {tracks[0].platform === 'SOUNDCLOUD' ? 'SoundCloud' : tracks[0].platform}
+              {/* Platform badge — shown for every platform, coloured with the platform's brand colour */}
+              {tracks.length > 0 && tracks[0]?.platform && (
+                <span
+                  className="text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full"
+                  style={getPlatformBadgeStyle(tracks[0].platform)}
+                >
+                  {tracks[0].platform}
                 </span>
               )}
             </p>
@@ -513,6 +583,9 @@ export default function PlaylistDetail() {
         onClose={() => setSplitModalOpen(false)}
         onConfirm={handleConfirmSplit}
       />
+      </div>
+
+      <AppFooter />
     </div>
   );
 }

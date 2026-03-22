@@ -137,7 +137,7 @@ export const usePlaylistActions = ({
       }
     } catch {
       onError(
-        'Spotify restricts playlist modifications in development mode. This will work once the app is published.',
+        'Failed to save — please try again.',
         5000
       );
     } finally {
@@ -167,7 +167,7 @@ export const usePlaylistActions = ({
       window.open(`/playlist/${newPlaylist.platformId}?${params}`, '_blank');
     } catch {
       onError(
-        'Spotify restricts playlist modifications in development mode. This will work once the app is published.',
+        'Failed to save — please try again.',
         5000
       );
     } finally {
@@ -187,7 +187,7 @@ export const usePlaylistActions = ({
       }));
 
       await splitPlaylist(getUserId(), payload);
-      onSuccess(`Split into ${groups.length} playlists — check your Spotify library!`, 5000);
+      onSuccess(`Split into ${groups.length} playlists — check your library!`, 5000);
     } catch {
       onError('Failed to split playlist. Please try again.', 5000);
     } finally {

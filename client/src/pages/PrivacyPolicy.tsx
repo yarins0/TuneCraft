@@ -1,4 +1,5 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import AppFooter from '../components/AppFooter';
 
 // Metadata for each data type TuneCraft stores.
 // Rendered as a table so users can scan what's collected, where, and why at a glance.
@@ -122,7 +123,7 @@ export default function PrivacyPolicy() {
 
   return (
     // Full-page dark background matching the rest of the app.
-    <div className="min-h-screen bg-bg-primary text-text-primary relative">
+    <div className="min-h-screen bg-bg-primary text-text-primary relative flex flex-col">
 
       {/* Subtle purple grid texture — same pattern used on the login page */}
       <div
@@ -200,13 +201,12 @@ export default function PrivacyPolicy() {
             TuneCraft currently integrates with the following third-party platforms:
           </p>
 
-          {/* Platform tags — styled like the secondary ghost button variant.
-              TIDAL is in the schema and .env but not yet fully launched, so it carries a "soon" badge. */}
+          {/* Platform tags — styled like the secondary ghost button variant. */}
           <div className="flex flex-wrap gap-2 mb-4">
             {[
               { label: 'Spotify',    comingSoon: false },
               { label: 'SoundCloud', comingSoon: false },
-              { label: 'TIDAL',      comingSoon: true  },
+              { label: 'TIDAL',      comingSoon: false },
             ].map(({ label, comingSoon }) => (
               <span
                 key={label}
@@ -386,23 +386,21 @@ export default function PrivacyPolicy() {
             </p>
             <p className="text-text-muted text-sm leading-relaxed">
               If you have any questions about this Privacy Policy or want to request data deletion,
-              please reach out via GitHub or the contact details on the project repository.
+              visit our{' '}
+              <Link to="/contact" className="text-accent hover:underline">
+                Contact page
+              </Link>
+              .
             </p>
           </div>
         </section>
 
         <Divider />
 
-        {/* ── Footer ── */}
-        <footer className="flex items-center justify-between flex-wrap gap-3">
-          <p className="font-mono text-xs text-text-muted">
-            © 2026 TuneCraft · Personal portfolio project · Non-commercial
-          </p>
-          <p className="font-mono text-xs text-text-muted">
-            Built with ♪ by Yarin Solomon
-          </p>
-        </footer>
+      </div>
 
+      <div className="relative z-10">
+        <AppFooter />
       </div>
     </div>
   );

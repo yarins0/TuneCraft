@@ -14,13 +14,14 @@ const chunkArray = (arr: string[], size: number): string[][] =>
     arr.slice(i * size, i * size + size)
   );
 
-// Strips the `href` field that ReccoBeats includes in its audio-feature payloads.
-// That field is a Spotify URL we don't need to store. Also handles the case where
-// Prisma returns JSON columns as strings on some DB drivers — always parses to object first.
+// Strips ReccoBeats-internal fields from audio-feature payloads before storing in TrackCache.
+// ReccoBeats echoes back `href` (a Spotify URL), `id` (its own internal track ID), and `isrc`
+// in its response — none of which we need to persist. `isrc` already has its own dedicated column.
+// Also handles the case where Prisma returns JSON columns as strings — always parses first.
 const sanitizeAudioFeatures = (features: unknown): Record<string, unknown> => {
   const parsed = typeof features === 'string' ? JSON.parse(features) : features;
   if (!parsed || typeof parsed !== 'object') return {};
-  const { href, ...rest } = parsed as Record<string, unknown>;
+  const { href, id, isrc, ...rest } = parsed as Record<string, unknown>;
   return rest;
 };
 
@@ -46,7 +47,11 @@ export interface EnrichmentTrack {
   artistId: string;
   artistName: string;
   isrc?: string;
-  // Which streaming platform this track ID came from — determines which TrackCache column to query/write.
+  // The TrackCache column that holds this platform's native ID (e.g. 'spotifyId', 'tidalId').
+  // Copied from the adapter's trackCacheIdField so the enrichment pipeline never needs
+  // to inspect `platform` directly — any new platform just sets a different idField.
+  idField: string;
+  // Which streaming platform this track ID came from.
   platform: Platform;
 }
 
@@ -76,20 +81,23 @@ export const readEnrichmentCache = async (
   missedTracks: EnrichmentTrack[];
   uniqueMissedArtists: { id: string; name: string }[];
 }> => {
-  // Separate platform-native IDs by platform so we query the right columns.
-  const spotifyIds    = tracks.filter(t => t.platform === 'SPOTIFY').map(t => t.platformId);
-  const soundcloudIds = tracks.filter(t => t.platform === 'SOUNDCLOUD').map(t => t.platformId);
-  const tidalIds      = tracks.filter(t => t.platform === 'TIDAL').map(t => t.platformId);
-  const isrcs         = tracks.filter(t => t.isrc).map(t => t.isrc as string);
-  const artistIds     = [...new Set(tracks.map(t => t.artistId))];
+  // Group platform-native IDs by their DB column name (from track.idField).
+  // This replaces per-platform variables — adding a new platform requires no changes here.
+  const idsByField: Record<string, string[]> = {};
+  for (const t of tracks) {
+    if (!idsByField[t.idField]) idsByField[t.idField] = [];
+    idsByField[t.idField].push(t.platformId);
+  }
+  const isrcs     = tracks.filter(t => t.isrc).map(t => t.isrc as string);
+  const artistIds = [...new Set(tracks.map(t => t.artistId))];
 
-  // Build OR conditions — only include non-empty arrays to avoid Prisma warnings.
-  // We match rows by spotifyId, soundcloudId, tidalId, or ISRC in a single DB round-trip.
+  // Build OR conditions dynamically from whichever ID columns are present in this batch.
+  // Also match by ISRC for cross-platform deduplication.
   const orConditions: object[] = [];
-  if (spotifyIds.length > 0)    orConditions.push({ spotifyId:    { in: spotifyIds } });
-  if (soundcloudIds.length > 0) orConditions.push({ soundcloudId: { in: soundcloudIds } });
-  if (tidalIds.length > 0)      orConditions.push({ tidalId:      { in: tidalIds } });
-  if (isrcs.length > 0)         orConditions.push({ isrc:         { in: isrcs } });
+  for (const [field, ids] of Object.entries(idsByField)) {
+    if (ids.length > 0) orConditions.push({ [field]: { in: ids } });
+  }
+  if (isrcs.length > 0) orConditions.push({ isrc: { in: isrcs } });
 
   const [cachedTracks, cachedArtists] = await Promise.all([
     orConditions.length > 0
@@ -106,40 +114,35 @@ export const readEnrichmentCache = async (
   //      → this is the cross-platform deduplication case
   const audioFeaturesMap: Record<string, any> = {};
 
+  // Collect all unique idFields present in this batch to index cache rows generically.
+  const usedIdFields = [...new Set(tracks.map(t => t.idField))];
+
   for (const row of cachedTracks) {
     const features = sanitizeAudioFeatures(row.audioFeatures);
 
-    // Cases 1 and 2: direct platform ID match — map the native ID to features.
-    if (row.spotifyId)    audioFeaturesMap[row.spotifyId]    = features;
-    if (row.soundcloudId) audioFeaturesMap[row.soundcloudId] = features;
-    if (row.tidalId)      audioFeaturesMap[row.tidalId]      = features;
+    // Cases 1 and 2: direct platform ID match.
+    // For each idField used in this batch, map the stored native ID to features.
+    for (const field of usedIdFields) {
+      const id = (row as any)[field];
+      if (id) audioFeaturesMap[id] = features;
+    }
 
     // Case 3: ISRC cross-platform hit.
     // The row was found via ISRC but may not yet have the current platform's ID stored.
-    // Map the incoming track's platformId to the features, and backfill the ID so
-    // the next request can find this row by platform ID directly (skipping ISRC lookup).
+    // Map the incoming track's platformId to features, and backfill the ID so
+    // future requests can find this row by platform ID directly (skipping ISRC lookup).
     if (row.isrc) {
       for (const track of tracks) {
         if (track.isrc !== row.isrc) continue;
 
-        // Map features to this track's native ID (may duplicate a case-1/2 hit; harmless).
+        // Map features to this track's native ID (may duplicate a direct-hit; harmless).
         audioFeaturesMap[track.platformId] = features;
 
-        // Backfill: link the platform ID to this existing row if it is not already there.
+        // Backfill: write the native ID onto the row if it is not already there.
         // Fire-and-forget — the polling endpoint will pick it up on the next poll.
-        if (track.platform === 'SOUNDCLOUD' && !row.soundcloudId) {
+        if (!(row as any)[track.idField]) {
           prisma.trackCache
-            .update({ where: { id: row.id }, data: { soundcloudId: track.platformId } })
-            .catch(() => {});
-        }
-        if (track.platform === 'SPOTIFY' && !row.spotifyId) {
-          prisma.trackCache
-            .update({ where: { id: row.id }, data: { spotifyId: track.platformId } })
-            .catch(() => {});
-        }
-        if (track.platform === 'TIDAL' && !row.tidalId) {
-          prisma.trackCache
-            .update({ where: { id: row.id }, data: { tidalId: track.platformId } })
+            .update({ where: { id: row.id }, data: { [track.idField]: track.platformId } })
             .catch(() => {});
         }
       }
@@ -184,7 +187,7 @@ export const readEnrichmentCache = async (
 //
 // Data flow:
 //   ┌──────────────────────────────────────────────────────────────────────────┐
-//   │  Phase 0: ISRC → Spotify ID (sequential, 100ms gap, SC only)            │
+//   │  Phase 0: ISRC → Spotify ID (batches of 3, 500ms gap, SC + Tidal)       │
 //   │  Phase 1: ReccoBeats batch ID lookup ─┐ (parallel)                      │
 //   │           Last.fm genre lookup        ─┘                                │
 //   │  Phase 2: Per-track audio features (sequential, 300ms gap, rate limit)  │
@@ -195,13 +198,35 @@ export const backgroundEnrichTracks = async (
   uniqueMissedArtists: { id: string; name: string }[]
 ): Promise<void> => {
   // --- Phase 0: Resolve ISRC → Spotify ID for tracks that need it ---
-  // Sequential with a small delay to avoid hammering the Spotify search endpoint.
+  //
   // Tracks where spotifyId is already set (Spotify platform) skip this phase entirely.
-  for (const track of missedTracks) {
-    if (track.spotifyId === null && track.isrc) {
-      track.spotifyId = await isrcLookup(track.isrc);
-      await sleep(100);
-    }
+  // For SoundCloud and Tidal, the track's ISRC is the bridge to a Spotify ID, which
+  // ReccoBeats requires in Phase 1. We fetch them in small parallel batches rather than
+  // one-at-a-time to balance speed against Spotify's client credentials rate limit.
+  //
+  // Why batches of 3 with 500ms between:
+  //   Sequential at 100ms → 10 req/sec → hits Spotify's search rate limit on large playlists.
+  //   3 concurrent + 500ms inter-batch gap → ~3–4 req/sec → comfortably within limits.
+  //   Natural API round-trip (~150–300ms per call) further throttles each batch organically.
+  const ISRC_BATCH  = 3;
+  const ISRC_DELAY  = 500; // ms between batches
+
+  const isrcNeedingTracks = missedTracks.filter(t => t.spotifyId === null && t.isrc);
+
+  for (let i = 0; i < isrcNeedingTracks.length; i += ISRC_BATCH) {
+    const batch = isrcNeedingTracks.slice(i, i + ISRC_BATCH);
+
+    // Run the batch concurrently — each call resolves independently.
+    // Results are written back onto the track objects in-place so the filter
+    // in `tracksWithSpotifyId` below sees the resolved values.
+    await Promise.all(
+      batch.map(async track => {
+        track.spotifyId = await isrcLookup(track.isrc!);
+      })
+    );
+
+    // Pause between batches only when there are more tracks to process.
+    if (i + ISRC_BATCH < isrcNeedingTracks.length) await sleep(ISRC_DELAY);
   }
 
   // Only tracks with a resolved Spotify ID can be submitted to ReccoBeats.
@@ -344,24 +369,29 @@ export const backgroundEnrichTracks = async (
     //   create — new row keyed by spotifyId only
     //   update — refresh audioFeatures and cachedAt
     if (track.isrc) {
+      // For non-Spotify platforms, we need to store the native platform ID in addition to
+      // the spotifyId that was resolved from ISRC. `nativeIdData` is empty for Spotify
+      // because spotifyId is already the native ID and is set unconditionally above.
+      const nativeIdData = track.idField !== 'spotifyId'
+        ? { [track.idField]: platformId }
+        : {};
+
       prisma.trackCache
         .upsert({
           where: { isrc: track.isrc },
           create: {
             isrc: track.isrc,
             spotifyId: track.spotifyId,
-            // Only set the platform-native ID column that matches the originating platform.
-            soundcloudId: track.platform === 'SOUNDCLOUD' ? platformId : null,
-            tidalId:      track.platform === 'TIDAL'      ? platformId : null,
+            // Add the originating platform's native ID column (e.g. soundcloudId, tidalId).
+            // No-op for Spotify since spotifyId is already set above.
+            ...nativeIdData,
             audioFeatures: features as object,
           },
           update: {
             audioFeatures: features as object,
             cachedAt: new Date(),
-            // Backfill the platform-native ID onto an existing row sourced from another platform.
-            ...(track.platform === 'SOUNDCLOUD' ? { soundcloudId: platformId } : {}),
-            ...(track.platform === 'TIDAL'      ? { tidalId:      platformId } : {}),
-            ...(track.platform === 'SPOTIFY'    ? { spotifyId: track.spotifyId } : {}),
+            // Backfill the native ID onto an existing row sourced from another platform.
+            ...nativeIdData,
           },
         })
         .catch(() => {});

@@ -33,13 +33,15 @@ Defined in `client/src/index.css` as CSS variables, mapped to Tailwind utilities
 
 ### Platform Brand Colours
 
-Used only on OAuth login buttons — these are trust signals, not decoration.
+Used on OAuth login buttons and platform badges — trust signals that tell the user which platform they're looking at.
+Defined as CSS variables in `index.css`; accessed via `getPlatformBadgeStyle()` in `client/src/utils/platform.ts`.
 
-| Platform    | Brand Colour | Hex       |
-|-------------|--------------|-----------|
-| Spotify     | Green        | `#1DB954` |
-| SoundCloud  | Orange       | `#FF5500` |
-| Apple Music | Pink/Red     | `#fc3c44` |
+| Platform    | Brand Colour | Hex       | CSS Variable                    |
+|-------------|--------------|-----------|----------------------------------|
+| Spotify     | Green        | `#1DB954` | `--color-platform-spotify`       |
+| SoundCloud  | Orange       | `#FF5500` | `--color-platform-soundcloud`    |
+| Tidal       | Cyan         | `#00FFFF` | `--color-platform-tidal`         |
+| Apple Music | Pink/Red     | `#fc3c44` | `--color-platform-apple-music`   |
 
 ---
 
@@ -162,12 +164,25 @@ Chevron: `▼` rotated 180° when open — `transition-transform duration-300`
 
 ## Platform Badge
 
-Used in PlaylistDetail header when a track's platform is not Spotify (Spotify is the default; no badge needed).
+Used in PlaylistDetail header to identify which platform the playlist belongs to. Shown for every platform — each badge uses that platform's brand colour as defined in `index.css` CSS variables.
+
+Platform brand colours (CSS variables in `index.css`):
+
+| Platform    | CSS Variable                      | Hex       |
+|-------------|-----------------------------------|-----------|
+| Spotify     | `--color-platform-spotify`        | `#1DB954` |
+| SoundCloud  | `--color-platform-soundcloud`     | `#FF5500` |
+| Tidal       | `--color-platform-tidal`          | `#00FFFF` |
+| Apple Music | `--color-platform-apple-music`    | `#fc3c44` |
+
+The badge uses **inline styles** (not Tailwind classes) because the colour is determined at runtime. The helper `getPlatformBadgeStyle(platform)` in `client/src/utils/platform.ts` returns the correct `{ background, color, border }` style object for each platform.
 
 ```tsx
-<span className="text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full
-                 bg-orange-500/15 text-orange-400 border border-orange-500/20">
-  SoundCloud
+<span
+  className="text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full"
+  style={getPlatformBadgeStyle(tracks[0].platform)}
+>
+  {tracks[0].platform}
 </span>
 ```
 

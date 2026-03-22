@@ -70,6 +70,7 @@ const buildTrack = (
 // All Spotify-specific API details live here — routes and middleware only call the interface.
 export class SpotifyAdapter implements PlatformAdapter {
   readonly platform = 'SPOTIFY' as const;
+  readonly trackCacheIdField = 'spotifyId';
 
   // Builds the Spotify OAuth authorization URL the user is redirected to when clicking "Connect".
   // The `show_dialog: true` flag forces the consent screen even if the user has logged in before.
@@ -250,6 +251,7 @@ export class SpotifyAdapter implements PlatformAdapter {
     const enrichmentInput: EnrichmentTrack[] = rawTracks.map((t: any) => ({
       platformId: t.id,
       spotifyId: t.id,
+      idField: this.trackCacheIdField,
       artistId: t.artists[0].id,
       artistName: t.artists[0].name,
       isrc: t.external_ids?.isrc ?? undefined,
@@ -318,6 +320,7 @@ export class SpotifyAdapter implements PlatformAdapter {
     const enrichmentInput: EnrichmentTrack[] = rawTracks.map((t: any) => ({
       platformId: t.id,
       spotifyId: t.id,
+      idField: this.trackCacheIdField,
       artistId: t.artists[0].id,
       artistName: t.artists[0].name,
       isrc: t.external_ids?.isrc ?? undefined,
@@ -499,5 +502,15 @@ export class SpotifyAdapter implements PlatformAdapter {
     } catch {
       return true; // network/5xx — assume it still exists
     }
+  }
+
+  // Accepts a Spotify playlist URL or a raw 22-character alphanumeric ID.
+  // Spotify IDs are always exactly 22 chars — no other format ambiguity exists.
+  extractPlaylistId(input: string): string | null {
+    const trimmed = input.trim();
+    const urlMatch = trimmed.match(/spotify\.com\/playlist\/([a-zA-Z0-9]+)/);
+    if (urlMatch) return urlMatch[1];
+    if (/^[a-zA-Z0-9]{22}$/.test(trimmed)) return trimmed;
+    return null;
   }
 }

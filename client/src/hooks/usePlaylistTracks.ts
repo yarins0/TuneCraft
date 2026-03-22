@@ -161,6 +161,11 @@ export const usePlaylistTracks = (
           if (cancelled) break;
 
           setTracks(prev => [...prev, ...data.tracks]);
+          // Keep the displayed total in sync as each page reveals more of the true count.
+          // Tidal doesn't always return meta.total, so the server derives an estimate from the
+          // cursor — updating here means the "X out of Y" counter grows page by page instead
+          // of staying frozen at the first-page estimate.
+          setTotal(data.total);
           scheduleFeaturePolling(data.tracks);
 
           more = data.hasMore;

@@ -325,7 +325,7 @@ export default function ShuffleModal({
                     </div>
                   ) : (
                     <p className="text-text-muted text-sm">
-                      Enable auto-reshuffle to reshuffle this playlist on a schedule and save it to Spotify.
+                      Enable auto-reshuffle to reshuffle this playlist on a schedule and save it automatically.
                       The schedule will use the shuffle style you selected on the left.
                     </p>
                   )}

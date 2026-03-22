@@ -362,7 +362,7 @@ Spotify enforces a 429 rate limit. `spotifyRequestWithRetry` in `routes/playlist
 | Backend | Node.js, Express, TypeScript |
 | Database | PostgreSQL via Prisma ORM |
 | Auth | Spotify OAuth 2.0 with automatic token refresh |
-| External APIs | Spotify Web API, SoundCloud API, Last.fm, ReccoBeats |
+| External APIs | Spotify Web API, SoundCloud API, Tidal API (OpenAPI v2), Last.fm, ReccoBeats |
 | Background jobs | node-cron |
 
 ---
@@ -372,6 +372,7 @@ Spotify enforces a 429 rate limit. `spotifyRequestWithRetry` in `routes/playlist
 - **Node.js** — latest LTS recommended
 - **PostgreSQL** — local or hosted instance
 - **Spotify Developer App** — create one at [developer.spotify.com](https://developer.spotify.com/dashboard). You will need a Client ID, Client Secret, and a configured redirect URI
+- **Tidal Developer App** — register at [developer.tidal.com](https://developer.tidal.com). Uses PKCE OAuth 2.0; requires `user.read`, `collection.read`, `collection.write`, `playlists.read`, `playlists.write` scopes
 - **Last.fm API key** — register at [last.fm/api](https://www.last.fm/api/account/create)
 - **ReccoBeats API key** — for audio features (replaces Spotify's deprecated audio features endpoint)
 

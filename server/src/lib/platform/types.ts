@@ -65,6 +65,13 @@ export interface TokenRefreshResult {
 export interface PlatformAdapter {
   readonly platform: Platform;
 
+  // The TrackCache column that stores this platform's native track ID.
+  // Used by the /features polling endpoint and the enrichment pipeline to query and write
+  // the correct column without any if/else chains — adding a new platform only requires
+  // setting this field on the new adapter.
+  // Examples: 'spotifyId', 'soundcloudId', 'tidalId'
+  readonly trackCacheIdField: string;
+
   // --- Auth ---
 
   // Returns the full OAuth authorization URL to redirect the user to.
@@ -88,11 +95,13 @@ export interface PlatformAdapter {
 
   // Fetches one page of enriched tracks from a playlist.
   // page=0 → first 50 tracks, page=1 → next 50, etc.
+  // hasMore is optional — adapters that can't express it via page*limit+count (e.g. Tidal,
+  // which caps pages at 20 regardless of page[size]) return it explicitly instead.
   fetchPlaylistTracks(
     accessToken: string,
     playlistId: string,
     page: number
-  ): Promise<{ tracks: PlatformTrack[]; total: number }>;
+  ): Promise<{ tracks: PlatformTrack[]; total: number; hasMore?: boolean }>;
 
   // Returns the total track count in the user's liked/saved library.
   // Lightweight — does not return track data.
@@ -140,4 +149,12 @@ export interface PlatformAdapter {
   // Used by the cleanup cron to detect playlists the user deleted or unfollowed.
   // Must return true on any network/API error — never delete a schedule on uncertainty.
   playlistInLibrary(accessToken: string, playlistId: string): Promise<boolean>;
+
+  // Extracts a bare platform playlist ID from a user-supplied string (URL or raw ID).
+  // Returns null if the input doesn't match this platform's known URL format.
+  // For platforms where the URL slug can't be resolved client-side (e.g. SoundCloud),
+  // returns the normalized https:// URL as a signal to the caller that it needs
+  // server-side resolution via the platform's resolve API.
+  // This method is pure — it performs no network calls and needs no access token.
+  extractPlaylistId(input: string): string | null;
 }

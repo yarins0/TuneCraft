@@ -9,6 +9,9 @@ import { mergePlaylist } from '../api/playlists';
 import { buildMergedTrackList } from '../utils/mergePlaylists';
 import { getActiveAccount, getAccounts, type StoredAccount } from '../utils/accounts';
 import PlatformSwitcherSidebar from '../components/PlatformSwitcherSidebar';
+import AppFooter from '../components/AppFooter';
+import { PLATFORM_COLORS, PLATFORM_LABELS } from '../utils/platform';
+import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
 
 // Reads the active userId from localStorage — synced by setActiveAccount() on every switch.
 const getUserId = () => localStorage.getItem('userId') || '';
@@ -47,6 +50,11 @@ export default function Dashboard() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const navigate = useNavigate();
+
+  // Animates "Loading your music." → ".." → "..." while the library is fetching.
+  const loadingLabel = useAnimatedLabel(loading, 'Loading your music');
+  // Animates "Loading." → ".." → "..." on the discover Go button while fetching playlist metadata.
+  const discoverLoadingLabel = useAnimatedLabel(discoverLoading, 'Loading');
 
   // loadLibrary fetches playlists and liked-song count for the currently active account.
   // Extracted into a useCallback so it can be called both on mount and after an account switch.
@@ -97,27 +105,46 @@ export default function Dashboard() {
   };
 
   // Handles the discover form submission.
-  // extractPlaylistId returns either a bare platform ID (Spotify) or a full URL (SoundCloud).
-  // Full URLs can't be resolved client-side and are sent to the server for slug → ID resolution.
-  const handleDiscover = async () => {
+  // extractPlaylistId returns either a bare platform ID or a full URL (SoundCloud only),
+  // and only accepts URLs/IDs that match the active platform — cross-platform URLs return null.
+  // Full SoundCloud URLs are sent to the server for slug → ID resolution.
+  //
+  // openInNewTab: when true, opens the playlist in a new browser tab instead of navigating
+  // in place. Query params are used instead of router state because window.open() can't
+  // carry React Router state — PlaylistDetail already reads ?ownerId= and ?name= as fallback.
+  const handleDiscover = async (openInNewTab = false) => {
     setDiscoverError(null);
-    const extracted = extractPlaylistId(discoverInput);
+    const activePlatform = activeAccount?.platform ?? '';
+    const extracted = extractPlaylistId(discoverInput, activePlatform);
 
     if (!extracted) {
-      setDiscoverError('Please enter a valid Spotify or SoundCloud playlist URL or ID');
+      const platformLabel = PLATFORM_LABELS[activePlatform] ?? activePlatform;
+      setDiscoverError(`Please enter a valid ${platformLabel} playlist URL`);
       return;
     }
 
     setDiscoverLoading(true);
 
     try {
-      // SoundCloud URLs start with https://soundcloud.com — the server resolves the slug to an ID
-      const playlist = extracted.startsWith('https://soundcloud.com')
+      // If extractPlaylistId returned a full URL, the platform needs server-side slug resolution.
+      // The server routes it to the active adapter's fetchPlaylist, which handles URL-vs-ID internally.
+      const playlist = extracted.startsWith('https://')
         ? await discoverPlaylistByUrl(getUserId(), extracted)
         : await discoverPlaylist(getUserId(), extracted);
-      navigate(`/playlist/${playlist.platformId}`, {
-        state: { ownerId: playlist.ownerId, name: playlist.name },
-      });
+
+      const path = `/playlist/${playlist.platformId}`;
+
+      if (openInNewTab) {
+        const params = new URLSearchParams({
+          ownerId: playlist.ownerId,
+          name:    playlist.name,
+        });
+        window.open(`${path}?${params}`, '_blank');
+      } else {
+        navigate(path, {
+          state: { ownerId: playlist.ownerId, name: playlist.name, platform: activeAccount?.platform },
+        });
+      }
     } catch (error: any) {
       setDiscoverError(error.message);
     } finally {
@@ -151,7 +178,7 @@ export default function Dashboard() {
 
       // Navigate to the newly created playlist so the user can see the result immediately
       navigate(`/playlist/${newPlaylist.platformId}`, {
-        state: { ownerId: newPlaylist.ownerId, name: newPlaylist.name },
+        state: { ownerId: newPlaylist.ownerId, name: newPlaylist.name, platform: activeAccount?.platform },
       });
 
       setMergeSuccess('Playlists merged! Opening new playlist...');
@@ -208,18 +235,6 @@ export default function Dashboard() {
     }
   };
 
-  if (loading) return (
-    <div className="min-h-screen bg-bg-primary flex items-center justify-center">
-      <div className="text-accent text-xl animate-pulse">Loading your music...</div>
-    </div>
-  );
-
-  if (error) return (
-    <div className="min-h-screen bg-bg-primary flex items-center justify-center">
-      <div className="text-red-400 text-xl">{error}</div>
-    </div>
-  );
-
   // Split playlists into owned and following groups
   const ownedPlaylists = playlists.filter(p => p.ownerId === getPlatformUserId());
   const followingPlaylists = playlists.filter(p => p.ownerId !== getPlatformUserId());
@@ -238,8 +253,9 @@ export default function Dashboard() {
   const isLikedSelected = selectedIds.has(LIKED_SONGS_ID);
 
   return (
-    // pb-28 reserves space so the last card row is never hidden behind the fixed action bar
-    <div className="min-h-screen bg-bg-primary text-text-primary pb-28">
+    <div className="bg-bg-primary text-text-primary">
+      {/* pb-28 reserves space so the last card row is never hidden behind the fixed action bar */}
+      <div className="min-h-screen pb-28">
 
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-border-color px-8 py-6 bg-bg-secondary">
@@ -265,17 +281,12 @@ export default function Dashboard() {
             <span className="text-sm font-semibold text-text-primary truncate max-w-[140px]">
               {activeAccount?.displayName || activeAccount?.platform || 'Account'}
             </span>
-            {/* Small platform colour dot */}
+            {/* Small platform colour dot — uses shared PLATFORM_COLORS, falls back to accent */}
             {activeAccount && (
               <span
                 className="w-2 h-2 rounded-full shrink-0"
                 style={{
-                  backgroundColor:
-                    activeAccount.platform === 'SPOTIFY'
-                      ? '#1DB954'
-                      : activeAccount.platform === 'SOUNDCLOUD'
-                      ? '#FF5500'
-                      : '#a855f7',
+                  backgroundColor: PLATFORM_COLORS[activeAccount.platform] ?? 'var(--color-accent)',
                 }}
               />
             )}
@@ -293,7 +304,38 @@ export default function Dashboard() {
       />
 
       <div className="px-8 py-10">
-        {/* Playlist Discovery Search Bar — unchanged */}
+
+        {/* Error state — shown in place of the library when the load fails */}
+        {error && (
+          <div className="flex flex-col items-center justify-center py-20 text-center gap-4">
+            <span className="text-5xl">⚠️</span>
+            <p className="text-text-primary font-semibold text-lg">Failed to load your library</p>
+            <p className="text-text-muted text-sm">{error}</p>
+            <button
+              onClick={loadLibrary}
+              className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-2.5 rounded-full transition-all duration-200 hover:scale-105 active:scale-95 text-sm mt-2"
+            >
+              Try again
+            </button>
+            <Link
+              to="/"
+              className="text-text-muted hover:text-text-primary text-sm transition-colors"
+            >
+              ← Back to Login
+            </Link>
+          </div>
+        )}
+
+        {/* Loading state — rendered inside the layout so header and footer stay visible */}
+        {loading && (
+          <div className="flex items-center justify-center py-40">
+            <p className="text-accent text-xl">{loadingLabel}</p>
+          </div>
+        )}
+
+        {!loading && !error && (
+          <>
+        {/* Playlist Discovery Search Bar */}
         <div className="mb-8">
           <p className="text-text-muted text-sm mb-3 uppercase tracking-widest font-semibold">
             Discover any playlist
@@ -306,17 +348,21 @@ export default function Dashboard() {
                 setDiscoverInput(e.target.value);
                 setDiscoverError(null);
               }}
-              onKeyDown={e => e.key === 'Enter' && handleDiscover()}
+              onKeyDown={e => e.key === 'Enter' && handleDiscover(e.ctrlKey || e.metaKey)}
               aria-label="Discover any playlist"
-              placeholder="Paste a Spotify or SoundCloud playlist URL..."
+              placeholder={`Paste a ${PLATFORM_LABELS[activeAccount?.platform ?? ''] ?? 'playlist'} playlist URL or ID...`}
               className="flex-1 bg-bg-card border border-border-color rounded-full px-5 py-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 transition-colors duration-200"
             />
             <button
-              onClick={handleDiscover}
+              onClick={e => handleDiscover(e.ctrlKey || e.metaKey)}
+              onMouseDown={e => {
+                // Middle-click (button 1) — open in new tab, same as a native anchor
+                if (e.button === 1) { e.preventDefault(); handleDiscover(true); }
+              }}
               disabled={discoverLoading || !discoverInput.trim()}
-              className="bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-6 py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
+              className="bg-accent hover:bg-accent-hover w-[130px] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-6 py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
             >
-              {discoverLoading ? 'Loading...' : 'Go'}
+              {discoverLoading ? discoverLoadingLabel : 'Go'}
             </button>
           </div>
           {discoverError && (
@@ -334,7 +380,7 @@ export default function Dashboard() {
             {/* Liked Songs card — selectable like owned playlists, handled with LIKED_SONGS_ID */}
             <Link
               to="/playlist/liked"
-              state={{ ownerId: getPlatformUserId(), name: 'Liked Songs' }}
+              state={{ ownerId: getPlatformUserId(), name: 'Liked Songs', platform: activeAccount?.platform }}
               onClick={handleLikedCardClick}
               className={[
                 'group relative bg-bg-card rounded-2xl overflow-hidden border transition-all duration-200 cursor-pointer block',
@@ -378,7 +424,7 @@ export default function Dashboard() {
                 <Link
                   key={playlist.platformId}
                   to={`/playlist/${playlist.platformId}`}
-                  state={{ ownerId: playlist.ownerId, name: playlist.name }}
+                  state={{ ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform, trackCount: playlist.trackCount }}
                   onClick={(e) => handleCardClick(e, playlist)}
                   className={[
                     'group relative bg-bg-card rounded-2xl overflow-hidden border transition-all duration-200 cursor-pointer block',
@@ -447,7 +493,7 @@ export default function Dashboard() {
                 <Link
                   key={playlist.platformId}
                   to={`/playlist/${playlist.platformId}`}
-                  state={{ ownerId: playlist.ownerId, name: playlist.name }}
+                  state={{ ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform, trackCount: playlist.trackCount }}
                   onClick={(e) => { if (selectMode) e.preventDefault(); }}
                   className={[
                     'group bg-bg-card rounded-2xl overflow-hidden border border-border-color transition-all duration-300 opacity-75 block',
@@ -483,6 +529,8 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
+        )}
+        </>
         )}
       </div>
 
@@ -541,22 +589,10 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Footer — z-index is below the action bar (z-40)
-          so the action bar naturally covers it when select mode is active. */}
-      <footer className="bottom-1 left-0 right-0 z-10 flex justify-between px-5 py-2 bg-bg-primary border-t border-border-color">
-        <p className="font-mono text-xs text-text-muted">
-          © 2026 TuneCraft · Personal portfolio project · Non-commercial
-        </p>
-        <p className="font-mono text-xs text-text-muted">
-          Built with ♪ by Yarin Solomon
-        </p>
-        <Link to="/contact" className="text-text-muted text-xs hover:text-text-primary transition-colors duration-200">
-          Contact me
-        </Link>
-        <Link to="/privacy" className="text-text-muted text-xs hover:text-text-primary transition-colors duration-200">
-          Privacy Policy
-        </Link>
-      </footer>
+      </div>
+
+      {/* Footer sits outside the pb-28 content div so it renders at the true page bottom */}
+      <AppFooter />
     </div>
   );
 }

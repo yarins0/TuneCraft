@@ -70,7 +70,7 @@ export const isrcLookup = async (isrc: string | undefined | null): Promise<strin
       },
       undefined,
       3,
-      'Spotify ISRC search'
+      'ISRC search'
     );
 
     const tracks = response.data?.tracks?.items;
