@@ -54,7 +54,7 @@ export interface UsePlaylistActionsResult {
 // Uses onShuffleApplied to let the parent close its ShuffleModal and clear open rows.
 export const usePlaylistActions = ({
   playlistId,
-  name,
+  name: _name,
   tracks,
   setTracks,
   reshuffleSchedule,

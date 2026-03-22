@@ -10,7 +10,7 @@ import { buildMergedTrackList } from '../utils/mergePlaylists';
 import { getActiveAccount, getAccounts, setSessionAccount, type StoredAccount } from '../utils/accounts';
 import PlatformSwitcherSidebar from '../components/PlatformSwitcherSidebar';
 import AppFooter from '../components/AppFooter';
-import { PLATFORM_COLORS, PLATFORM_LABELS } from '../utils/platform';
+import { PLATFORM_COLORS, PLATFORM_LABELS, getPlatformConfig } from '../utils/platform';
 import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
 
 // Reads the active userId — checks sessionStorage first (per-tab override for multi-tab
@@ -58,6 +58,9 @@ export default function Dashboard() {
   // activeAccount drives the account button label in the header.
   // Re-read from localStorage on every switch.
   const [activeAccount, setActiveAccount] = useState<StoredAccount | null>(() => getActiveAccount());
+  // Derived from the active account's platform — controls platform-specific UI behaviour.
+  // Falls back to safe defaults when no account is loaded yet.
+  const platformConfig = getPlatformConfig(activeAccount?.platform?.toUpperCase());
 
   // --- Phase 5: Merge modal state ---
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
@@ -68,7 +71,7 @@ export default function Dashboard() {
   // --- Phase 5: Multi-select state ---
   // selectMode becomes true the moment the user checks any playlist
   const [selectMode, setSelectMode] = useState(false);
-  // selectedIds holds platformIds of checked owned playlists, plus LIKED_SONGS_ID if Liked Songs is checked
+  // selectedIds holds platformIds of checked playlists (owned + following when selectable) plus LIKED_SONGS_ID
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const navigate = useNavigate();
@@ -427,7 +430,7 @@ export default function Dashboard() {
 
             {/* Liked Songs card — selectable like owned playlists, handled with LIKED_SONGS_ID */}
             <Link
-              to={buildPlaylistUrl('liked', { userId: getUserId(), ownerId: getPlatformUserId(), name: 'Liked Songs', platform: activeAccount?.platform ?? '' })}
+              to={buildPlaylistUrl('liked', { userId: getUserId(), ownerId: getPlatformUserId() ?? '', name: 'Liked Songs', platform: activeAccount?.platform ?? '' })}
               state={{ ownerId: getPlatformUserId(), name: 'Liked Songs', platform: activeAccount?.platform }}
               onClick={handleLikedCardClick}
               className={[
@@ -471,7 +474,7 @@ export default function Dashboard() {
               return (
                 <Link
                   key={playlist.platformId}
-                  to={buildPlaylistUrl(playlist.platformId, { userId: getUserId(), ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform, trackCount: playlist.trackCount })}
+                  to={buildPlaylistUrl(playlist.platformId, { userId: getUserId(), ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform ?? '', trackCount: playlist.trackCount })}
                   state={{ ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform, trackCount: playlist.trackCount }}
                   onClick={(e) => handleCardClick(e, playlist)}
                   className={[
@@ -524,39 +527,78 @@ export default function Dashboard() {
         </div>
 
         {/* Group 2 — Following
-            In select mode: dimmed and clicks are blocked — these playlists aren't owned by the user
-            and cannot be written to, so they can't participate in a merge */}
+            On platforms where ownershipRestricted is true (e.g. Tidal), followed playlists
+            can't be written to, so in select mode they are dimmed and clicks are blocked.
+            On platforms where ownershipRestricted is false the restriction doesn't apply
+            and followed playlists behave the same as owned ones in select mode. */}
         {followingPlaylists.length > 0 && (
           <div>
             <p className="text-text-muted text-sm mb-4 uppercase tracking-widest font-semibold">
               Following <span className="text-accent normal-case">· {followingPlaylists.length}</span>
             </p>
-            {selectMode && (
+            {selectMode && platformConfig.ownershipRestricted && (
               <p className="text-text-muted text-xs mb-3 -mt-2">
                 Followed playlists can't be merged — you don't own them.
               </p>
             )}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {followingPlaylists.map(playlist => (
+              {followingPlaylists.map(playlist => {
+                const isSelected = selectedIds.has(playlist.platformId);
+                const selectable = !platformConfig.ownershipRestricted;
+                return (
                 <Link
                   key={playlist.platformId}
-                  to={buildPlaylistUrl(playlist.platformId, { userId: getUserId(), ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform, trackCount: playlist.trackCount })}
+                  to={buildPlaylistUrl(playlist.platformId, { userId: getUserId(), ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform ?? '', trackCount: playlist.trackCount })}
                   state={{ ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform, trackCount: playlist.trackCount }}
-                  onClick={(e) => { if (selectMode) e.preventDefault(); }}
+                  onClick={(e) => {
+                    if (selectable) {
+                      handleCardClick(e, playlist);
+                    } else if (selectMode) {
+                      e.preventDefault();
+                    }
+                  }}
                   className={[
-                    'group bg-bg-card rounded-2xl overflow-hidden border border-border-color transition-all duration-300 opacity-75 block',
-                    selectMode
-                      // In select mode: dim and show a not-allowed cursor, but keep hover feedback consistent
-                      ? 'opacity-30 cursor-not-allowed'
-                      : 'hover:border-accent/50 hover:bg-bg-secondary cursor-pointer',
+                    'group bg-bg-card rounded-2xl overflow-hidden border transition-all duration-200 block',
+                    selectable
+                      ? [
+                          'relative cursor-pointer',
+                          isSelected
+                            ? 'border-accent ring-2 ring-accent/40 bg-accent/5'
+                            : 'border-border-color hover:border-accent/50 hover:bg-bg-secondary',
+                        ].join(' ')
+                      : [
+                          'border-border-color opacity-75',
+                          selectMode ? 'opacity-30 cursor-not-allowed' : 'hover:border-accent/50 hover:bg-bg-secondary cursor-pointer',
+                        ].join(' '),
                   ].join(' ')}
                 >
                   <div className="aspect-square w-full bg-bg-secondary overflow-hidden relative">
-                    <div className="absolute right-2 top-2 z-10 pointer-events-none">
+                    {/* "Following" badge — left side to mirror owned card's checkbox position */}
+                    <div className="absolute left-2 top-2 z-10 pointer-events-none">
                       <div className="bg-bg-card text-accent text-[11px] font-semibold px-2.5 py-1 rounded-md shadow-lg">
                         Following
                       </div>
                     </div>
+                    {/* Checkbox — right side, matching owned card layout */}
+                    {selectable && (
+                      <div
+                        role="checkbox"
+                        aria-checked={isSelected}
+                        aria-label={`Select ${playlist.name} for merge`}
+                        tabIndex={0}
+                        onClick={e => handleCheckboxClick(e, playlist.platformId)}
+                        onKeyDown={e => e.key === ' ' && handleCheckboxClick(e as any, playlist.platformId)}
+                        className={[
+                          'absolute top-2 right-2 z-10 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-150',
+                          isSelected
+                            ? 'bg-accent border-accent opacity-100'
+                            : 'bg-black/40 border-white/60',
+                          selectMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                        ].join(' ')}
+                      >
+                        {isSelected && <span className="text-white text-xs font-bold leading-none">✓</span>}
+                      </div>
+                    )}
                     {playlist.imageUrl ? (
                       <img
                         src={playlist.imageUrl}
@@ -574,7 +616,8 @@ export default function Dashboard() {
                     <p className="text-text-muted text-xs mt-1">{playlist.trackCount} tracks</p>
                   </div>
                 </Link>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
