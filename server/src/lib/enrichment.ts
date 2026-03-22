@@ -204,15 +204,8 @@ export const backgroundEnrichTracks = async (
 ): Promise<void> => {
   // Skip any tracks already being enriched by a previous in-flight call.
   const tracks = missedTracks.filter(t => !enrichingIds.has(t.platformId));
-  if (tracks.length === 0) {
-    console.log('[Enrichment DEBUG] all tracks already in-flight, skipping duplicate enrichment');
-    return;
-  }
+  if (tracks.length === 0) return;
   tracks.forEach(t => enrichingIds.add(t.platformId));
-
-  console.log('[Enrichment DEBUG] backgroundEnrichTracks called with', tracks.length, 'tracks:',
-    tracks.map(t => ({ platformId: t.platformId, idField: t.idField, isrc: t.isrc ?? '(none)', spotifyId: t.spotifyId }))
-  );
 
   try {
   // --- Phase 0: Resolve ISRC → Spotify ID for tracks that need it ---
@@ -230,13 +223,9 @@ export const backgroundEnrichTracks = async (
   const isrcNeedingTracks = tracks.filter(t => t.spotifyId === null && t.isrc);
   const noIsrcTracks      = tracks.filter(t => t.spotifyId === null && !t.isrc);
 
-  console.log(`[Enrichment DEBUG] Phase 0 — ${isrcNeedingTracks.length} tracks need ISRC→Spotify lookup, ${noIsrcTracks.length} have no ISRC (will get no features)`);
-
   for (let i = 0; i < isrcNeedingTracks.length; i++) {
     const track = isrcNeedingTracks[i];
-    console.log(`[Enrichment DEBUG] ISRC lookup starting (${i + 1}/${isrcNeedingTracks.length}): ${track.isrc}`);
     track.spotifyId = await isrcLookup(track.isrc!);
-    console.log(`[Enrichment DEBUG] ISRC ${track.isrc} → spotifyId: ${track.spotifyId ?? 'null (no match)'}`);
     if (i < isrcNeedingTracks.length - 1) await sleep(ISRC_DELAY);
   }
 
@@ -246,7 +235,6 @@ export const backgroundEnrichTracks = async (
   const tracksWithSpotifyId = tracks.filter(t => t.spotifyId !== null);
   const spotifyIds = tracksWithSpotifyId.map(t => t.spotifyId as string);
 
-  console.log(`[Enrichment DEBUG] After ISRC phase: ${tracksWithSpotifyId.length}/${missedTracks.length} tracks have a spotifyId → submitting to ReccoBeats`);
 
   // Build reverse map: spotifyId → platformId for correct TrackCache storage.
   // The polling endpoint (GET /features?ids=...) queries by platform-native ID,
@@ -369,8 +357,6 @@ export const backgroundEnrichTracks = async (
     const platformId = spotifyToPlatformId[spotifyId] ?? spotifyId;
     const track = tracksWithSpotifyId.find(t => t.platformId === platformId);
     if (!track) continue;
-
-    console.log(`[Enrichment DEBUG] Phase 2 — writing features for spotifyId=${spotifyId} → ${track.idField}=${platformId} (isrc=${track.isrc ?? 'none'})`);
 
     // Upsert strategy — keyed by ISRC when available (links the recording across platforms),
     // otherwise keyed by the platform-specific ID column.

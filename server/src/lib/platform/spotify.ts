@@ -392,7 +392,13 @@ export class SpotifyAdapter implements PlatformAdapter {
     return tracks;
   }
 
-  // Creates a new empty playlist in the user's Spotify account.
+  // Creates a new empty playlist in the user's Spotify account and follows it.
+  //
+  // Why the follow call is necessary:
+  //   POST /v1/me/playlists creates the playlist but does not automatically add it
+  //   to the user's Spotify library sidebar. PUT /v1/playlists/{id}/followers is the
+  //   explicit "add to library" step — without it the playlist exists on Spotify but
+  //   is invisible until the user manually searches for it.
   async createPlaylist(
     accessToken: string,
     name: string,
@@ -407,10 +413,23 @@ export class SpotifyAdapter implements PlatformAdapter {
       'Spotify'
     );
 
-    return {
-      id: response.data.id,
-      ownerId: response.data.owner.id,
-    };
+    const { id, owner } = response.data;
+
+    // Follow the newly created playlist so it appears in the user's library.
+    // This call is fire-and-forget — a failure here is non-fatal since the playlist
+    // was created successfully; the user can always follow it manually from Spotify.
+    await requestWithRetry(
+      'put',
+      `https://api.spotify.com/v1/playlists/${id}/followers`,
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } },
+      { public: false },
+      3,
+      'Spotify'
+    ).catch(err =>
+      console.warn(`Spotify follow-playlist failed for ${id}:`, err.response?.status ?? err.message)
+    );
+
+    return { id, ownerId: owner.id };
   }
 
   // Replaces the entire content of a Spotify playlist with a new ordered track list.

@@ -166,15 +166,11 @@ router.get('/:userId/features', refreshTokenMiddleware, async (req, res) => {
   const idField = adapter.trackCacheIdField;
 
   try {
-    console.log(`[Features DEBUG] polling ${ids.length} ids via ${idField}:`, ids);
-
     // Query the correct column and select it back so we can map results to platform IDs.
     const cached = await prisma.trackCache.findMany({
       where:  { [idField]: { in: ids } },
       select: { [idField]: true, audioFeatures: true },
     });
-
-    console.log(`[Features DEBUG] DB returned ${cached.length} rows for ${idField}`);
 
     const features: Record<string, Record<string, unknown>> = {};
     cached.forEach(entry => {

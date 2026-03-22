@@ -1,17 +1,65 @@
+import axios from 'axios';
 import { requestWithRetry } from './requestWithRetry';
 
-// Module-level token cache — a Spotify client credentials token is good for 3600 seconds.
-// We refresh it 60 seconds early to avoid using a token that is about to expire mid-request.
-// This cache is shared across all ISRC lookups in the same server process.
+// ─── MusicBrainz lookup ───────────────────────────────────────────────────────
+//
+// Primary ISRC resolution path. Free, no auth, 1 req/sec rate limit.
+// MusicBrainz stores Spotify track URLs as URL relations on recordings.
+//
+// Limitation: community-maintained database. Brand-new or niche releases
+// may not appear for days or weeks after commercial release.
+//
+// Required User-Agent header — requests without one are deprioritised.
+const MB_USER_AGENT = 'TuneCraft/1.0 (https://github.com/tunecraft)';
+
+const lookupViaMusicBrainz = async (isrc: string): Promise<string | null> => {
+  try {
+    // `inc=url-rels` embeds all URL relationships on each recording in a single request,
+    // which is how we get the associated Spotify track URL.
+    const response = await axios.get(
+      `https://musicbrainz.org/ws/2/isrc/${encodeURIComponent(isrc)}`,
+      {
+        params: { inc: 'url-rels', fmt: 'json' },
+        headers: { 'User-Agent': MB_USER_AGENT },
+        timeout: 10_000,
+      }
+    );
+
+    const recordings: any[] = response.data?.recordings ?? [];
+    for (const recording of recordings) {
+      for (const rel of (recording.relations ?? []) as any[]) {
+        const resource: string = rel.url?.resource ?? '';
+        // Spotify track URLs: https://open.spotify.com/track/{22-char-id}
+        const match = resource.match(/open\.spotify\.com\/track\/([a-zA-Z0-9]+)/);
+        if (match) return match[1];
+      }
+    }
+    return null;
+  } catch (error: any) {
+    // 404 = MusicBrainz doesn't know this ISRC — a normal soft miss, not an error
+    if (error.response?.status === 404) return null;
+    // Any other error is logged but treated as a miss so enrichment continues
+    console.warn(`MusicBrainz ISRC lookup failed for ${isrc}:`, error.response?.status ?? error.message);
+    return null;
+  }
+};
+
+// ─── Spotify client-credentials fallback ─────────────────────────────────────
+//
+// Secondary ISRC resolution path — used only when MusicBrainz returns null.
+// Spotify search knows about new commercial releases immediately (unlike MusicBrainz),
+// making it the right fallback for brand-new or niche tracks.
+//
+// Why not primary:
+//   Spotify's client credentials search endpoint rate-limits aggressively.
+//   A burst of concurrent requests triggers Retry-After: 120s.
+//   By routing most lookups through MusicBrainz first, Spotify is only
+//   called for genuine misses — typically a small fraction of a playlist.
+//
+// Token cache — good for 3600s, refreshed 60s early to avoid mid-request expiry.
 let tokenCache: { value: string; expiresAt: Date } | null = null;
 
-// Returns a valid Spotify client credentials access token.
-//
-// Client credentials flow authenticates as the app (not as any specific user) — it grants
-// access to public Spotify endpoints like search, which is all ISRC lookup needs.
-// No user is involved and no OAuth redirect is required.
 const getClientCredentialsToken = async (): Promise<string> => {
-  // Return cached token if it is still valid
   if (tokenCache && tokenCache.expiresAt > new Date()) return tokenCache.value;
 
   const response = await requestWithRetry(
@@ -35,32 +83,14 @@ const getClientCredentialsToken = async (): Promise<string> => {
   const { access_token, expires_in } = response.data;
   tokenCache = {
     value: access_token,
-    // Subtract 60s so the token is never used in its last minute of validity
     expiresAt: new Date(Date.now() + (expires_in - 60) * 1000),
   };
-
   return access_token;
 };
 
-// Looks up a Spotify track ID for a given ISRC code.
-//
-// ISRC (International Standard Recording Code) is a universal identifier that follows
-// a song across every platform — Spotify, SoundCloud, Deezer, Apple Music all carry it
-// for commercially released tracks. Independent/upload tracks often have no ISRC.
-//
-// This is the bridge between SoundCloud track data and ReccoBeats audio features:
-//   SoundCloud track → read its ISRC → search Spotify → get Spotify track ID → ReccoBeats
-//
-// Returns null if:
-//   - isrc is empty, null, or undefined
-//   - Spotify has no track matching that ISRC
-//   - Any API error occurs (fails gracefully — track just gets no audio features)
-export const isrcLookup = async (isrc: string | undefined | null): Promise<string | null> => {
-  if (!isrc || isrc.trim() === '') return null;
-
+const lookupViaSpotify = async (isrc: string): Promise<string | null> => {
   try {
     const token = await getClientCredentialsToken();
-
     const response = await requestWithRetry(
       'get',
       'https://api.spotify.com/v1/search',
@@ -69,19 +99,37 @@ export const isrcLookup = async (isrc: string | undefined | null): Promise<strin
         params: { q: `isrc:${isrc}`, type: 'track', limit: 1 },
       },
       undefined,
-      5,       // 5 retries — ISRC search hits a stricter rate limit than other Spotify endpoints
+      3,
       'ISRC search'
     );
 
     const tracks = response.data?.tracks?.items;
     if (!tracks || tracks.length === 0) return null;
-
     return tracks[0].id as string;
   } catch (error: any) {
-    console.error(
-      `ISRC lookup failed for ${isrc}:`,
-      error.response?.status ?? error.message
-    );
+    console.error(`Spotify ISRC fallback failed for ${isrc}:`, error.response?.status ?? error.message);
     return null;
   }
+};
+
+// ─── isrcLookup ───────────────────────────────────────────────────────────────
+//
+// Resolves an ISRC code to a Spotify track ID using a two-stage lookup:
+//   1. MusicBrainz (free, no auth, fast for well-known tracks)
+//   2. Spotify search fallback (handles new/niche tracks MusicBrainz doesn't yet have)
+//
+// Returns null if both sources miss or any unrecoverable error occurs.
+// Failures are graceful — the track simply receives no audio features.
+export const isrcLookup = async (isrc: string | undefined | null): Promise<string | null> => {
+  if (!isrc || isrc.trim() === '') return null;
+
+  const trimmed = isrc.trim();
+
+  const mbResult = await lookupViaMusicBrainz(trimmed);
+  if (mbResult) return mbResult;
+
+  // MusicBrainz miss — fall back to Spotify search.
+  // This covers brand-new releases (MusicBrainz lags days or weeks behind commercial releases)
+  // and niche tracks that have never been added to MusicBrainz.
+  return lookupViaSpotify(trimmed);
 };

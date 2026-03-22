@@ -310,8 +310,11 @@ export class TidalAdapter implements PlatformAdapter {
       );
       // v2 JSON:API shape: { data: { attributes: { ... } } }; fall back to flat shape.
       const u = userResponse.data?.data?.attributes ?? userResponse.data;
-      email       = u.email ?? null;
-      displayName = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username || userId;
+      email = u.email ?? null;
+      // Tidal PKCE apps receive no firstName/lastName — only username (which equals the email).
+      // Extract the local part (before @) so the sidebar shows "yarinso39" not a full email address.
+      const rawName = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username || '';
+      displayName = rawName.includes('@') ? rawName.split('@')[0] : rawName || userId;
     } catch (profileErr: any) {
       // 404 means the endpoint isn't available for this PKCE app — expected, not an error.
       if (profileErr?.response?.status !== 404) {
@@ -411,8 +414,13 @@ export class TidalAdapter implements PlatformAdapter {
         // The relationship data is an array of user refs: [{ type: 'users', id: '<userId>' }].
         // Falls back to uid (the logged-in user) if the relationship is absent, so owned
         // playlists still work even if the API omits the owners include for some entries.
-        const ownerRef = item.relationships?.owners?.data?.[0];
-        const ownerId  = ownerRef?.id ? String(ownerRef.id) : uid;
+        // Tidal populates owners.data only for playlists the authenticated user owns.
+        // For followed or editorial playlists, owners.data is an empty array — the API
+        // does not expose the external owner's identity.
+        // An empty data array → set ownerId to '' so the Dashboard correctly places
+        // the playlist in the "Following" section (ownerId !== platformUserId).
+        const ownerData: any[] = item.relationships?.owners?.data ?? [];
+        const ownerId = ownerData.length > 0 ? String(ownerData[0].id) : '';
 
         playlists.push({
           id:         String(ref.id),
@@ -563,35 +571,8 @@ export class TidalAdapter implements PlatformAdapter {
       };
     });
 
-    // DEBUG: log raw track data to diagnose missing genres / ISRC / release year
-    console.log('[Tidal DEBUG] tracks from API:', rawTracks.map((t: any) => {
-      const albRef  = t.relationships?.albums?.data?.[0];
-      const albData = albRef ? albumsMap.get(String(albRef.id)) : null;
-      return {
-        id:                  String(t.id),
-        title:               t.attributes?.title,
-        isrc:                t.attributes?.isrc,
-        trackReleaseDate:    t.attributes?.releaseDate,
-        albumReleaseDate:    albData?.attributes?.releaseDate,
-        genreRefs:           t.relationships?.genres?.data ?? [],
-        genreNames:          (t.relationships?.genres?.data ?? []).map((ref: any) =>
-          genresMap.get(String(ref.id))?.attributes
-        ),
-      };
-    }));
-    console.log('[Tidal DEBUG] genresMap entries:', [...genresMap.entries()].map(([id, g]) => ({
-      id, attributes: g?.attributes,
-    })));
-    console.log('[Tidal DEBUG] enrichmentInput:', enrichmentInput.map(t => ({
-      platformId: t.platformId, artistName: t.artistName, isrc: t.isrc,
-    })));
-
     const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
       await readEnrichmentCache(enrichmentInput);
-
-    console.log('[Tidal DEBUG] cache result — hits:', Object.keys(audioFeaturesMap).length,
-      '| misses:', missedTracks.length,
-      '| missedISRCs:', missedTracks.map(t => t.isrc ?? '(no isrc)'));
 
     if (missedTracks.length > 0) {
       // Tidal's native genre API returns empty for most tracks, so we fall back to Last.fm
