@@ -92,6 +92,7 @@ The backend is fully platform-agnostic. Adding a new platform means implementing
 - [x] `PlatformAdapter` interface (`server/src/lib/platform/types.ts`) — defines all methods a platform must implement
 - [x] `SpotifyAdapter` (`server/src/lib/platform/spotify.ts`) — full Spotify implementation
 - [x] `SoundCloudAdapter` (`server/src/lib/platform/soundcloud.ts`) — full SoundCloud implementation (awaiting API credentials)
+- [x] `TidalAdapter` (`server/src/lib/platform/tidal.ts`) — full Tidal implementation (PKCE OAuth 2.0, awaiting API credentials)
 - [x] Registry (`server/src/lib/platform/registry.ts`) — singleton adapters, `getAdapter(platform)` lookup
 - [x] All DB fields are platform-agnostic (`platformUserId`, `platformPlaylistId`)
 - [x] All server routes use `getAdapter()` — no platform-specific code in routes
@@ -101,7 +102,7 @@ The backend is fully platform-agnostic. Adding a new platform means implementing
 - [x] `TrackCache` redesigned for cross-platform deduplication:
   - One row per unique recording (not one per platform track entry)
   - `isrc` column links the same song across platforms
-  - `spotifyId` and `soundcloudId` columns — add one column per new platform
+  - `spotifyId`, `soundcloudId`, and `tidalId` columns — add one column per new platform
   - ISRC cross-hit in `readEnrichmentCache` returns cached features immediately and backfills the new platform's ID fire-and-forget
   - ReccoBeats is never called twice for the same recording regardless of which platform surfaces it
 
@@ -111,9 +112,16 @@ ReccoBeats only accepts Spotify track IDs. Most commercially released tracks car
 **Flow for non-Spotify platforms:**
 1. Get track → read its ISRC field
 2. Check `TrackCache` by ISRC — if hit, return cached features immediately (no ReccoBeats call)
-3. Cache miss → query Spotify: `GET /search?q=isrc:{code}&type=track` to resolve Spotify ID
-4. Submit resolved Spotify ID to ReccoBeats; upsert result by ISRC so both platform IDs share the row
-5. No ISRC or no Spotify match → track gets no audio features (graceful fallback)
+3. Cache miss → query MusicBrainz first (free, no auth, 1 req/sec) to resolve a Spotify ID from the ISRC
+4. MusicBrainz miss → fall back to Spotify search: `GET /search?q=isrc:{code}&type=track`
+5. Submit resolved Spotify ID to ReccoBeats; upsert result by ISRC so both platform IDs share the row
+6. No ISRC or no Spotify match → track gets no audio features (graceful fallback)
+
+### What's needed to activate Tidal
+- [ ] Obtain Tidal developer credentials at [developer.tidal.com/dashboard](https://developer.tidal.com/dashboard)
+- [ ] Add `TIDAL_CLIENT_ID`, `TIDAL_CLIENT_SECRET`, `TIDAL_REDIRECT_URI` to `.env`
+- [ ] Register redirect URI `http://127.0.0.1:3000/auth/tidal/callback` in the Tidal developer dashboard
+- [ ] Verify OAuth scopes: `user.read`, `collection.read`, `collection.write`, `playlists.read`, `playlists.write`
 
 ### What's needed to activate SoundCloud
 - [ ] Obtain SoundCloud API credentials (client ID + secret)
@@ -125,7 +133,7 @@ ReccoBeats only accepts Spotify track IDs. Most commercially released tracks car
 - [ ] Implement `PlatformAdapter` interface in `server/src/lib/platform/{platform}.ts`
 - [ ] Register it in `registry.ts`
 - [ ] Add OAuth flow in `routes/auth.ts`
-- [ ] Add platform case to `client/src/utils/platform.ts` (`getPlatformTrackUrl`, `getPlatformLabel`)
+- [ ] Add platform module to `client/src/utils/platform/` (see `spotify.ts` or `tidal.ts` as reference — implement track URL, label, badge style, and icon helpers)
 - [ ] Add a `{platform}Id` column to `TrackCache` in `schema.prisma` + migration
 - [ ] Enable the platform button in `Login.tsx`
 
@@ -187,7 +195,7 @@ playlistId === 'liked'              → show [Save as Copy] only (not a real pla
 ## Technical Notes
 - **Platform adapter pattern**: implement `PlatformAdapter` interface + register in `registry.ts` to add a new platform; add a `{platform}Id` column to `TrackCache`
 - All DB fields are platform-agnostic: `platformUserId`, `platformPlaylistId`
-- `TrackCache` uses one row per unique recording — keyed by ISRC, with per-platform ID columns (`spotifyId`, `soundcloudId`)
+- `TrackCache` uses one row per unique recording — keyed by ISRC, with per-platform ID columns (`spotifyId`, `soundcloudId`, `tidalId`)
 - Auto-reshuffle uses `node-cron` (hourly); server-side shuffle in `server/src/lib/shuffleAlgorithms.ts`
 - Cron emits a single summary log per run: "X shuffled, Y deleted (of N due)"
 - Genre detection uses Last.fm `artist.getTopTags` (better underground coverage than Spotify)

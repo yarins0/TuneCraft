@@ -54,8 +54,8 @@ Browser → Vite (5173) → React Router → Page component
                          │  auth.ts │ playlists.ts │ reshuffle │
                          └──────────┬──────────────┬──────────┘
                                     │              │
-                             PlatformAdapter    Prisma ORM
-                          (Spotify / SoundCloud)   │
+                         PlatformAdapter         Prisma ORM
+                   (Spotify / SoundCloud / Tidal)   │
                                     │         PostgreSQL
                                Platform API
                                Last.fm API
@@ -224,7 +224,7 @@ All Spotify-specific code lives behind an interface. Routes never call Spotify d
 ```
 routes/playlists.ts
        │
-       └──▶  getAdapter(platform)          ← resolves 'spotify' → SpotifyAdapter
+       └──▶  getAdapter(platform)          ← resolves 'spotify' → SpotifyAdapter, 'tidal' → TidalAdapter, etc.
                      │
                      ▼
           PlatformAdapter interface
@@ -237,11 +237,11 @@ routes/playlists.ts
           └─────────────────────────────┘
                      │
                      ▼
-          SpotifyAdapter (concrete impl)
-          server/src/lib/platform/spotify.ts
+          SpotifyAdapter / TidalAdapter / SoundCloudAdapter
+          server/src/lib/platform/{spotify,tidal,soundcloud}.ts
 ```
 
-Adding a new platform means implementing `PlatformAdapter` and registering it in `registry.ts` — zero changes to route handlers. `TrackCache` already has a dedicated column for each platform (`spotifyId`, `soundcloudId`) — add a new column per platform as adapters are built.
+Adding a new platform means implementing `PlatformAdapter` and registering it in `registry.ts` — zero changes to route handlers. `TrackCache` already has a dedicated column for each platform (`spotifyId`, `soundcloudId`, `tidalId`) — add a new column per platform as adapters are built. Tidal (`TidalAdapter`) is fully implemented alongside Spotify and SoundCloud.
 
 ---
 
@@ -272,8 +272,8 @@ Adding a new platform means implementing `PlatformAdapter` and registering it in
   Every subsequent API call:
   ├── Passes userId in URL: /playlists/:userId/...
   └── refreshTokenMiddleware checks token expiry,
-      fetches new tokens from Spotify if needed,
-      attaches fresh access token to req.spotifyToken
+      fetches new tokens from the platform if needed,
+      attaches fresh access token to req.platformToken
 ```
 
 `localStorage` is used (not `sessionStorage`) so that authentication persists across multiple browser tabs opened from the same origin.
@@ -282,7 +282,7 @@ Adding a new platform means implementing `PlatformAdapter` and registering it in
 
 ### Rate Limiting
 
-Spotify enforces a 429 rate limit. `spotifyRequestWithRetry` in `routes/playlists.ts` handles this transparently:
+All platform APIs enforce rate limits. `requestWithRetry` in `server/src/lib/requestWithRetry.ts` handles this transparently across every adapter:
 
 1. Make the request
 2. If 429 → read `Retry-After` header (default 5s, max 30s)
@@ -333,6 +333,7 @@ Spotify enforces a 429 rate limit. `spotifyRequestWithRetry` in `routes/playlist
 │ isrc          String?  (unique)         │
 │ spotifyId     String?  (unique)         │
 │ soundcloudId  String?  (unique)         │
+│ tidalId       String?  (unique)         │
 │ audioFeatures Json                      │
 │ cachedAt      DateTime                  │
 └─────────────────────────────────────────┘
@@ -340,11 +341,16 @@ Spotify enforces a 429 rate limit. `spotifyRequestWithRetry` in `routes/playlist
 ┌─────────────────────────────────────────┐
 │              ArtistCache                │
 │─────────────────────────────────────────│
-│ id          String  (cuid, PK)          │
-│ artistId    String  (unique)            │
-│ artistName  String                      │
-│ genres      Json    (string[])          │
-│ cachedAt    DateTime                    │
+│ id                  String  (cuid, PK)  │
+│ artistId            String  (unique)    │
+│ artistName          String              │
+│ normalizedName      String? (unique)    │
+│ spotifyArtistId     String? (unique)    │
+│ tidalArtistId       String? (unique)    │
+│ soundcloudArtistId  String? (unique)    │
+│ genres              Json    (string[])  │
+│ platform            Platform (enum)     │
+│ cachedAt            DateTime            │
 └─────────────────────────────────────────┘
 ```
 
@@ -407,6 +413,10 @@ SOUNDCLOUD_CLIENT_ID=your_soundcloud_client_id
 SOUNDCLOUD_CLIENT_SECRET=your_soundcloud_client_secret
 SOUNDCLOUD_REDIRECT_URI=http://127.0.0.1:3000/auth/soundcloud/callback
 
+TIDAL_CLIENT_ID=your_tidal_client_id
+TIDAL_CLIENT_SECRET=your_tidal_client_secret
+TIDAL_REDIRECT_URI=http://127.0.0.1:3000/auth/tidal/callback
+
 LASTFM_API_KEY=your_lastfm_api_key
 LASTFM_SECRET=your_lastfm_secret
 
@@ -456,10 +466,10 @@ tunecraft/
 ├── client/                        # React frontend (Vite + TypeScript)
 │   └── src/
 │       ├── api/                   # Typed fetch wrappers (playlists, tracks, reshuffle)
-│       ├── components/            # Modals (Shuffle, Split, Merge, Copy, Duplicates)
+│       ├── components/            # Modals (Shuffle, Split, Merge, Copy, Duplicates), AppFooter, PlatformSwitcherSidebar
 │       ├── constants/             # Audio feature keys, labels, chart colours
 │       ├── hooks/                 # useAnimatedLabel, usePlaylistTracks, usePlaylistActions, useReshuffleSchedule
-│       ├── pages/                 # Route-level components (Login, Dashboard, PlaylistDetail, Callback)
+│       ├── pages/                 # Route-level components (Login, Dashboard, PlaylistDetail, Contact, PrivacyPolicy, Callback)
 │       └── utils/                 # shuffleAlgorithms, splitPlaylist, mergePlaylists, platform helpers
 └── server/                        # Express backend (Node.js + TypeScript)
     └── src/
