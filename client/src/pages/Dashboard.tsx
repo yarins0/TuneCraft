@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { fetchPlaylists, fetchLikedSongs } from '../api/playlists';
 import type { Playlist } from '../api/playlists';
@@ -82,6 +82,13 @@ export default function Dashboard() {
   // Animates "Loading." → ".." → "..." on the discover Go button while fetching playlist metadata.
   const discoverLoadingLabel = useAnimatedLabel(discoverLoading, 'Loading');
 
+  // Monotonically increasing counter — incremented every time a new load starts.
+  // Each loadLibrary call captures the current value; the .then() handler discards
+  // its result if the counter has advanced (i.e. a newer load has already started).
+  // This prevents a slow Tidal response from overwriting a Spotify library that
+  // loaded after the user switched platforms mid-flight.
+  const loadGenRef = useRef(0);
+
   // loadLibrary fetches playlists and liked-song count for the currently active account.
   // Extracted into a useCallback so it can be called both on mount and after an account switch.
   const loadLibrary = useCallback(() => {
@@ -93,20 +100,27 @@ export default function Dashboard() {
       return;
     }
 
+    // Claim this load's generation slot before any async work starts.
+    const gen = ++loadGenRef.current;
+
     setLoading(true);
     setError(null);
 
-    // Fetch both playlists and liked songs count in parallel
+    // Fetch both playlists and liked songs count in parallel.
     Promise.all([
       fetchPlaylists(userId),
       fetchLikedSongs(userId),
     ])
       .then(([playlistData, likedData]) => {
+        // Discard if a newer load has started since this one was fired.
+        // Covers: switching platforms, double-clicking retry, or tab focus restoring a stale request.
+        if (gen !== loadGenRef.current) return;
         setPlaylists(playlistData);
         setLikedCount(likedData.trackCount);
         setLoading(false);
       })
       .catch(() => {
+        if (gen !== loadGenRef.current) return;
         setError('Failed to load playlists');
         setLoading(false);
       });
@@ -430,7 +444,7 @@ export default function Dashboard() {
 
             {/* Liked Songs card — selectable like owned playlists, handled with LIKED_SONGS_ID */}
             <Link
-              to={buildPlaylistUrl('liked', { userId: getUserId(), ownerId: getPlatformUserId() ?? '', name: 'Liked Songs', platform: activeAccount?.platform ?? '' })}
+              to={buildPlaylistUrl('liked', { userId: getUserId(), ownerId: getPlatformUserId() ?? '', name: 'Liked Songs', platform: activeAccount?.platform ?? '', trackCount: likedCount })}
               state={{ ownerId: getPlatformUserId(), name: 'Liked Songs', platform: activeAccount?.platform }}
               onClick={handleLikedCardClick}
               className={[

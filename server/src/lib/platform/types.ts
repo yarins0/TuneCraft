@@ -108,10 +108,13 @@ export interface PlatformAdapter {
   fetchLikedCount(accessToken: string): Promise<number>;
 
   // Fetches one page of enriched liked/saved tracks.
+  // hasMore is optional: adapters that use cursor-based pagination (e.g. Tidal) return it
+  // directly since they can't reliably derive it from total alone. Offset-based adapters
+  // (Spotify, SoundCloud) may omit it — the route falls back to the page*limit computation.
   fetchLikedTracks(
     accessToken: string,
     page: number
-  ): Promise<{ tracks: PlatformTrack[]; total: number }>;
+  ): Promise<{ tracks: PlatformTrack[]; total: number; hasMore?: boolean }>;
 
   // Fetches ALL tracks in a playlist across all pages, with minimal data (no enrichment).
   // Used by the auto-reshuffle cron — avoids the overhead of audio-feature lookups.

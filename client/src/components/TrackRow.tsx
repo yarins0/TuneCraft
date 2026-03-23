@@ -164,32 +164,47 @@ export default function TrackRow({
             )}
           </div>
 
-          <div className="flex-1 min-w-0">
-            {/* Real <a> tag so the browser recognises it as a link —
-                enables middle-click, Ctrl+click, and right-click "Open in new tab".
-                onDoubleClick stopPropagation prevents a double-click on the title
-                from bubbling up to the parent div and toggling audio features. */}
-            <a
-              href={getPlatformTrackUrl(track.platform, track.id)}
-              target="_blank"
-              rel="noopener noreferrer"
-              onDoubleClick={e => e.stopPropagation()}
-              className="text-sm font-medium truncate text-left text-text-primary hover:text-accent hover:underline cursor-pointer"
-              title={getPlatformLabel(track.platform)}
-            >
-              {track.name}
-            </a>
-            <div className="flex items-center gap-2 mt-0.5">
-              <p className="text-text-muted text-xs truncate">{track.artist}</p>
-              {track.genres.slice(0, 2).map(genre => (
-                <span
-                  key={genre}
-                  className="text-accent text-xs bg-accent/10 px-2 py-0.5 rounded-full shrink-0"
-                >
-                  {genre}
-                </span>
-              ))}
+          {/* Three-column grid: Track Name | Artist | Album
+              2fr gives the track name column twice the space of artist/album.
+              items-start aligns all three columns to the top of the row. */}
+          <div className="grid grid-cols-[2fr_1fr_1fr] gap-x-4 flex-1 min-w-0 items-start">
+
+            {/* Column 1 — track name + genre pills below */}
+            <div className="min-w-0">
+              {/* Real <a> tag so the browser recognises it as a link —
+                  enables middle-click, Ctrl+click, and right-click "Open in new tab".
+                  onDoubleClick stopPropagation prevents a double-click on the title
+                  from bubbling up to the parent div and toggling audio features. */}
+              <a
+                href={getPlatformTrackUrl(track.platform, track.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                onDoubleClick={e => e.stopPropagation()}
+                className="text-sm font-medium truncate block text-text-primary hover:text-accent hover:underline cursor-pointer"
+                title={getPlatformLabel(track.platform)}
+              >
+                {track.name}
+              </a>
+              {/* Genre pills sit under the track name in the same column */}
+              {track.genres.length > 0 && (
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  {track.genres.slice(0, 4).map(genre => (
+                    <span
+                      key={genre}
+                      className="text-accent text-xs bg-accent/10 px-2 py-0.5 rounded-full shrink-0"
+                    >
+                      {genre}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
+
+            {/* Column 2 — artist name */}
+            <p className="text-text-muted text-xs truncate pt-0.5">{track.artist}</p>
+
+            {/* Column 3 — album name; falls back to an em-dash when absent */}
+            <p className="text-text-muted text-xs truncate pt-0.5">{track.albumName || '—'}</p>
           </div>
 
           <span className="text-text-muted text-sm w-10 text-right shrink-0">

@@ -563,7 +563,7 @@ export class TidalAdapter implements PlatformAdapter {
     const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
       await readEnrichmentCache(enrichmentInput);
 
-    if (missedTracks.length > 0) {
+    if (missedTracks.length > 0 || uniqueMissedArtists.length > 0) {
       // Tidal's native genre API returns empty for most tracks, so we fall back to Last.fm
       // for genre lookup — the same approach SoundCloud uses.
       backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
@@ -608,42 +608,58 @@ export class TidalAdapter implements PlatformAdapter {
   }
 
   // Fetches one page of enriched tracks from the user's Tidal favorites via v2 OpenAPI.
-  // The correct endpoint is /userCollectionTracks/me/relationships/items.
-  // include=items asks the server to embed the full track objects (with artists, albums) in
-  // the `included` array so we can build PlatformTrack objects from a single request.
+  //
+  // NOTE: Pagination for this endpoint is fundamentally broken — see TODOS.md for full context.
+  // Current approach: cursor-based pagination (the only approach that terminates).
+  // page[offset] is silently ignored on this endpoint.
+  // Known limitation: ~83 tracks may be missing for bulk-imported collections due to
+  // non-deterministic cursor ordering when many tracks share the same addedAt timestamp.
   async fetchLikedTracks(
     accessToken: string,
     page: number
-  ): Promise<{ tracks: PlatformTrack[]; total: number }> {
-    const limit  = 50;
-    const offset = page * limit;
-    const { cc } = decodeTidalToken(accessToken);
+  ): Promise<{ tracks: PlatformTrack[]; total: number; hasMore: boolean }> {
+    const { uid, cc } = decodeTidalToken(accessToken);
+
+    let cursor: string | null = null;
+    let accumulated = 0;
+    if (page > 0) {
+      const entry = this.playlistCursorCache.get(this.cursorKey(uid, 'liked', page));
+      if (!entry || entry.expiresAt < Date.now()) return { tracks: [], total: 0, hasMore: false };
+      cursor      = entry.cursor;
+      accumulated = entry.accumulated;
+      this.playlistCursorCache.delete(this.cursorKey(uid, 'liked', page));
+    }
+
+    const params: Record<string, any> = {
+      countryCode: cc,
+      'page[size]': 50,
+      include: 'items,items.artists,items.albums,items.albums.coverArt,items.genres',
+    };
+    if (cursor) params['page[cursor]'] = cursor;
 
     const response = await requestWithRetry(
       'get',
       `${TIDAL_OPENAPI}/userCollectionTracks/me/relationships/items`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        params: { countryCode: cc, 'page[size]': limit, 'page[offset]': offset, include: 'items,items.artists,items.albums,items.albums.coverArt,items.genres' },
-      },
+      { headers: { Authorization: `Bearer ${accessToken}` }, params },
       undefined, 3, 'Tidal'
     );
 
     const body     = response.data;
-    const included = body.included ?? [];
+    const included: any[] = body.included ?? [];
 
-    // Tidal does not return meta.total on this endpoint.
-    // Derive a total that makes hasMore = (page * limit + tracks.length < total) work correctly:
-    //   - If a nextCursor exists, more pages follow → set total above the current page boundary.
-    //   - If no nextCursor, this is the last page → set total exactly to what we've loaded.
-    const nextCursor = body.links?.meta?.nextCursor ?? null;
-    const total: number = nextCursor
-      ? (page + 1) * limit + 1
-      : page * limit + (body.data ?? []).length;
+    const nextCursor: string | null = body.links?.meta?.nextCursor ?? null;
+    const newAccumulated = accumulated + (body.data ?? []).length;
 
-    // /userCollectionTracks/me/relationships/items returns JSON:API relationship refs in data
-    // ({ type: 'tracks', id }) with full track objects (including artists, albums) in included.
-    // We resolve each ref against the included map to get the full track node.
+    if (nextCursor) {
+      this.playlistCursorCache.set(this.cursorKey(uid, 'liked', page + 1), {
+        cursor:      nextCursor,
+        accumulated: newAccumulated,
+        expiresAt:   Date.now() + 10 * 60 * 1000,
+      });
+    }
+
+    const total: number = body.meta?.total ?? newAccumulated;
+
     const tracksMap = buildIncludedMap(included, 'tracks');
     const refs: any[] = body.data ?? [];
     const rawTracks: any[] = refs
@@ -651,7 +667,6 @@ export class TidalAdapter implements PlatformAdapter {
       .map(ref => tracksMap.get(String(ref.id)))
       .filter(Boolean);
 
-    // Build all included-resource maps before enrichmentInput so artistName is populated.
     const artistsMap  = buildIncludedMap(included, 'artists');
     const albumsMap   = buildIncludedMap(included, 'albums');
     const artworksMap = buildIncludedMap(included, 'artworks');
@@ -676,15 +691,16 @@ export class TidalAdapter implements PlatformAdapter {
       await readEnrichmentCache(enrichmentInput);
 
     if (missedTracks.length > 0) {
-      // Tidal's native genre API returns empty for most tracks, so fall back to Last.fm.
       backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
         console.error('[Tidal] Background enrichment error:', err)
       );
     }
+
     const tracks = rawTracks.map(t =>
       buildTrackV2(t, artistsMap, albumsMap, artworksMap, genresMap, audioFeaturesMap, artistGenreMap)
     );
-    return { tracks, total };
+
+    return { tracks, total, hasMore: !!nextCursor };
   }
 
   // Fetches all tracks in a playlist with minimal data — no audio-feature enrichment.

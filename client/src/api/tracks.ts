@@ -63,6 +63,22 @@ export const fetchPendingFeatures = async (
   return response.json();
 };
 
+// Fetches cached genre tags for a list of artist names.
+// Only returns entries already in the server cache — no external API calls made.
+// Used to poll for genres that are being fetched in the background after a cache miss.
+// Names are matched case-insensitively; the response is keyed by lowercased+trimmed name.
+export const fetchPendingGenres = async (
+  userId: string,
+  artistNames: string[]
+): Promise<{ genres: Record<string, string[]> }> => {
+  const encoded = artistNames.map(n => encodeURIComponent(n)).join(',');
+  const response = await fetch(
+    `${API_BASE_URL}/playlists/${userId}/genres?names=${encoded}`
+  );
+  if (!response.ok) throw new Error('Failed to fetch pending genres');
+  return response.json();
+};
+
 // Fetches a single page of tracks for a playlist
 // page=0 returns the first 50 tracks, page=1 returns the next 50, etc.
 export const fetchTracksPage = async (

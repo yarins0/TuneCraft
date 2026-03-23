@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
 import type { PlaylistAverages } from '../api/tracks';
 import { getPlatformPlaylistUrl, getPlatformLabel, getPlatformBadgeStyle, getPlatformConfig, PLATFORM_LABELS } from '../utils/platform';
@@ -80,6 +80,7 @@ export default function PlaylistDetail() {
   };
 
   // ─── UI state ────────────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [openTrackIds, setOpenTrackIds] = useState<Set<string>>(() => new Set());
   const [isDupesExpanded, setIsDupesExpanded] = useState(false);
@@ -168,6 +169,24 @@ export default function PlaylistDetail() {
     ).length;
     return withFeatures / tracks.length;
   }, [tracks, loadingMore]);
+
+  // Reset the search query whenever the user navigates to a different playlist
+  useEffect(() => { setSearchQuery(''); }, [playlistId]);
+
+  // Filter the track list client-side — no server call needed.
+  // Each result carries the track's original index so drag-to-reorder,
+  // position jump, and duplicate highlighting all keep working correctly
+  // even when only a subset of tracks is shown.
+  const filteredTracks = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const indexed = tracks.map((track, index) => ({ track, index }));
+    if (!q) return indexed;
+    return indexed.filter(({ track: t }) =>
+      t.name.toLowerCase().includes(q) ||
+      t.artist.toLowerCase().includes(q) ||
+      (t.albumName ?? '').toLowerCase().includes(q)
+    );
+  }, [tracks, searchQuery]);
 
   // Derives the list of duplicate entries every time the tracks array changes
   const duplicates = useMemo(() => findDuplicates(tracks), [tracks]);
@@ -468,6 +487,32 @@ export default function PlaylistDetail() {
           />
         )}
 
+        {/* Search bar — filters the track list client-side across name, artist, and album */}
+        {tracks.length > 0 && (
+          <div className="mb-3 px-4 relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search tracks, artists, albums..."
+              className="w-full bg-bg-card border border-border-color rounded-xl px-4 py-2 pr-9 text-sm
+                         text-text-primary placeholder-text-muted
+                         focus:outline-none focus:border-accent/50 transition-colors duration-200"
+            />
+            {/* Clear button — only shown when there is an active query */}
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-7 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors duration-200"
+                aria-label="Clear search"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Expand / collapse all toggle */}
         <div className="mb-2 px-4">
           <button
@@ -490,7 +535,17 @@ export default function PlaylistDetail() {
           </button>
         </div>
 
-        {/* Empty state */}
+        {/* Column headers — mirror the 3-column grid layout in TrackRow.
+            The leading padding accounts for: position number (w-6) + drag handle (w-6) + album art (w-10) + gaps */}
+        {tracks.length > 0 && (
+          <div className="grid grid-cols-[2fr_1fr_1fr] gap-x-4 px-4 pb-1 pl-[7.5rem] text-text-muted text-xs uppercase tracking-wider">
+            <span>Track</span>
+            <span>Artist</span>
+            <span>Album</span>
+          </div>
+        )}
+
+        {/* Empty state — playlist has no tracks at all */}
         {!loading && !loadingMore && tracks.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
             <span className="text-5xl">🎵</span>
@@ -501,9 +556,19 @@ export default function PlaylistDetail() {
           </div>
         )}
 
-        {/* Track list */}
+        {/* Empty-search state — tracks exist but none match the current query */}
+        {tracks.length > 0 && filteredTracks.length === 0 && searchQuery.trim() && (
+          <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
+            <span className="text-4xl">🔍</span>
+            <p className="text-text-muted text-sm">No tracks match your search.</p>
+          </div>
+        )}
+
+        {/* Track list — renders only the filtered subset while a search is active.
+            Each item carries the original index so drag, jump, and duplicate
+            highlighting all reference positions in the full unfiltered array. */}
         <div className="flex flex-col gap-2">
-          {tracks.map((track, index) => (
+          {filteredTracks.map(({ track, index }) => (
             <TrackRow
               key={`track-${index}`}
               track={track}

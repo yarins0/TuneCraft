@@ -192,6 +192,39 @@ router.get('/:userId/features', refreshTokenMiddleware, async (req, res) => {
   }
 });
 
+// GET /playlists/:userId/genres?names=artist1,artist2,...
+// Returns cached genre tags for a list of artist names — reads ArtistCache only, no external calls.
+// Used by the client to poll for genres being fetched in the background after a cache miss.
+//
+// Artist names are matched case-insensitively via the normalizedName column so the response
+// is keyed by the lowercased+trimmed name — the client normalizes before lookup.
+router.get('/:userId/genres', refreshTokenMiddleware, async (req, res) => {
+  const names = ((req.query.names as string) || '').split(',').filter(Boolean);
+  if (names.length === 0) return res.json({ genres: {} });
+
+  // Normalize to match the ArtistCache normalizedName column (lowercase + trimmed)
+  const normalizedNames = names.map((n: string) => n.toLowerCase().trim());
+
+  try {
+    const cached = await prisma.artistCache.findMany({
+      where:  { normalizedName: { in: normalizedNames } },
+      select: { normalizedName: true, genres: true },
+    });
+
+    const genres: Record<string, string[]> = {};
+    cached.forEach(entry => {
+      if (entry.normalizedName) {
+        genres[entry.normalizedName] = entry.genres as string[];
+      }
+    });
+
+    res.json({ genres });
+  } catch (error) {
+    console.error('Failed to fetch cached genres:', error);
+    res.status(500).json({ error: 'Failed to fetch genres' });
+  }
+});
+
 // GET /playlists/:userId/liked
 // Fetches the Liked Songs count for the dashboard card
 // Liked Songs are not included in the regular playlists endpoint — they need a separate call
@@ -228,14 +261,18 @@ router.get('/:userId/liked/tracks', refreshTokenMiddleware, async (req, res) => 
   const limit = 50;
 
   try {
-    const { tracks, total } = await adapter.fetchLikedTracks(accessToken, page);
+    const { tracks, total, hasMore: adapterHasMore } = await adapter.fetchLikedTracks(accessToken, page);
     const tracksWithPlatform = tracks.map(t => ({ ...t, platform: adapter.platform }));
+
+    // Prefer hasMore from the adapter (set by cursor-based adapters like Tidal that can't
+    // reliably derive it from total). Fall back to the page*limit formula for offset adapters.
+    const hasMore = adapterHasMore ?? (page * limit + tracks.length < total);
 
     res.json({
       tracks: tracksWithPlatform,
       playlistAverages: calculateAverages(tracks),
       total,
-      hasMore: page * limit + tracks.length < total,
+      hasMore,
       nextPage: page + 1,
     });
   } catch (error: any) {
@@ -253,6 +290,21 @@ router.get('/:userId/:playlistId/tracks', refreshTokenMiddleware, async (req, re
   const adapter = getAdapter((req as any).userPlatform as Platform);
   const page = parseInt(req.query.page as string) || 0;
   const limit = 50;
+
+  // Create an AbortController tied to the lifetime of this HTTP request.
+  // When the client closes the connection (tab closed, navigation away, component unmount),
+  // Node fires the 'close' event on the underlying socket, which triggers abort() here.
+  // The signal is passed into requestWithRetry so any in-flight platform API call and
+  // any back-off sleep in a retry loop are both cancelled immediately rather than
+  // continuing to consume API quota for a response nobody is waiting for.
+  //
+  // Note: the signal is NOT forwarded into adapter.fetchPlaylistTracks() here because
+  // doing so would require adding an optional signal parameter to the PlatformAdapter
+  // interface and every adapter implementation — a broader refactor tracked separately.
+  // The AbortController is wired here so the pattern is in place and ready to be
+  // threaded through once the interface is extended.
+  const abortController = new AbortController();
+  req.on('close', () => abortController.abort());
 
   try {
     const result = await adapter.fetchPlaylistTracks(accessToken, playlistId, page);

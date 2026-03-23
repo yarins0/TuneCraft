@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { fetchTracksPage, fetchPendingFeatures } from '../api/tracks';
+import { fetchTracksPage, fetchPendingFeatures, fetchPendingGenres } from '../api/tracks';
 import type { Track, PlaylistAverages } from '../api/tracks';
 
 const getUserId = () => sessionStorage.getItem('userId') || localStorage.getItem('userId') || '';
@@ -72,6 +72,11 @@ export const usePlaylistTracks = (
   const pendingFeatureIds = useRef<Set<string>>(new Set());
   const featurePollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Mirrors the feature polling pattern but for genre tags.
+  // Keys are lowercased+trimmed artist names — matching the server's normalizedName column.
+  const pendingGenreArtists = useRef<Set<string>>(new Set());
+  const genrePollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Keeps averages in sync with the full track list.
   // Using a derived-state effect rather than calling setAverages inside setTracks updaters,
   // which is a React anti-pattern — state setters should not be called inside other state updater functions.
@@ -93,13 +98,19 @@ export const usePlaylistTracks = (
 
     let cancelled = false;
 
-    // Clears the pending set and stops the polling interval
+    // Clears all pending sets and stops both polling intervals
     const stopPolling = () => {
       if (featurePollingRef.current) {
         clearInterval(featurePollingRef.current);
         featurePollingRef.current = null;
       }
       pendingFeatureIds.current.clear();
+
+      if (genrePollingRef.current) {
+        clearInterval(genrePollingRef.current);
+        genrePollingRef.current = null;
+      }
+      pendingGenreArtists.current.clear();
     };
 
     // Adds null-feature tracks to the pending set and starts polling if not already running.
@@ -170,6 +181,61 @@ export const usePlaylistTracks = (
       }, 1000);
     };
 
+    // Adds tracks with empty genres to the pending set and starts polling if not already running.
+    // Polls the /genres endpoint every 2 seconds (genres resolve slower than features —
+    // Last.fm is queried after ReccoBeats, and only once per artist across all tracks).
+    // Stops after MAX_EMPTY_POLLS consecutive polls with no new genres.
+    const scheduleGenrePolling = (newTracks: Track[]) => {
+      const missing = newTracks.filter(t => t.genres.length === 0);
+      if (missing.length === 0) return;
+
+      // Key by normalized artist name — matches the server's normalizedName column
+      missing.forEach(t => pendingGenreArtists.current.add(t.artist.toLowerCase().trim()));
+
+      if (genrePollingRef.current) return; // interval already running
+
+      let consecutiveEmptyPolls = 0;
+
+      genrePollingRef.current = setInterval(async () => {
+        const pending = Array.from(pendingGenreArtists.current);
+        if (pending.length === 0) {
+          clearInterval(genrePollingRef.current!);
+          genrePollingRef.current = null;
+          return;
+        }
+
+        try {
+          const { genres } = await fetchPendingGenres(getUserId(), pending);
+          const arrived = Object.entries(genres).filter(([, g]) => g.length > 0);
+
+          if (arrived.length === 0) {
+            consecutiveEmptyPolls++;
+            if (consecutiveEmptyPolls >= MAX_EMPTY_POLLS) {
+              clearInterval(genrePollingRef.current!);
+              genrePollingRef.current = null;
+              pendingGenreArtists.current.clear();
+            }
+            return;
+          }
+
+          // New genres arrived — reset the timeout and apply updates to all matching tracks.
+          // A single artist entry covers every track by that artist in the playlist.
+          consecutiveEmptyPolls = 0;
+          const genreMap = Object.fromEntries(arrived);
+          arrived.forEach(([name]) => pendingGenreArtists.current.delete(name));
+
+          setTracks(prev =>
+            prev.map(t => {
+              const key = t.artist.toLowerCase().trim();
+              return genreMap[key] ? { ...t, genres: genreMap[key] } : t;
+            })
+          );
+        } catch {
+          // Silent on network errors — will retry on the next tick
+        }
+      }, 2000);
+    };
+
     // Loads all remaining pages after the first page has already been shown.
     // Runs in the background so the user isn't blocked waiting for large playlists.
     // The setTimeout(0) between pages yields to the JS message queue so React can flush
@@ -193,6 +259,7 @@ export const usePlaylistTracks = (
           // of staying frozen at the first-page estimate.
           setTotal(data.total);
           scheduleFeaturePolling(data.tracks);
+          scheduleGenrePolling(data.tracks);
 
           more = data.hasMore;
           currentPage = data.nextPage;
@@ -217,6 +284,7 @@ export const usePlaylistTracks = (
         setTotal(data.total);
         setLoading(false);
         scheduleFeaturePolling(data.tracks);
+        scheduleGenrePolling(data.tracks);
 
         if (data.hasMore) loadAllPages(data.nextPage);
       })

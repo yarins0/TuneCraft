@@ -84,9 +84,22 @@ model TrackCache {
 
 model ArtistCache {
   id         String   @id @default(cuid())
-  artistId   String   @unique               // artist ID on the platform
+  artistId   String   @unique               // platform-native artist ID (kept for backward compatibility)
   artistName String
+
+  // Lowercase + trimmed artist name — used as the primary cross-platform dedup key.
+  // Two platforms with different artist IDs but the same name share one row, avoiding
+  // duplicate Last.fm lookups and redundant genre storage.
+  normalizedName      String?  @unique
+
+  // Per-platform artist ID columns — mirror the same pattern used in TrackCache.
+  // Nullable because a row may be created before all platform IDs are known.
+  spotifyArtistId     String?  @unique
+  tidalArtistId       String?  @unique
+  soundcloudArtistId  String?  @unique
+  // Add more platform columns here as new adapters are built (e.g. appleMusicArtistId)
+
   genres     Json
-  platform   Platform @default(SPOTIFY)     // platform that issued this artist ID
+  platform   Platform @default(SPOTIFY)     // platform that originally wrote this row
   cachedAt   DateTime @default(now())
 }
