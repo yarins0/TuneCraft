@@ -40,7 +40,7 @@ Defined as CSS variables in `index.css`; accessed via `getPlatformBadgeStyle()` 
 |-------------|--------------|-----------|----------------------------------|
 | Spotify     | Green        | `#1DB954` | `--color-platform-spotify`       |
 | SoundCloud  | Orange       | `#FF5500` | `--color-platform-soundcloud`    |
-| Tidal       | Cyan         | `#00FFFF` | `--color-platform-tidal`         |
+| Tidal       | Muted Teal   | `#96b1b1` | `--color-platform-tidal`         |
 | Apple Music | Pink/Red     | `#fc3c44` | `--color-platform-apple-music`   |
 
 ---
@@ -172,7 +172,7 @@ Platform brand colours (CSS variables in `index.css`):
 |-------------|-----------------------------------|-----------|
 | Spotify     | `--color-platform-spotify`        | `#1DB954` |
 | SoundCloud  | `--color-platform-soundcloud`     | `#FF5500` |
-| Tidal       | `--color-platform-tidal`          | `#00FFFF` |
+| Tidal       | `--color-platform-tidal`          | `#96b1b1` |
 | Apple Music | `--color-platform-apple-music`    | `#fc3c44` |
 
 The badge uses **inline styles** (not Tailwind classes) because the colour is determined at runtime. The helper `getPlatformBadgeStyle(platform)` in `client/src/utils/platform.ts` returns the correct `{ background, color, border }` style object for each platform.

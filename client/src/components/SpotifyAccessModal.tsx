@@ -188,7 +188,7 @@ export default function SpotifyAccessModal({ onApproved, onClose }: Props) {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-2 flex-1 py-3 rounded-xl text-sm font-semibold bg-accent text-black hover:brightness-110 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 py-3 rounded-xl text-sm font-semibold bg-accent text-black hover:brightness-110 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Sending…' : 'Send Request'}
               </button>

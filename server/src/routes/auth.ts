@@ -4,6 +4,7 @@ import prisma from '../lib/prisma';
 import { getAdapter } from '../lib/platform/registry';
 import { TidalAdapter } from '../lib/platform/tidal';
 import type { Platform } from '../lib/platform/types';
+import { refreshTokenMiddleware } from '../middleware/refreshToken';
 
 // Resend client — initialised once and reused for all outgoing emails.
 // The API key is loaded from .env; if missing, email sending will fail gracefully
@@ -194,8 +195,8 @@ router.get('/tidal/callback', async (req, res) => {
 // accounts connected in the same browser session are stored as separate rows
 // and are not affected.
 // Returns 204 No Content on success; 404 if the user doesn't exist.
-router.delete('/:userId', async (req, res) => {
-  const { userId } = req.params;
+router.delete('/:userId', refreshTokenMiddleware, async (req, res) => {
+  const userId = req.params.userId as string;
 
   try {
     await prisma.user.delete({ where: { id: userId } });
@@ -235,9 +236,21 @@ router.post('/spotify/request-access', async (req, res) => {
     return;
   }
 
+  if (!process.env.ADMIN_EMAIL) {
+    console.error('ADMIN_EMAIL env var is not set — cannot send access request notification');
+    res.status(500).json({ error: 'Server configuration error. Please try again later.' });
+    return;
+  }
+
   // Capitalize each name part independently, then join — "john doe" → "John Doe".
   const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
   const normalizedName = `${capitalize(firstName.trim())} ${capitalize(lastName.trim())}`;
+
+  // Escape HTML special characters before interpolating user-supplied values into the
+  // admin notification email. Without this, a name like "<script>..." would be rendered
+  // as live HTML in the email client — a stored XSS risk against the admin.
+  const escapeHtml = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
   try {
     // Check for an existing pending request from the same email address.
@@ -260,8 +273,8 @@ router.post('/spotify/request-access', async (req, res) => {
       html: `
         <p>A new user is requesting Spotify access on Tunecraft.</p>
         <table cellpadding="6">
-          <tr><td><strong>Name</strong></td><td>${normalizedName}</td></tr>
-          <tr><td><strong>Email</strong></td><td>${email.trim()}</td></tr>
+          <tr><td><strong>Name</strong></td><td>${escapeHtml(normalizedName)}</td></tr>
+          <tr><td><strong>Email</strong></td><td>${escapeHtml(email.trim())}</td></tr>
         </table>
         <p>
           Add them at:<br/>
