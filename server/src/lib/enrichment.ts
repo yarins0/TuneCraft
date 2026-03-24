@@ -216,6 +216,13 @@ const buildAudioFeaturesMap = (
   return map;
 };
 
+// Audio feature rows older than this are treated as cache misses and re-fetched.
+// 90 days balances freshness against ReccoBeats API quota — features rarely change
+// for released recordings, but this catches any corrections or service updates.
+// Used by both readEnrichmentCache (primary miss check) and backgroundEnrichTracks
+// (secondary spotifyId check) — must be consistent between the two.
+const TRACK_CACHE_TTL_DAYS = 90;
+
 // ─── readEnrichmentCache ───────────────────────────────────────────────────────
 
 // Reads audio features and genre tags from the DB cache only — no external API calls.
@@ -241,9 +248,13 @@ export const readEnrichmentCache = async (
   const trackConditions  = buildTrackCacheOrConditions(tracks);
   const artistConditions = buildArtistCacheOrConditions(tracks);
 
+  // Only rows younger than TRACK_CACHE_TTL_DAYS are considered hits.
+  // Older rows fall through to backgroundEnrichTracks and get upserted with fresh data.
+  const ttlThreshold = new Date(Date.now() - TRACK_CACHE_TTL_DAYS * 24 * 60 * 60 * 1000);
+
   const [cachedTracks, cachedArtists] = await Promise.all([
     trackConditions.length > 0
-      ? prisma.trackCache.findMany({ where: { OR: trackConditions } })
+      ? prisma.trackCache.findMany({ where: { OR: trackConditions, cachedAt: { gte: ttlThreshold } } })
       : Promise.resolve([]),
     prisma.artistCache.findMany({ where: { OR: artistConditions } }),
   ]);
@@ -592,9 +603,12 @@ export const backgroundEnrichTracks = async (
     // each track to a spotifyId, re-check whether any of those spotifyIds are already in the DB.
     // If they are, backfill the ISRC + native platform ID onto the existing row and skip
     // ReccoBeats — the features are already there.
+    // TTL filter matches the primary check — a stale row must not be treated as "already cached"
+    // or it will never be re-fetched from ReccoBeats.
+    const ttlThreshold = new Date(Date.now() - TRACK_CACHE_TTL_DAYS * 24 * 60 * 60 * 1000);
     const alreadyCachedRows = resolvedSpotifyIds.length > 0
       ? await prisma.trackCache.findMany({
-          where:  { spotifyId: { in: resolvedSpotifyIds } },
+          where:  { spotifyId: { in: resolvedSpotifyIds }, cachedAt: { gte: ttlThreshold } },
           select: { spotifyId: true, isrc: true },
         })
       : [];
