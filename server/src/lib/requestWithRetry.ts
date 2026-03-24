@@ -89,7 +89,8 @@ export const requestWithRetry = async (
         // Respect the full Retry-After value the platform sends — capping at 30s was causing
         // retries to land inside the same rate-limit window and fail again immediately.
         // Cap raised to 120s so a single request can survive realistic rate-limit windows.
-        const waitSeconds = Math.min(retryAfter ? parseInt(retryAfter) : 5, 120);
+        const parsed = retryAfter ? parseInt(retryAfter, 10) : 5;
+        const waitSeconds = Math.min(Number.isNaN(parsed) ? 5 : parsed, 120);
         console.warn(`${label} rate limit hit — waiting ${waitSeconds}s (retry ${attempt + 1}/${maxRetries})`);
 
         // Use sleepOrAbort when a signal is present so we don't waste the full back-off

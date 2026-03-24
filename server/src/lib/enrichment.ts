@@ -117,7 +117,10 @@ const buildArtistGenreMap = (
   const map: Record<string, string[]> = {};
 
   for (const row of cachedArtists) {
-    const genres = row.genres as string[];
+    // Prisma JSON columns may deserialise as a string — parse if needed, same pattern
+    // as audioFeatures elsewhere in this file.
+    const rawGenres = row.genres;
+    const genres: string[] = typeof rawGenres === 'string' ? JSON.parse(rawGenres) : rawGenres;
 
     // Index by every known per-platform ID column — derived from getAllArtistIdFields() so
     // adding a new platform only requires registering its adapter, not editing this loop.
