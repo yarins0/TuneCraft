@@ -2,12 +2,12 @@
   "compilerOptions": {
     "target": "ES2020",      // compile to modern JavaScript
     "module": "commonjs",    // Node.js module format
-    "rootDir": "./src",      // where your TypeScript files live
-    "outDir": "./dist",      // where compiled JavaScript goes
+    "rootDir": "..",         // repo root — lets us import from shared/ alongside src/
+    "outDir": "./dist",      // compiled output; mirrors rootDir structure, so src/index.ts → dist/server/src/index.js
     "strict": true,          // enables strict type checking — good habits!
     "esModuleInterop": true, // allows cleaner imports
     "skipLibCheck": true     // skips type checking of libraries
   },
-  "include": ["src/**/*"],   // only compile files inside src/
+  "include": ["src/**/*", "../shared/**/*"],  // compile server source + shared utilities
   "exclude": ["node_modules"]
 }

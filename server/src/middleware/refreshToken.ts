@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import prisma from '../lib/prisma';
-import { getAdapter } from '../lib/platform/registry';
-import type { Platform } from '../lib/platform/types';
+import { createHmac, timingSafeEqual } from 'crypto';
+import { getValidAccessToken } from '../lib/platform/registry';
 
 // Checks whether the user's platform access token is expired and refreshes it if needed.
 // After this middleware runs, req.accessToken always holds a valid token and
@@ -13,33 +12,36 @@ export const refreshTokenMiddleware = async (
 ) => {
   const userId = req.params.userId as string;
 
-  try {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+  // Verify the HMAC token sent by the client in X-User-Token.
+  // This binds the userId in the URL to a secret only the server and the legitimate
+  // user's browser know — preventing any caller who merely knows a userId from acting as
+  // that user.
+  // timingSafeEqual prevents timing attacks that could leak the expected token length.
+  const clientToken = req.headers['x-user-token'] as string | undefined;
+  const expectedToken = createHmac('sha256', process.env.HMAC_SECRET!).update(userId).digest('hex');
+  const expectedBuf = Buffer.from(expectedToken, 'hex');
+  const clientBuf   = Buffer.from(clientToken ?? '', 'hex');
+  const tokenValid  =
+    clientBuf.length === expectedBuf.length &&
+    timingSafeEqual(clientBuf, expectedBuf);
 
-    if (!user) {
+  if (!tokenValid) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  // getValidAccessToken handles the DB lookup, expiry check, refresh, and persist in one place.
+  // It also returns the platform so we can attach it to the request without a second DB round-trip.
+  try {
+    const result = await getValidAccessToken(userId);
+
+    if (!result) {
       res.status(404).json({ error: 'User not found' });
       return;
     }
 
-    // Attach the platform early so route handlers can resolve the correct adapter
-    (req as any).userPlatform = user.platform;
-
-    const isExpired = new Date() > new Date(user.tokenExpiresAt);
-
-    if (isExpired) {
-      // Resolve the adapter for this user's platform and request a fresh token
-      const adapter = getAdapter(user.platform as Platform);
-      const { accessToken, expiresAt } = await adapter.refreshAccessToken(user.refreshToken);
-
-      await prisma.user.update({
-        where: { id: userId },
-        data: { accessToken, tokenExpiresAt: expiresAt },
-      });
-
-      (req as any).accessToken = accessToken;
-    } else {
-      (req as any).accessToken = user.accessToken;
-    }
+    req.accessToken  = result.accessToken;
+    req.userPlatform = result.platform;
 
     next();
   } catch (error) {

@@ -60,8 +60,8 @@ const calculateAverages = (tracks: TrackWithFeatures[]) => {
 // GET /playlists/:userId
 // Fetches all playlists for the authenticated user
 router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const playlists = await adapter.fetchPlaylists(accessToken);
@@ -82,53 +82,24 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
   }
 });
 
-// GET /playlists/:userId/discover?url=https://soundcloud.com/user/sets/name
-// Resolves a platform URL to a playlist by calling the platform's slug-resolution API.
-// Used when the client detects a full URL in the discover input rather than a bare ID.
-// Currently only SoundCloud URLs need server-side resolution — Spotify IDs are extracted client-side.
+// GET /playlists/:userId/discover?url=<full-platform-url>
+// Resolves a platform URL to a playlist for platforms where extractPlaylistId returns a URL
+// rather than a bare ID (currently SoundCloud — slug URLs need server-side resolution).
+// The active adapter's fetchPlaylist handles the URL-vs-ID distinction internally,
+// so this route contains no platform-specific logic.
 router.get('/:userId/discover', refreshTokenMiddleware, async (req, res) => {
   const url = req.query.url as string | undefined;
-  const accessToken = (req as any).accessToken;
+  const accessToken = req.accessToken;
 
   if (!url) {
     res.status(400).json({ error: 'url query param required' });
     return;
   }
 
-  // Detect platform from the URL hostname
-  const isSoundCloud = url.includes('soundcloud.com');
-  if (!isSoundCloud) {
-    res.status(400).json({ error: 'Unsupported URL — only SoundCloud URLs are supported here' });
-    return;
-  }
-
-  // Guard: the user must be logged in with SoundCloud to call SoundCloud's API.
-  // A Spotify-only user pasting a SC URL would otherwise send their Spotify token
-  // to SoundCloud, which returns a 401 that bubbles up as a confusing 500.
-  const userPlatform = (req as any).userPlatform as string;
-  if (userPlatform !== 'SOUNDCLOUD') {
-    res.status(400).json({ error: 'Connect a SoundCloud account first to discover SoundCloud playlists.' });
-    return;
-  }
-
-  const adapter = getAdapter('SOUNDCLOUD');
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
-    // SoundCloud's /resolve endpoint translates a slug URL into a full resource object.
-    // The response contains `id` (numeric playlist ID) and `kind` ('playlist').
-    const { default: axios } = await import('axios');
-    const resolved = await axios.get('https://api.soundcloud.com/resolve', {
-      params: { url },
-      headers: { Authorization: `OAuth ${accessToken}` },
-    });
-
-    if (resolved.data.kind !== 'playlist') {
-      res.status(400).json({ error: 'URL does not point to a SoundCloud playlist' });
-      return;
-    }
-
-    const playlistId = String(resolved.data.id);
-    const playlist = await adapter.fetchPlaylist(accessToken, playlistId);
+    const playlist = await adapter.fetchPlaylist(accessToken, url);
 
     res.json({
       platformId: playlist.id,
@@ -148,7 +119,7 @@ router.get('/:userId/discover', refreshTokenMiddleware, async (req, res) => {
       res.status(403).json({ error: 'This playlist is private' });
       return;
     }
-    res.status(500).json({ error: 'Failed to resolve playlist URL' });
+    res.status(500).json({ error: error.message || 'Failed to resolve playlist URL' });
   }
 });
 
@@ -157,8 +128,8 @@ router.get('/:userId/discover', refreshTokenMiddleware, async (req, res) => {
 // Used when a user pastes a URL or ID they don't own
 router.get('/:userId/discover/:playlistId', refreshTokenMiddleware, async (req, res) => {
   const playlistId = req.params.playlistId as string;
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const playlist = await adapter.fetchPlaylist(accessToken, playlistId);
@@ -183,34 +154,27 @@ router.get('/:userId/discover/:playlistId', refreshTokenMiddleware, async (req, 
 // Returns cached audio features for specific track IDs — reads DB only, no external API calls.
 // Used by the client to poll for features being fetched in the background.
 //
-// The query column depends on the authenticated user's platform:
-//   SPOTIFY    → query by spotifyId (Spotify track IDs)
-//   SOUNDCLOUD → query by soundcloudId (SoundCloud numeric IDs, stored as strings)
+// The query column is declared by each platform's adapter via trackCacheIdField —
+// no per-platform branching needed here. Adding a new platform requires no changes to this route.
 router.get('/:userId/features', refreshTokenMiddleware, async (req, res) => {
   const ids = ((req.query.ids as string) || '').split(',').filter(Boolean);
   if (ids.length === 0) return res.json({ features: {} });
 
-  const userPlatform = (req as any).userPlatform as Platform;
-  const isSoundCloud = userPlatform === 'SOUNDCLOUD';
+  const adapter = getAdapter(req.userPlatform as Platform);
+  // The adapter declares which TrackCache column holds its native track IDs.
+  // No if/else chain needed — adding a new platform only requires updating the adapter.
+  const idField = adapter.trackCacheIdField;
 
   try {
-    // Query and select from the correct platform-specific ID column.
-    const cached = isSoundCloud
-      ? await prisma.trackCache.findMany({
-          where: { soundcloudId: { in: ids } },
-          select: { soundcloudId: true, audioFeatures: true },
-        })
-      : await prisma.trackCache.findMany({
-          where: { spotifyId: { in: ids } },
-          select: { spotifyId: true, audioFeatures: true },
-        });
+    // Query the correct column and select it back so we can map results to platform IDs.
+    const cached = await prisma.trackCache.findMany({
+      where:  { [idField]: { in: ids } },
+      select: { [idField]: true, audioFeatures: true },
+    });
 
     const features: Record<string, Record<string, unknown>> = {};
     cached.forEach(entry => {
-      // Resolve the native platform ID from whichever column was queried.
-      const nativeId = isSoundCloud
-        ? (entry as { soundcloudId: string | null; audioFeatures: unknown }).soundcloudId
-        : (entry as { spotifyId: string | null; audioFeatures: unknown }).spotifyId;
+      const nativeId = (entry as any)[idField] as string | null;
       if (!nativeId) return;
 
       const f: Record<string, unknown> =
@@ -228,12 +192,45 @@ router.get('/:userId/features', refreshTokenMiddleware, async (req, res) => {
   }
 });
 
+// GET /playlists/:userId/genres?names=artist1,artist2,...
+// Returns cached genre tags for a list of artist names — reads ArtistCache only, no external calls.
+// Used by the client to poll for genres being fetched in the background after a cache miss.
+//
+// Artist names are matched case-insensitively via the normalizedName column so the response
+// is keyed by the lowercased+trimmed name — the client normalizes before lookup.
+router.get('/:userId/genres', refreshTokenMiddleware, async (req, res) => {
+  const names = ((req.query.names as string) || '').split(',').filter(Boolean);
+  if (names.length === 0) return res.json({ genres: {} });
+
+  // Normalize to match the ArtistCache normalizedName column (lowercase + trimmed)
+  const normalizedNames = names.map((n: string) => n.toLowerCase().trim());
+
+  try {
+    const cached = await prisma.artistCache.findMany({
+      where:  { normalizedName: { in: normalizedNames } },
+      select: { normalizedName: true, genres: true },
+    });
+
+    const genres: Record<string, string[]> = {};
+    cached.forEach(entry => {
+      if (entry.normalizedName) {
+        genres[entry.normalizedName] = entry.genres as string[];
+      }
+    });
+
+    res.json({ genres });
+  } catch (error) {
+    console.error('Failed to fetch cached genres:', error);
+    res.status(500).json({ error: 'Failed to fetch genres' });
+  }
+});
+
 // GET /playlists/:userId/liked
 // Fetches the Liked Songs count for the dashboard card
 // Liked Songs are not included in the regular playlists endpoint — they need a separate call
 router.get('/:userId/liked', refreshTokenMiddleware, async (req, res) => {
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const trackCount = await adapter.fetchLikedCount(accessToken);
@@ -258,20 +255,24 @@ router.get('/:userId/liked', refreshTokenMiddleware, async (req, res) => {
 // Fetches a single page of enriched tracks from the user's Liked Songs
 // Supports pagination via ?page= query parameter
 router.get('/:userId/liked/tracks', refreshTokenMiddleware, async (req, res) => {
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
   const page = parseInt(req.query.page as string) || 0;
   const limit = 50;
 
   try {
-    const { tracks, total } = await adapter.fetchLikedTracks(accessToken, page);
+    const { tracks, total, hasMore: adapterHasMore } = await adapter.fetchLikedTracks(accessToken, page);
     const tracksWithPlatform = tracks.map(t => ({ ...t, platform: adapter.platform }));
+
+    // Prefer hasMore from the adapter (set by cursor-based adapters like Tidal that can't
+    // reliably derive it from total). Fall back to the page*limit formula for offset adapters.
+    const hasMore = adapterHasMore ?? (page * limit + tracks.length < total);
 
     res.json({
       tracks: tracksWithPlatform,
       playlistAverages: calculateAverages(tracks),
       total,
-      hasMore: page * limit + tracks.length < total,
+      hasMore,
       nextPage: page + 1,
     });
   } catch (error: any) {
@@ -285,20 +286,36 @@ router.get('/:userId/liked/tracks', refreshTokenMiddleware, async (req, res) => 
 // Supports pagination via ?page= query parameter
 router.get('/:userId/:playlistId/tracks', refreshTokenMiddleware, async (req, res) => {
   const playlistId = req.params.playlistId as string;
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
   const page = parseInt(req.query.page as string) || 0;
   const limit = 50;
 
+  // Create an AbortController tied to the lifetime of this HTTP request.
+  // When the client closes the connection (tab closed, navigation away, component unmount),
+  // Node fires the 'close' event on the underlying socket, which triggers abort() here.
+  // The signal is forwarded into fetchPlaylistTracks and then into requestWithRetry so
+  // any in-flight platform API call and any back-off sleep in a retry loop are both
+  // cancelled immediately rather than continuing to consume API quota for a response
+  // nobody is waiting for.
+  const abortController = new AbortController();
+  req.on('close', () => abortController.abort());
+
   try {
-    const { tracks, total } = await adapter.fetchPlaylistTracks(accessToken, playlistId, page);
+    const result = await adapter.fetchPlaylistTracks(accessToken, playlistId, page, abortController.signal);
+    const { tracks, total } = result;
     const tracksWithPlatform = tracks.map(t => ({ ...t, platform: adapter.platform }));
+
+    // Use the adapter-provided hasMore when present (e.g. Tidal, which returns 20 refs/page
+    // regardless of page[size]=50 so the page*limit formula would be wrong).
+    // Fall back to the formula for platforms that don't return an explicit hasMore.
+    const hasMore = (result as any).hasMore ?? (page * limit + tracks.length < total);
 
     res.json({
       tracks: tracksWithPlatform,
       playlistAverages: calculateAverages(tracks),
       total,
-      hasMore: page * limit + tracks.length < total,
+      hasMore,
       nextPage: page + 1,
     });
   } catch (error: any) {
@@ -321,8 +338,8 @@ router.post('/:userId/:playlistId/shuffle', refreshTokenMiddleware, async (req, 
   const userId = req.params.userId as string;
   const playlistId = req.params.playlistId as string;
   const { tracks } = req.body;
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const trackIds = tracks.map((t: { id: string }) => t.id);
@@ -373,8 +390,8 @@ router.post('/:userId/:playlistId/shuffle', refreshTokenMiddleware, async (req, 
 router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
   const { tracks, name } = req.body;
   const userId = req.params.userId as string;
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const trackIds = tracks.map((t: { id: string }) => t.id);
@@ -401,8 +418,8 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
 router.post('/:userId/merge', refreshTokenMiddleware, async (req, res) => {
   const { tracks, name } = req.body;
   const userId = req.params.userId as string;
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const trackIds = tracks.map((t: { id: string }) => t.id);
@@ -431,8 +448,8 @@ router.post('/:userId/split', refreshTokenMiddleware, async (req, res) => {
     groups: { name: string; tracks: { id: string }[]; description: string }[];
   };
   const userId = req.params.userId as string;
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const created = await enqueueWrite(userId, async () => {
@@ -467,8 +484,8 @@ router.put('/:userId/:playlistId/save', refreshTokenMiddleware, async (req, res)
   const userId = req.params.userId as string;
   const playlistId = req.params.playlistId as string;
   const { tracks } = req.body;
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const trackIds = tracks.map((t: { id: string }) => t.id);

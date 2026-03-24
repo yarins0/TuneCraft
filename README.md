@@ -54,15 +54,15 @@ Browser → Vite (5173) → React Router → Page component
                          │  auth.ts │ playlists.ts │ reshuffle │
                          └──────────┬──────────────┬──────────┘
                                     │              │
-                             PlatformAdapter    Prisma ORM
-                             (Spotify impl)       │
+                         PlatformAdapter         Prisma ORM
+                   (Spotify / SoundCloud / Tidal)   │
                                     │         PostgreSQL
-                               Spotify API
+                               Platform API
                                Last.fm API
                                ReccoBeats API
 ```
 
-All playlist and reshuffle routes run through `server/src/middleware/refreshToken.ts`, which auto-refreshes expired Spotify tokens and attaches the valid access token to `req` before any route handler runs.
+All playlist and reshuffle routes run through `server/src/middleware/refreshToken.ts`, which auto-refreshes expired tokens and attaches the valid access token to `req` before any route handler runs.
 
 ---
 
@@ -77,18 +77,24 @@ GET /playlists/:userId/:playlistId/tracks
   Fetch raw tracks from Spotify
           │
           ▼
-  ┌───────────────────────────────────────┐
-  │           Audio Features              │
-  │                                       │
-  │  Check TrackCache (by spotifyId)      │
-  │       ├── HIT  → use cached data      │
-  │       └── MISS → batch collect IDs   │
-  │                       │              │
-  │             ReccoBeats API            │
-  │          (batches of ≤ 40 tracks)     │
-  │                       │              │
-  │             Persist to TrackCache     │
-  └───────────────────────────────────────┘
+  ┌────────────────────────────────────────────┐
+  │              Audio Features                │
+  │                                            │
+  │  Check TrackCache (spotifyId / soundcloud  │
+  │  Id / isrc — one OR query, all platforms)  │
+  │       ├── HIT  → use cached data           │
+  │       │    └─ ISRC cross-hit? backfill      │
+  │       │       platform ID fire-and-forget  │
+  │       └── MISS → Phase 0: ISRC → spotifyId │
+  │                  (SoundCloud only)         │
+  │                       │                   │
+  │             ReccoBeats API                 │
+  │          (batches of ≤ 40 tracks)          │
+  │                       │                   │
+  │             Upsert TrackCache by ISRC      │
+  │             (links both platform IDs       │
+  │              to a single row)              │
+  └────────────────────────────────────────────┘
           │
           ▼
   ┌───────────────────────────────────────┐
@@ -112,6 +118,15 @@ GET /playlists/:userId/:playlistId/tracks
 ```
 
 **Why two caches?** Audio features are keyed per track (stable — a song's BPM doesn't change). Genres are keyed per artist (one artist → many tracks; caching at the artist level avoids redundant Last.fm calls).
+
+**Cross-platform deduplication:** `TrackCache` holds one row per unique recording, not one row per platform track entry. The row is keyed by ISRC when available, so if a song is loaded on Spotify first and later on SoundCloud, ReccoBeats is never called a second time — the existing features are returned immediately and the SoundCloud ID is backfilled onto the existing row.
+
+| | TrackCache | ArtistCache |
+|---|---|---|
+| Cross-platform read hit | Found via `isrc` in the OR query | Found via `normalizedName` (lowercase artist name) |
+| Backfill native ID on hit | `tidalId` / `soundcloudId` written to row fire-and-forget | `tidalArtistId` / `soundcloudArtistId` written to row fire-and-forget |
+| Secondary cache check | After ISRC → Spotify ID resolution, re-checks DB by `spotifyId` before calling ReccoBeats — avoids a redundant API call when a Spotify-sourced row exists without an ISRC | N/A — `normalizedName` covers the cross-platform hit on the initial read; no secondary check needed |
+| Write collision handling | If a `spotifyId` row exists without an ISRC and a new ISRC resolves to that same ID, the ISRC is merged onto the existing row rather than creating a duplicate | N/A — upsert key is `normalizedName`; the same artist from two platforms always lands on one row |
 
 **ReccoBeats batch cap:** The API accepts up to 40 track IDs per request. Requests are split into chunks of 40 before dispatch.
 
@@ -189,7 +204,7 @@ Input tracks array
                                                    │                    │
                                                    └─────────┬──────────┘
                                                              │
-                                                   Write order to Spotify
+                                                   Write order to platform
                                                    via PlatformAdapter
                                                              │
                                                    Update DB:
@@ -216,7 +231,7 @@ All Spotify-specific code lives behind an interface. Routes never call Spotify d
 ```
 routes/playlists.ts
        │
-       └──▶  getAdapter(platform)          ← resolves 'spotify' → SpotifyAdapter
+       └──▶  getAdapter(platform)          ← resolves 'spotify' → SpotifyAdapter, 'tidal' → TidalAdapter, etc.
                      │
                      ▼
           PlatformAdapter interface
@@ -229,11 +244,11 @@ routes/playlists.ts
           └─────────────────────────────┘
                      │
                      ▼
-          SpotifyAdapter (concrete impl)
-          server/src/lib/platform/spotify.ts
+          SpotifyAdapter / TidalAdapter / SoundCloudAdapter
+          server/src/lib/platform/{spotify,tidal,soundcloud}.ts
 ```
 
-Adding a new platform (Apple Music, YouTube Music) means implementing `PlatformAdapter` and registering it in `registry.ts` — zero changes to route handlers.
+Adding a new platform means implementing `PlatformAdapter` and registering it in `registry.ts` — zero changes to route handlers. `TrackCache` already has a dedicated column for each platform (`spotifyId`, `soundcloudId`, `tidalId`) — add a new column per platform as adapters are built. Tidal (`TidalAdapter`) is fully implemented alongside Spotify and SoundCloud.
 
 ---
 
@@ -264,8 +279,8 @@ Adding a new platform (Apple Music, YouTube Music) means implementing `PlatformA
   Every subsequent API call:
   ├── Passes userId in URL: /playlists/:userId/...
   └── refreshTokenMiddleware checks token expiry,
-      fetches new tokens from Spotify if needed,
-      attaches fresh access token to req.spotifyToken
+      fetches new tokens from the platform if needed,
+      attaches fresh access token to req.platformToken
 ```
 
 `localStorage` is used (not `sessionStorage`) so that authentication persists across multiple browser tabs opened from the same origin.
@@ -274,10 +289,10 @@ Adding a new platform (Apple Music, YouTube Music) means implementing `PlatformA
 
 ### Rate Limiting
 
-Spotify enforces a 429 rate limit. `spotifyRequestWithRetry` in `routes/playlists.ts` handles this transparently:
+All platform APIs enforce rate limits. `requestWithRetry` in `server/src/lib/requestWithRetry.ts` handles this transparently across every adapter:
 
 1. Make the request
-2. If 429 → read `Retry-After` header (default 5s, max 30s)
+2. If 429 → read `Retry-After` header (default 5s, max 120s)
 3. Retry up to 3 times
 4. On third failure, propagate the error
 
@@ -290,11 +305,15 @@ Spotify enforces a 429 rate limit. `spotifyRequestWithRetry` in `routes/playlist
 │                  User                   │
 │─────────────────────────────────────────│
 │ id                String  (cuid, PK)    │
-│ spotifyUserId     String  (unique)      │
+│ platformUserId    String                │
+│ displayName       String                │
+│ email             String?               │
 │ accessToken       String                │
 │ refreshToken      String                │
 │ tokenExpiresAt    DateTime              │
+│ platform          Platform (enum)       │
 │ createdAt         DateTime              │
+│ @@unique([platformUserId, platform])    │
 └──────────────────────┬──────────────────┘
                        │ 1:N
                        ▼
@@ -303,33 +322,48 @@ Spotify enforces a 429 rate limit. `spotifyRequestWithRetry` in `routes/playlist
 │─────────────────────────────────────────│
 │ id                  String  (cuid, PK)  │
 │ userId              String  (FK → User) │
-│ platformPlaylistId  String  (Spotify ID)│
+│ platformPlaylistId  String              │
+│ name                String              │
 │ autoReshuffle       Boolean             │
 │ intervalDays        Int?                │
 │ algorithms          Json?               │
 │ lastReshuffledAt    DateTime?           │
 │ nextReshuffleAt     DateTime?           │
+│ platform            Platform (enum)     │
 │ @@unique([userId, platformPlaylistId])  │
 └─────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────┐
 │              TrackCache                 │
 │─────────────────────────────────────────│
-│ spotifyId      String  (unique, PK)     │
-│ audioFeatures  Json                     │
-│ fetchedAt      DateTime                 │
+│ id            String   (cuid, PK)       │
+│ isrc          String?  (unique)         │
+│ spotifyId     String?  (unique)         │
+│ soundcloudId  String?  (unique)         │
+│ tidalId       String?  (unique)         │
+│ audioFeatures Json                      │
+│ cachedAt      DateTime                  │
 └─────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────┐
 │              ArtistCache                │
 │─────────────────────────────────────────│
-│ artistId   String  (unique, PK)         │
-│ genres     Json    (string[])           │
-│ fetchedAt  DateTime                     │
+│ id                  String  (cuid, PK)  │
+│ artistId            String  (unique)    │
+│ artistName          String              │
+│ normalizedName      String? (unique)    │
+│ spotifyArtistId     String? (unique)    │
+│ tidalArtistId       String? (unique)    │
+│ soundcloudArtistId  String? (unique)    │
+│ genres              Json    (string[])  │
+│ platform            Platform (enum)     │
+│ cachedAt            DateTime            │
 └─────────────────────────────────────────┘
 ```
 
-`Playlist` stores only scheduling metadata — track data is never persisted locally. It is always fetched live from Spotify and enriched on the fly via the two cache tables.
+`Playlist` stores only scheduling metadata — track data is never persisted locally. It is always fetched live from the platform and enriched on the fly via the two cache tables.
+
+`TrackCache` holds one row per unique recording. The same song on Spotify and SoundCloud shares a single row, linked by ISRC. Platform-specific ID columns (`spotifyId`, `soundcloudId`) are added as each adapter is built.
 
 ---
 
@@ -341,7 +375,7 @@ Spotify enforces a 429 rate limit. `spotifyRequestWithRetry` in `routes/playlist
 | Backend | Node.js, Express, TypeScript |
 | Database | PostgreSQL via Prisma ORM |
 | Auth | Spotify OAuth 2.0 with automatic token refresh |
-| External APIs | Spotify Web API, Last.fm, ReccoBeats |
+| External APIs | Spotify Web API, SoundCloud API, Tidal API (OpenAPI v2), Last.fm, ReccoBeats |
 | Background jobs | node-cron |
 
 ---
@@ -351,6 +385,7 @@ Spotify enforces a 429 rate limit. `spotifyRequestWithRetry` in `routes/playlist
 - **Node.js** — latest LTS recommended
 - **PostgreSQL** — local or hosted instance
 - **Spotify Developer App** — create one at [developer.spotify.com](https://developer.spotify.com/dashboard). You will need a Client ID, Client Secret, and a configured redirect URI
+- **Tidal Developer App** — register at [developer.tidal.com](https://developer.tidal.com). Uses PKCE OAuth 2.0; requires `user.read`, `collection.read`, `collection.write`, `playlists.read`, `playlists.write` scopes
 - **Last.fm API key** — register at [last.fm/api](https://www.last.fm/api/account/create)
 - **ReccoBeats API key** — for audio features (replaces Spotify's deprecated audio features endpoint)
 
@@ -384,6 +419,10 @@ SPOTIFY_REDIRECT_URI=http://127.0.0.1:3000/auth/spotify/callback
 SOUNDCLOUD_CLIENT_ID=your_soundcloud_client_id
 SOUNDCLOUD_CLIENT_SECRET=your_soundcloud_client_secret
 SOUNDCLOUD_REDIRECT_URI=http://127.0.0.1:3000/auth/soundcloud/callback
+
+TIDAL_CLIENT_ID=your_tidal_client_id
+TIDAL_CLIENT_SECRET=your_tidal_client_secret
+TIDAL_REDIRECT_URI=http://127.0.0.1:3000/auth/tidal/callback
 
 LASTFM_API_KEY=your_lastfm_api_key
 LASTFM_SECRET=your_lastfm_secret
@@ -434,16 +473,16 @@ tunecraft/
 ├── client/                        # React frontend (Vite + TypeScript)
 │   └── src/
 │       ├── api/                   # Typed fetch wrappers (playlists, tracks, reshuffle)
-│       ├── components/            # Modals (Shuffle, Split, Merge, Copy, Duplicates)
+│       ├── components/            # Modals (Shuffle, Split, Merge, Copy, Duplicates), AppFooter, PlatformSwitcherSidebar
 │       ├── constants/             # Audio feature keys, labels, chart colours
-│       ├── hooks/                 # useAnimatedLabel (cycling button state text)
-│       ├── pages/                 # Route-level components (Login, Dashboard, PlaylistDetail, Callback)
+│       ├── hooks/                 # useAnimatedLabel, usePlaylistTracks, usePlaylistActions, useReshuffleSchedule
+│       ├── pages/                 # Route-level components (Login, Dashboard, PlaylistDetail, Contact, PrivacyPolicy, Callback)
 │       └── utils/                 # shuffleAlgorithms, splitPlaylist, mergePlaylists, platform helpers
 └── server/                        # Express backend (Node.js + TypeScript)
     └── src/
         ├── lib/
         │   ├── crons/             # Auto-reshuffle cron job
-        │   ├── platform/          # PlatformAdapter interface, SpotifyAdapter, registry
+        │   ├── platform/          # PlatformAdapter interface, SpotifyAdapter, TidalAdapter, SoundCloudAdapter, registry
         │   └── shuffleAlgorithms.ts
         ├── middleware/            # refreshToken.ts — transparent token refresh
         └── routes/                # auth.ts, playlists.ts, reshuffle.ts, tracks.ts
@@ -489,8 +528,10 @@ All routes are prefixed with the Express base path. The `userId` segment is the 
 ### Auth
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/auth/login` | Redirects to Spotify OAuth |
-| `GET` | `/auth/callback` | Handles Spotify redirect, upserts user, redirects to frontend |
+| `GET` | `/auth/login?platform=SPOTIFY\|TIDAL\|SOUNDCLOUD` | Redirects to the appropriate platform OAuth / PKCE flow |
+| `GET` | `/auth/spotify/callback` | Handles Spotify OAuth redirect, upserts user, redirects to frontend |
+| `GET` | `/auth/tidal/callback` | Handles Tidal PKCE callback, exchanges code + verifier, upserts user |
+| `GET` | `/auth/soundcloud/callback` | Handles SoundCloud OAuth redirect, upserts user, redirects to frontend |
 
 ### Playlists
 | Method | Path | Description |

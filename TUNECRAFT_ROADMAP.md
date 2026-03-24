@@ -91,36 +91,51 @@ The backend is fully platform-agnostic. Adding a new platform means implementing
 ### What's done
 - [x] `PlatformAdapter` interface (`server/src/lib/platform/types.ts`) — defines all methods a platform must implement
 - [x] `SpotifyAdapter` (`server/src/lib/platform/spotify.ts`) — full Spotify implementation
+- [x] `SoundCloudAdapter` (`server/src/lib/platform/soundcloud.ts`) — full SoundCloud implementation (awaiting API credentials)
+- [x] `TidalAdapter` (`server/src/lib/platform/tidal.ts`) — full Tidal implementation (PKCE OAuth 2.0)
 - [x] Registry (`server/src/lib/platform/registry.ts`) — singleton adapters, `getAdapter(platform)` lookup
-- [x] All DB fields renamed to platform-agnostic names (`platformUserId`, `platformPlaylistId`, `platformTrackId`)
-- [x] All server routes use `getAdapter()` — no Spotify-specific code in routes
-- [x] Client stores `platformUserId` in sessionStorage; all API calls use it
+- [x] All DB fields are platform-agnostic (`platformUserId`, `platformPlaylistId`)
+- [x] All server routes use `getAdapter()` — no platform-specific code in routes
+- [x] Client stores `platformUserId` in localStorage; all API calls use it
 - [x] Login page has platform picker UI (Spotify active, SoundCloud/Apple Music disabled)
 - [x] `platform` field included in all API responses so client knows which service each track belongs to
+- [x] `TrackCache` redesigned for cross-platform deduplication:
+  - One row per unique recording (not one per platform track entry)
+  - `isrc` column links the same song across platforms
+  - `spotifyId`, `soundcloudId`, and `tidalId` columns — add one column per new platform
+  - ISRC cross-hit in `readEnrichmentCache` returns cached features immediately and backfills the new platform's ID fire-and-forget
+  - ReccoBeats is never called twice for the same recording regardless of which platform surfaces it
 
-### Decision: First target platform — Deezer
-**Why Deezer:** Simpler OAuth than Apple Music (no server-side JWT signing, no $99 developer account), better ISRC coverage than SoundCloud (which has many user uploads with no ISRC), and good structured playlist/track data.
-
-### Decision: Audio features strategy — ISRC cross-reference
+### Audio features strategy — ISRC cross-reference
 ReccoBeats only accepts Spotify track IDs. Most commercially released tracks carry an ISRC (International Standard Recording Code) — a universal identifier that follows a song across every platform.
 
-**Flow:**
-1. Get track from Deezer → read its ISRC field
-2. Query Spotify: `GET /search?q=isrc:{code}&type=track`
-3. Match found → use that Spotify track ID with ReccoBeats as normal
-4. No match → track gets no audio features (graceful fallback — hide audio feature UI for that track)
+**Flow for non-Spotify platforms:**
+1. Get track → read its ISRC field
+2. Check `TrackCache` by ISRC — if hit, return cached features immediately (no ReccoBeats call)
+3. Cache miss → query MusicBrainz first (free, no auth, 1 req/sec) to resolve a Spotify ID from the ISRC
+4. MusicBrainz miss → fall back to Spotify search: `GET /search?q=isrc:{code}&type=track`
+5. Submit resolved Spotify ID to ReccoBeats; upsert result by ISRC so both platform IDs share the row
+6. No ISRC or no Spotify match → track gets no audio features (graceful fallback)
 
-This preserves the full feature set (shuffle algorithms, split by audio feature, charts) for mainstream catalog. Independent/upload tracks without an ISRC degrade gracefully.
+### Tidal activation ✅ COMPLETE
+- [x] Obtained Tidal developer credentials at [developer.tidal.com/dashboard](https://developer.tidal.com/dashboard)
+- [x] Added `TIDAL_CLIENT_ID`, `TIDAL_CLIENT_SECRET`, `TIDAL_REDIRECT_URI` to `.env`
+- [x] Registered redirect URI `http://127.0.0.1:3000/auth/tidal/callback` in the Tidal developer dashboard
+- [x] Verified OAuth scopes: `user.read`, `collection.read`, `collection.write`, `playlists.read`, `playlists.write`
 
-### What's needed to add Deezer
-- [ ] Create Deezer developer app and obtain API credentials
-- [ ] Implement `PlatformAdapter` interface in `server/src/lib/platform/deezer.ts`
+### What's needed to activate SoundCloud
+- [ ] Obtain SoundCloud API credentials (client ID + secret)
+- [ ] Add `SOUNDCLOUD_CLIENT_ID`, `SOUNDCLOUD_CLIENT_SECRET`, `SOUNDCLOUD_REDIRECT_URI` to `.env`
+- [ ] Enable the SoundCloud button in `Login.tsx`
+- [ ] Register SoundCloud redirect URI in SoundCloud developer dashboard
+
+### What's needed to add another platform (e.g. Deezer, Apple Music)
+- [ ] Implement `PlatformAdapter` interface in `server/src/lib/platform/{platform}.ts`
 - [ ] Register it in `registry.ts`
-- [ ] Add OAuth flow in `routes/auth.ts` (new `/auth/deezer` route)
-- [ ] Implement ISRC → Spotify ID lookup for audio features (`server/src/lib/isrcLookup.ts`)
-- [ ] Add platform case to `client/src/utils/platform.ts` (`getPlatformTrackUrl`, `getPlatformLabel`)
-- [ ] Enable the Deezer button in `Login.tsx`
-- [ ] Handle tracks with no ISRC match gracefully in UI (hide audio feature controls)
+- [ ] Add OAuth flow in `routes/auth.ts`
+- [ ] Add platform module to `client/src/utils/platform/` (see `spotify.ts` or `tidal.ts` as reference — implement track URL, label, badge style, and icon helpers)
+- [ ] Add a `{platform}Id` column to `TrackCache` in `schema.prisma` + migration
+- [ ] Enable the platform button in `Login.tsx`
 
 ---
 
@@ -139,30 +154,6 @@ Build new playlists intelligently based on what's already in the user's library.
 - [ ] Tracks absent from recent history are treated as "cold" and weighted up
 - [ ] Basic version requires no DB changes — works within Spotify's 50-track window
 - [ ] Enhanced version: add a `PlayHistory` table to track plays over time beyond Spotify's limit
-
----
-
-## UI Polish ✅ COMPLETE
-- [x] Animated loading button labels (`useAnimatedLabel` hook)
-- [x] All modals — backdrop close-on-drag fix (mousedown origin tracking, applied to all modal components)
-- [x] SplitModal — two-column layout (strategy picker ~30% / preview ~70%, max-w-6xl)
-- [x] PlaylistDetail — double-click track number to jump to position
-- [x] ShuffleModal — saving a new schedule writes `lastReshuffledAt = now`, starts cron window immediately
-- [x] ShuffleModal — manual shuffle with active schedule updates `lastReshuffledAt` / `nextReshuffleAt`
-- [x] ShuffleModal — schedule button label bug fixed
-
----
-
-## Pre-Publish Blockers ✅ ALL FIXED
-
-### ✅ Spotify API Rate Limiting — FIXED
-- Per-user serial write queue (`enqueueWrite`) in `routes/playlists.ts` — no cascading 429s
-
-### ✅ ReccoBeats Rate Limiting — FIXED
-- ID batch lookup: sequential per chunk, 429 retry with Retry-After backoff
-- Audio feature fetches: sequential with 300ms delay between tracks
-- Features written to `TrackCache` immediately per-track (not bulk at end) — client polling sees them arrive one by one
-- Client polls `/playlists/:userId/features` every 1s and merges arriving features into track state live
 
 ---
 
@@ -202,14 +193,17 @@ playlistId === 'liked'              → show [Save as Copy] only (not a real pla
 ```
 
 ## Technical Notes
-- **Platform adapter pattern**: implement `PlatformAdapter` interface + register in `registry.ts` to add a new platform
-- All DB fields are platform-agnostic: `platformUserId`, `platformPlaylistId`, `platformTrackId`
+- **Platform adapter pattern**: implement `PlatformAdapter` interface + register in `registry.ts` to add a new platform; add a `{platform}Id` column to `TrackCache`
+- All DB fields are platform-agnostic: `platformUserId`, `platformPlaylistId`
+- `TrackCache` uses one row per unique recording — keyed by ISRC, with per-platform ID columns (`spotifyId`, `soundcloudId`, `tidalId`)
 - Auto-reshuffle uses `node-cron` (hourly); server-side shuffle in `server/src/lib/shuffleAlgorithms.ts`
+- Cron emits a single summary log per run: "X shuffled, Y deleted (of N due)"
 - Genre detection uses Last.fm `artist.getTopTags` (better underground coverage than Spotify)
 - Audio features use ReccoBeats API (Spotify deprecated their audio features endpoint Nov 2024)
 - ReccoBeats batch size capped at 40 IDs (not 50)
 - Liked Songs use `/me/tracks` endpoint (not included in `/me/playlists`)
 - Spotify write endpoints require `/items` not `/tracks` (deprecated, returns 403)
 - Prisma JSON columns may return as strings — always parse: `typeof f === 'string' ? JSON.parse(f) : f`
-- `platformUserId` stored in sessionStorage after login for frontend ownership checks
+- `platformUserId` stored in localStorage after login for frontend ownership checks
 - Neon PostgreSQL free tier auto-suspends — first connection may be slow; use `directUrl` for `prisma migrate dev`
+- `PlaylistDetail.tsx` is split into three hooks (`usePlaylistTracks`, `usePlaylistActions`, `useReshuffleSchedule`) and two components (`TrackRow`, `DuplicatesWarning`) — keep business logic in hooks, not in the page

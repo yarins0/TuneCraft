@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { fetchTracksPage, fetchPendingFeatures } from '../api/tracks';
+import { fetchTracksPage, fetchPendingFeatures, fetchPendingGenres } from '../api/tracks';
 import type { Track, PlaylistAverages } from '../api/tracks';
+import { getActiveAccount } from '../utils/accounts';
 
-const getUserId = () => localStorage.getItem('userId') || '';
+const getUserId = () => getActiveAccount()?.userId || '';
 
 // Recalculates playlist averages from the full set of loaded tracks.
 // Called after each page loads and after feature polling updates arrive,
@@ -72,6 +73,11 @@ export const usePlaylistTracks = (
   const pendingFeatureIds = useRef<Set<string>>(new Set());
   const featurePollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Mirrors the feature polling pattern but for genre tags.
+  // Keys are lowercased+trimmed artist names — matching the server's normalizedName column.
+  const pendingGenreArtists = useRef<Set<string>>(new Set());
+  const genrePollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Keeps averages in sync with the full track list.
   // Using a derived-state effect rather than calling setAverages inside setTracks updaters,
   // which is a React anti-pattern — state setters should not be called inside other state updater functions.
@@ -93,18 +99,40 @@ export const usePlaylistTracks = (
 
     let cancelled = false;
 
-    // Clears the pending set and stops the polling interval
+    // AbortController lets us cancel in-flight fetch() calls at the network level.
+    // When abort() is called, any pending fetchTracksPage() promises will reject
+    // with a DOMException whose name is 'AbortError'. This is different from the
+    // `cancelled` flag, which only prevents state updates — the fetch itself would
+    // otherwise keep running and consuming bandwidth/server resources.
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    // Clears all pending sets and stops both polling intervals
     const stopPolling = () => {
       if (featurePollingRef.current) {
         clearInterval(featurePollingRef.current);
         featurePollingRef.current = null;
       }
       pendingFeatureIds.current.clear();
+
+      if (genrePollingRef.current) {
+        clearInterval(genrePollingRef.current);
+        genrePollingRef.current = null;
+      }
+      pendingGenreArtists.current.clear();
     };
 
     // Adds null-feature tracks to the pending set and starts polling if not already running.
     // The poll hits the lightweight /features endpoint (DB cache only) every second.
     // When features arrive they're merged into track state and averages are recalculated.
+    //
+    // Polling stops automatically when either:
+    //   a) all pending IDs resolve (normal completion), or
+    //   b) 30 consecutive polls return nothing new (enrichment finished with no data for those tracks).
+    // The consecutive-miss counter resets whenever any feature arrives, so mixed playlists
+    // (some tracks enrichable, some not) still wait long enough for the resolvable ones.
+    const MAX_EMPTY_POLLS = 30;
+
     const scheduleFeaturePolling = (newTracks: Track[]) => {
       const missing = newTracks.filter(t =>
         Object.values(t.audioFeatures).every(v => v === null)
@@ -114,6 +142,8 @@ export const usePlaylistTracks = (
       missing.forEach(t => pendingFeatureIds.current.add(t.id));
 
       if (featurePollingRef.current) return; // interval already running
+
+      let consecutiveEmptyPolls = 0;
 
       featurePollingRef.current = setInterval(async () => {
         const pending = Array.from(pendingFeatureIds.current);
@@ -128,8 +158,22 @@ export const usePlaylistTracks = (
           const arrived = Object.entries(features).filter(
             ([, f]) => f && Object.values(f).some(v => v !== null)
           );
-          if (arrived.length === 0) return;
 
+          if (arrived.length === 0) {
+            consecutiveEmptyPolls++;
+            // Give up on remaining IDs after 30s of no progress — the background
+            // enrichment has finished and these tracks simply have no audio features
+            // (ReccoBeats doesn't cover them, or no Spotify ID could be resolved).
+            if (consecutiveEmptyPolls >= MAX_EMPTY_POLLS) {
+              clearInterval(featurePollingRef.current!);
+              featurePollingRef.current = null;
+              pendingFeatureIds.current.clear();
+            }
+            return;
+          }
+
+          // New features arrived — reset the timeout and apply the updates
+          consecutiveEmptyPolls = 0;
           arrived.forEach(([id]) => pendingFeatureIds.current.delete(id));
           const featureMap = Object.fromEntries(arrived);
 
@@ -139,9 +183,66 @@ export const usePlaylistTracks = (
             )
           );
         } catch {
-          // Polling errors are silent — will retry on the next interval tick
+          // Network errors are silent — will retry on the next interval tick.
+          // Importantly, errors do NOT increment the empty-poll counter so a brief
+          // network hiccup doesn't cause premature polling shutdown.
         }
       }, 1000);
+    };
+
+    // Adds tracks with empty genres to the pending set and starts polling if not already running.
+    // Polls the /genres endpoint every 2 seconds (genres resolve slower than features —
+    // Last.fm is queried after ReccoBeats, and only once per artist across all tracks).
+    // Stops after MAX_EMPTY_POLLS consecutive polls with no new genres.
+    const scheduleGenrePolling = (newTracks: Track[]) => {
+      const missing = newTracks.filter(t => t.genres.length === 0);
+      if (missing.length === 0) return;
+
+      // Key by normalized artist name — matches the server's normalizedName column
+      missing.forEach(t => pendingGenreArtists.current.add(t.artist.toLowerCase().trim()));
+
+      if (genrePollingRef.current) return; // interval already running
+
+      let consecutiveEmptyPolls = 0;
+
+      genrePollingRef.current = setInterval(async () => {
+        const pending = Array.from(pendingGenreArtists.current);
+        if (pending.length === 0) {
+          clearInterval(genrePollingRef.current!);
+          genrePollingRef.current = null;
+          return;
+        }
+
+        try {
+          const { genres } = await fetchPendingGenres(getUserId(), pending);
+          const arrived = Object.entries(genres).filter(([, g]) => g.length > 0);
+
+          if (arrived.length === 0) {
+            consecutiveEmptyPolls++;
+            if (consecutiveEmptyPolls >= MAX_EMPTY_POLLS) {
+              clearInterval(genrePollingRef.current!);
+              genrePollingRef.current = null;
+              pendingGenreArtists.current.clear();
+            }
+            return;
+          }
+
+          // New genres arrived — reset the timeout and apply updates to all matching tracks.
+          // A single artist entry covers every track by that artist in the playlist.
+          consecutiveEmptyPolls = 0;
+          const genreMap = Object.fromEntries(arrived);
+          arrived.forEach(([name]) => pendingGenreArtists.current.delete(name));
+
+          setTracks(prev =>
+            prev.map(t => {
+              const key = t.artist.toLowerCase().trim();
+              return genreMap[key] ? { ...t, genres: genreMap[key] } : t;
+            })
+          );
+        } catch {
+          // Silent on network errors — will retry on the next tick
+        }
+      }, 2000);
     };
 
     // Loads all remaining pages after the first page has already been shown.
@@ -157,18 +258,28 @@ export const usePlaylistTracks = (
 
       while (more && !cancelled) {
         try {
-          const data = await fetchTracksPage(getUserId(), playlistId, currentPage);
+          // Pass the AbortSignal so navigation drops the network request immediately.
+          const data = await fetchTracksPage(getUserId(), playlistId, currentPage, signal);
           if (cancelled) break;
 
           setTracks(prev => [...prev, ...data.tracks]);
+          // Keep the displayed total in sync as each page reveals more of the true count.
+          // Tidal doesn't always return meta.total, so the server derives an estimate from the
+          // cursor — updating here means the "X out of Y" counter grows page by page instead
+          // of staying frozen at the first-page estimate.
+          setTotal(data.total);
           scheduleFeaturePolling(data.tracks);
+          scheduleGenrePolling(data.tracks);
 
           more = data.hasMore;
           currentPage = data.nextPage;
 
           // Yield to the event loop so React renders this page before fetching the next one
           await new Promise(resolve => setTimeout(resolve, 0));
-        } catch {
+        } catch (err) {
+          // An AbortError means the user navigated away and we intentionally cancelled
+          // the request — this is not a real error and should not be logged or shown.
+          if (err instanceof DOMException && err.name === 'AbortError') break;
           console.error(`Failed to load page ${currentPage}`);
           break;
         }
@@ -177,8 +288,10 @@ export const usePlaylistTracks = (
       if (!cancelled) setLoadingMore(false);
     };
 
-    // Load the first page immediately, then kick off background loading for the rest
-    fetchTracksPage(getUserId(), playlistId, 0)
+    // Load the first page immediately, then kick off background loading for the rest.
+    // The AbortSignal is passed so navigating away drops the network request, not just
+    // the state update.
+    fetchTracksPage(getUserId(), playlistId, 0, signal)
       .then(data => {
         if (cancelled) return;
         setTracks(data.tracks);
@@ -186,18 +299,25 @@ export const usePlaylistTracks = (
         setTotal(data.total);
         setLoading(false);
         scheduleFeaturePolling(data.tracks);
+        scheduleGenrePolling(data.tracks);
 
         if (data.hasMore) loadAllPages(data.nextPage);
       })
       .catch(err => {
+        // AbortError: the user navigated away — not a real error, do not surface it.
+        if (err instanceof DOMException && err.name === 'AbortError') return;
         if (cancelled) return;
         setError(err.message || 'Failed to load tracks');
         setLoading(false);
       });
 
-    // If playlistId changes before loading finishes, cancel in-flight requests and stop polling
+    // If playlistId changes (or the component unmounts) before loading finishes,
+    // abort all in-flight fetch() calls at the network level and stop polling.
+    // The `cancelled` flag then prevents any stale state updates that may still
+    // land between abort() and the AbortError being thrown.
     return () => {
       cancelled = true;
+      controller.abort();
       stopPolling();
     };
   }, [playlistId]);

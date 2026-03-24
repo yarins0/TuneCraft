@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { enableReshuffle, disableReshuffle, fetchReshuffleSchedule } from '../api/reshuffle';
 import type { ReshuffleSchedule } from '../api/reshuffle';
+import { getActiveAccount } from '../utils/accounts';
 
-const getUserId = () => localStorage.getItem('userId') || '';
+const getUserId = () => getActiveAccount()?.userId || '';
 
 interface Options {
   playlistId: string | undefined;
   isOwner: boolean;
   name: string | undefined;
+  platform: string | undefined;
   onSuccess: (msg: string) => void;
   onError: (msg: string) => void;
 }
@@ -39,6 +41,7 @@ export const useReshuffleSchedule = ({
   playlistId,
   isOwner,
   name,
+  platform,
   onSuccess,
   onError,
 }: Options): UseReshuffleScheduleResult => {
@@ -79,7 +82,7 @@ export const useReshuffleSchedule = ({
     setReshuffleLoading(true);
     try {
       const { schedule } = await enableReshuffle(
-        getUserId(), playlistId, name || '', intervalDays, algorithms
+        getUserId(), playlistId, name || '', intervalDays, algorithms, platform
       );
       setReshuffleSchedule(schedule);
       setReshuffleInterval(intervalDays);

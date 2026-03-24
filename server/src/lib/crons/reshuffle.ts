@@ -14,8 +14,9 @@ import type { Platform } from '../platform/types';
 //
 // Returns a status string consumed by the caller to build a summary log line.
 const reshufflePlaylist = async (playlist: Playlist): Promise<'shuffled' | 'deleted' | 'skipped'> => {
-  const accessToken = await getValidAccessToken(playlist.userId);
-  if (!accessToken) return 'skipped';
+  const tokenResult = await getValidAccessToken(playlist.userId);
+  if (!tokenResult) return 'skipped';
+  const { accessToken } = tokenResult;
 
   try {
     // Resolve the correct adapter for this playlist's platform

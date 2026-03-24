@@ -1,4 +1,5 @@
 import { API_BASE_URL } from './config';
+import { getAuthHeaders } from '../utils/accounts';
 
 export interface AudioFeatures {
   energy: number | null;
@@ -57,24 +58,53 @@ export const fetchPendingFeatures = async (
   trackIds: string[]
 ): Promise<{ features: Record<string, AudioFeatures> }> => {
   const response = await fetch(
-    `${API_BASE_URL}/playlists/${userId}/features?ids=${trackIds.join(',')}`
+    `${API_BASE_URL}/playlists/${userId}/features?ids=${trackIds.join(',')}`,
+    { headers: getAuthHeaders() }
   );
   if (!response.ok) throw new Error('Failed to fetch pending features');
   return response.json();
 };
 
-// Fetches a single page of tracks for a playlist
+// Fetches cached genre tags for a list of artist names.
+// Only returns entries already in the server cache — no external API calls made.
+// Used to poll for genres that are being fetched in the background after a cache miss.
+// Names are matched case-insensitively; the response is keyed by lowercased+trimmed name.
+export const fetchPendingGenres = async (
+  userId: string,
+  artistNames: string[]
+): Promise<{ genres: Record<string, string[]> }> => {
+  const encoded = artistNames.map(n => encodeURIComponent(n)).join(',');
+  const response = await fetch(
+    `${API_BASE_URL}/playlists/${userId}/genres?names=${encoded}`,
+    { headers: getAuthHeaders() }
+  );
+  if (!response.ok) throw new Error('Failed to fetch pending genres');
+  return response.json();
+};
+
+// Fetches a single page of tracks for a playlist.
 // page=0 returns the first 50 tracks, page=1 returns the next 50, etc.
+//
+// signal — optional AbortSignal from an AbortController. When the controller is
+// aborted (e.g. because the user navigated away), the underlying fetch() is
+// cancelled at the network level, not just ignored in JavaScript. The browser
+// closes the TCP connection and the server stops sending the response body.
+// Callers should catch DOMException with name 'AbortError' to distinguish an
+// intentional cancellation from a real network failure.
 export const fetchTracksPage = async (
   userId: string,
   playlistId: string,
-  page: number = 0
+  page: number = 0,
+  signal?: AbortSignal
 ): Promise<TracksPageResponse> => {
   const base = playlistId === 'liked'
     ? `${API_BASE_URL}/playlists/${userId}/liked/tracks`
     : `${API_BASE_URL}/playlists/${userId}/${playlistId}/tracks`;
 
-  const response = await fetch(`${base}?page=${page}`);
+  // Pass the signal into fetch so the request can be aborted mid-flight.
+  // If signal is undefined, fetch behaves exactly as before — no behaviour change
+  // for callers that don't pass a signal.
+  const response = await fetch(`${base}?page=${page}`, { signal, headers: getAuthHeaders() });
 
   if (!response.ok) {
     throw new Error('Failed to fetch tracks');

@@ -12,7 +12,7 @@ const router = Router();
 router.post('/:userId/:playlistId', refreshTokenMiddleware, async (req, res) => {
   const userId = req.params.userId as string;
   const playlistId = req.params.playlistId as string;
-  const { intervalDays, algorithms, playlistName } = req.body;
+  const { intervalDays, algorithms, playlistName, platform } = req.body;
   // Validate that intervalDays is a positive number
   if (!intervalDays || intervalDays < 1) {
     return res.status(400).json({ error: 'intervalDays must be at least 1' });
@@ -54,6 +54,8 @@ router.post('/:userId/:playlistId', refreshTokenMiddleware, async (req, res) => 
         algorithms,
         lastReshuffledAt: null,
         nextReshuffleAt,
+        // platform defaults to SPOTIFY in the schema — must be set explicitly for other platforms
+        ...(platform && { platform: platform.toUpperCase() as any }),
       },
     });
 
@@ -94,7 +96,7 @@ router.delete('/:userId/:playlistId', refreshTokenMiddleware, async (req, res) =
 // is gone or inaccessible (404/403), the corresponding DB record is removed.
 router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
   const userId = req.params.userId as string;
-  const accessToken = (req as any).accessToken;
+  const accessToken = req.accessToken;
 
   try {
     const playlists = await prisma.playlist.findMany({
@@ -112,7 +114,7 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
       },
     });
 
-    const adapter = getAdapter((req as any).userPlatform as Platform);
+    const adapter = getAdapter(req.userPlatform as Platform);
     const validPlaylists: typeof playlists = [];
 
     for (const playlist of playlists) {
