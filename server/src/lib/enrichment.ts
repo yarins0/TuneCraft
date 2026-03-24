@@ -123,11 +123,20 @@ const buildArtistGenreMap = (
     if (row.tidalArtistId)       map[row.tidalArtistId]       = genres;
     if (row.soundcloudArtistId)  map[row.soundcloudArtistId]  = genres;
 
-    // Cross-platform hit: map the requesting track's artistId when it shares a normalizedName
+    // Cross-platform hit: map the requesting track's artistId when it shares a normalizedName.
+    // Also backfill the requesting platform's artist ID column onto the row if it is missing,
+    // so future requests can find it by platform ID directly (Strategy 1) instead of always
+    // falling through to the normalizedName lookup (Strategy 3).
     if (row.normalizedName) {
       for (const track of tracks) {
-        if (track.artistName.toLowerCase().trim() === row.normalizedName) {
-          map[track.artistId] = genres;
+        if (track.artistName.toLowerCase().trim() !== row.normalizedName) continue;
+        map[track.artistId] = genres;
+
+        const idField = artistCacheIdField(track.platform);
+        if (idField && !(row as any)[idField]) {
+          prisma.artistCache
+            .update({ where: { id: row.id }, data: { [idField]: track.artistId } })
+            .catch(e => console.error('[Enrichment] ArtistCache backfill failed:', e.message));
         }
       }
     }
@@ -443,7 +452,24 @@ const persistAudioFeatures = (
           ...nativeIdData,
         },
       })
-      .catch(e => console.error('[Enrichment] TrackCache upsert failed (isrc):', e.message));
+      .catch(e => {
+        // P2002 = unique constraint violation on spotifyId.
+        // This happens when a Spotify-sourced row already exists for this spotifyId but
+        // has no ISRC (it was cached before the ISRC was known). The Tidal track's ISRC
+        // lookup has now confirmed they are the same recording — merge by writing the
+        // ISRC (and the native platform ID) onto the existing spotifyId row instead of
+        // creating a duplicate.
+        if (e.code === 'P2002' && (e.meta?.target as string[] | undefined)?.includes('spotifyId')) {
+          prisma.trackCache
+            .update({
+              where: { spotifyId: track.spotifyId! },
+              data: { isrc: track.isrc, ...nativeIdData },
+            })
+            .catch(e2 => console.error('[Enrichment] TrackCache ISRC merge failed:', e2.message));
+          return;
+        }
+        console.error('[Enrichment] TrackCache upsert failed (isrc):', e.message);
+      });
   } else {
     prisma.trackCache
       .upsert({
@@ -467,6 +493,7 @@ const persistArtistGenres = async (
   results: { id: string; name: string; platform: Platform; genres: string[] }[]
 ): Promise<void> => {
   if (results.length === 0) return;
+  console.log(`[ArtistCache] Persisting ${results.length} artist(s):`, results.map(r => `${r.name} (${r.platform}, ${r.genres.length} genres)`).join(', '));
 
   await Promise.all(
     results.map(({ id, name, platform, genres }) => {
@@ -497,7 +524,7 @@ const persistArtistGenres = async (
             ...platformIdData,
           },
         })
-        .catch(() => {});
+        .catch(e => console.error(`[ArtistCache] upsert failed for "${name}" (${platform}):`, e.message));
     })
   );
 };
@@ -538,6 +565,7 @@ export const backgroundEnrichTracks = async (
   // Genre enrichment can be needed even when all audio features are already cached
   // (e.g. ArtistCache was cleared independently of TrackCache).
   if (tracks.length === 0 && uniqueMissedArtists.length === 0) return;
+  console.log(`[Enrichment] Starting background enrichment: ${tracks.length} track(s), ${uniqueMissedArtists.length} artist(s) — platforms: ${[...new Set([...tracks.map(t => t.platform), ...uniqueMissedArtists.map(a => a.platform)])].join(', ')}`);
   tracks.forEach(t => enrichingIds.add(t.platformId));
 
   try {
@@ -547,11 +575,46 @@ export const backgroundEnrichTracks = async (
     // Only tracks with a resolved Spotify ID can be submitted to ReccoBeats.
     // Tracks with no ISRC (or failed lookups) skip audio feature enrichment — displayed gracefully.
     const tracksWithSpotifyId = tracks.filter(t => t.spotifyId !== null);
-    const spotifyIds = tracksWithSpotifyId.map(t => t.spotifyId as string);
+    const resolvedSpotifyIds   = tracksWithSpotifyId.map(t => t.spotifyId as string);
+
+    // Secondary cache check: the initial readEnrichmentCache only queries by platform native ID
+    // and ISRC. A row cached by Spotify (spotifyId present, isrc null) is invisible to that
+    // query for a Tidal track that shares the same recording. Now that ISRC lookup has resolved
+    // each track to a spotifyId, re-check whether any of those spotifyIds are already in the DB.
+    // If they are, backfill the ISRC + native platform ID onto the existing row and skip
+    // ReccoBeats — the features are already there.
+    const alreadyCachedRows = resolvedSpotifyIds.length > 0
+      ? await prisma.trackCache.findMany({
+          where:  { spotifyId: { in: resolvedSpotifyIds } },
+          select: { spotifyId: true, isrc: true },
+        })
+      : [];
+
+    const alreadyCachedSpotifyIds = new Set(alreadyCachedRows.map(r => r.spotifyId).filter(Boolean) as string[]);
+
+    for (const row of alreadyCachedRows) {
+      if (!row.spotifyId) continue;
+      const track = tracksWithSpotifyId.find(t => t.spotifyId === row.spotifyId);
+      if (!track) continue;
+      // Merge ISRC and native platform ID onto the existing row so future cache reads
+      // can find it by both identifiers without needing a secondary spotifyId lookup.
+      const patch: Record<string, any> = {};
+      if (!row.isrc && track.isrc) patch.isrc = track.isrc;
+      if (track.idField !== 'spotifyId') patch[track.idField] = track.platformId;
+      if (Object.keys(patch).length > 0) {
+        prisma.trackCache
+          .update({ where: { spotifyId: row.spotifyId }, data: patch })
+          .catch(e => console.error('[Enrichment] TrackCache backfill (secondary check) failed:', e.message));
+      }
+    }
+
+    // Only send to ReccoBeats the tracks whose spotifyId was not already in the DB.
+    const tracksForRecco = tracksWithSpotifyId.filter(t => !alreadyCachedSpotifyIds.has(t.spotifyId!));
+    const spotifyIds     = tracksForRecco.map(t => t.spotifyId as string);
 
     // Reverse map: spotifyId → track object (for Phase 2 to look up the full track).
     const spotifyIdToTrack: Record<string, EnrichmentTrack> = {};
-    tracksWithSpotifyId.forEach(t => { spotifyIdToTrack[t.spotifyId as string] = t; });
+    tracksForRecco.forEach(t => { spotifyIdToTrack[t.spotifyId as string] = t; });
 
     // Phase 1: ReccoBeats ID lookup + Last.fm genres in parallel.
     const [reccoBeatsIdMap, genreResults] = await Promise.all([

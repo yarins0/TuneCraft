@@ -121,6 +121,13 @@ GET /playlists/:userId/:playlistId/tracks
 
 **Cross-platform deduplication:** `TrackCache` holds one row per unique recording, not one row per platform track entry. The row is keyed by ISRC when available, so if a song is loaded on Spotify first and later on SoundCloud, ReccoBeats is never called a second time — the existing features are returned immediately and the SoundCloud ID is backfilled onto the existing row.
 
+| | TrackCache | ArtistCache |
+|---|---|---|
+| Cross-platform read hit | Found via `isrc` in the OR query | Found via `normalizedName` (lowercase artist name) |
+| Backfill native ID on hit | `tidalId` / `soundcloudId` written to row fire-and-forget | `tidalArtistId` / `soundcloudArtistId` written to row fire-and-forget |
+| Secondary cache check | After ISRC → Spotify ID resolution, re-checks DB by `spotifyId` before calling ReccoBeats — avoids a redundant API call when a Spotify-sourced row exists without an ISRC | N/A — `normalizedName` covers the cross-platform hit on the initial read; no secondary check needed |
+| Write collision handling | If a `spotifyId` row exists without an ISRC and a new ISRC resolves to that same ID, the ISRC is merged onto the existing row rather than creating a duplicate | N/A — upsert key is `normalizedName`; the same artist from two platforms always lands on one row |
+
 **ReccoBeats batch cap:** The API accepts up to 40 track IDs per request. Requests are split into chunks of 40 before dispatch.
 
 **Prisma JSON columns:** `audioFeatures` is stored as JSON. After retrieval it may deserialize as a string. All consumers guard with:

@@ -43,6 +43,55 @@ Tasks are divided into independent agents — each agent owns a separate slice o
 
 ---
 
+## A8 · `buildArtistGenreMap` hard-codes per-platform artist ID columns
+
+**What:** `buildArtistGenreMap` indexes the genre map by manually listing every platform's artist ID column name:
+```ts
+if (row.spotifyArtistId)    map[row.spotifyArtistId]    = genres;
+if (row.tidalArtistId)      map[row.tidalArtistId]      = genres;
+if (row.soundcloudArtistId) map[row.soundcloudArtistId] = genres;
+```
+Adding a new platform requires editing this function. `artistCacheIdField()` is already the correct registry (Platform → column name) — `buildArtistGenreMap` just doesn't use it.
+
+**Why:** Platform-agnosticism is a first-class requirement across the project. Every file that breaks it becomes a maintenance trap — the next engineer adding Apple Music will have to hunt for all such lists.
+
+**Root cause (if known):** The function was written to index by all known platform columns before the `artistCacheIdField` registry was promoted as the single source of truth.
+
+**What to change:**
+- `server/src/lib/enrichment.ts` — derive the list of known artist ID columns from `artistCacheIdField` instead of hard-coding them. Add a constant (e.g. `ALL_ARTIST_ID_FIELDS`) built by calling `artistCacheIdField` for all known `Platform` values, then replace the three hard-coded `if` lines in `buildArtistGenreMap` with a loop over that constant. When a new platform is registered in `artistCacheIdField`, the map indexing updates automatically.
+
+**Note:** `spotifyId`, `resolveIsrcToSpotifyIds`, and `fetchReccoBeatsIds` are intentionally Spotify-named — ReccoBeats only accepts Spotify IDs. Those are external API constraints, not platform leaks.
+
+**Effort:** XS
+**Priority:** P2 (maintainability — no user-visible impact today, but blocks clean new-platform additions)
+
+---
+
+## ~~A7 · Backfill platform artist ID on ArtistCache cross-platform hit~~ ✅ DONE
+
+**What was done:** Inside `buildArtistGenreMap`, in the `normalizedName` cross-platform hit block, added a fire-and-forget `prisma.artistCache.update` that writes the requesting platform's artist ID column (`tidalArtistId`, `soundcloudArtistId`, etc.) onto the existing row when it is still null. Mirrors the identical pattern already present in `buildAudioFeaturesMap` for TrackCache. Future requests for the same artist now resolve via Strategy 1 (per-platform ID column) instead of always falling through to the slower Strategy 3 (normalizedName scan).
+
+**File changed:** `server/src/lib/enrichment.ts`
+
+---
+
+## A6 · Remove legacy `artistId` column from ArtistCache
+
+**What:** `ArtistCache.artistId` is redundant — it stores the platform-native artist ID of whichever platform first created the row, which is now also stored in the dedicated per-platform column (`spotifyArtistId`, `tidalArtistId`, `soundcloudArtistId`). The column exists only as a backward-compatibility shim for rows written before A2 added per-platform columns.
+
+**Why:** The legacy field keeps three pieces of dead code alive: a Strategy 2 DB lookup in `buildArtistCacheOrConditions`, an extra `map[row.artistId]` index in `buildArtistGenreMap`, and an `{ artistId: id }` upsert fallback in `persistArtistGenres`. Removing it simplifies the pipeline and makes the schema self-consistent.
+
+**What to change:**
+1. **Migration** — `server/prisma/migrations/` — for every ArtistCache row, read `artistId` + `platform` and write the value into the matching platform column if that column is still null (e.g. `platform = SPOTIFY` → set `spotifyArtistId = artistId`). This backfills all pre-A2 rows.
+2. `server/src/lib/enrichment.ts` — remove Strategy 2 block from `buildArtistCacheOrConditions` (lines ~94–96); remove `map[row.artistId]` from `buildArtistGenreMap` (line ~121); remove the `{ artistId: id }` fallback in `persistArtistGenres` (line ~485); remove `artistId` from the `create` payload.
+3. `server/prisma/schema.prisma` — mark `artistId` as optional (`String?`) first, then drop it in a follow-up once the migration confirms no rows depend on it.
+
+**Effort:** S
+**Priority:** P2 (cleanup — no user-visible impact, but removes dead code and schema noise)
+**Depends on:** A2 (already done — per-platform columns exist)
+
+---
+
 # Agent B — Client / UI
 > Owns: `client/src/components/TrackRow.tsx`, `client/src/pages/PlaylistDetail.tsx`
 > Work these in order — search bar depends on album being on the track object.
@@ -60,6 +109,43 @@ Tasks are divided into independent agents — each agent owns a separate slice o
 **What was done:** Added `searchQuery` state that resets on playlist navigation. Added a `filteredTracks` memo (returns `{ track, index }` tuples to preserve original indices for drag/jump/duplicate highlighting). Added a search input above the track list. Added an empty-search state. The track list now renders from `filteredTracks` — case-insensitive match across name, artist, and albumName.
 
 **File changed:** `client/src/pages/PlaylistDetail.tsx`
+
+---
+
+## A5 · Genres missing on first Tidal load — Last.fm succeeds after Spotify warms cache
+
+**What:** Loading a Tidal playlist shows most tracks without genres. Loading the exact same tracks on Spotify populates the ArtistCache, and on the next Tidal load the cross-platform `normalizedName` lookup finds those rows and genres appear. This confirms the cache read path works — the problem is that the **initial Last.fm fetch for Tidal artists either fails silently or its results are never surfaced to the client**.
+
+**Why:** Genres stay missing on first Tidal load. Users only see them after accidentally loading the same playlist on Spotify — a silent data gap they have no way to work around.
+
+**What's ruled out:** Compound artist names (user confirmed Tidal shows the same single artist name as Spotify for every track — the names sent to Last.fm are identical).
+
+**Root cause (needs investigation):** The two most likely failure points are:
+1. **Last.fm returns empty for Tidal artists** — even with identical names, something in the request path could differ (e.g. Unicode normalisation, invisible characters in Tidal API responses). Add a `console.log` in `fetchLastFmArtistTags` to print the exact name string and the response before returning.
+2. **Genres are persisted but the polling endpoint never surfaces them** — `persistArtistGenres` saves rows successfully, but the `/genres` polling endpoint looks up by `normalizedName`. If the `normalizedName` on the saved row doesn't match what the client sends in the poll (e.g. due to character encoding differences between the `EnrichmentTrack.artistName` and the `PlatformTrack.artist` field used by the client), the poll returns nothing. Add logging in `persistArtistGenres` to print what `normalizedName` is being saved.
+
+**What to change:**
+- `server/src/lib/enrichment.ts` — add temporary diagnostic logs in `fetchLastFmArtistTags` (print name + raw response) and in `persistArtistGenres` (print normalizedName being saved). Use the logs to confirm which failure point applies, then fix accordingly.
+
+**Effort:** XS (diagnosis) → S (fix, once root cause is confirmed)
+**Priority:** P1 (genres missing for Tidal tracks on first load — visible to users)
+
+---
+
+## B3 · Abort in-flight track load on navigate away
+
+**What:** When the user navigates back to the dashboard while a playlist is still loading, the HTTP requests to the server keep running until they complete — only the React state updates are suppressed. The `cancelled` flag stops state updates but never drops the network connection.
+
+**Why:** The server continues fetching all pages from the platform API (Tidal, Spotify) even after the user has left. On large playlists this wastes significant time and burns API rate-limit budget.
+
+**Root cause (if known):** `usePlaylistTracks` sets `cancelled = true` in the effect cleanup but never calls `abort()` on the underlying `fetch()`. The `fetchTracksPage` function has no `signal` parameter so the browser cannot cancel the request.
+
+**What to change:**
+- `client/src/api/tracks.ts` — add optional `signal?: AbortSignal` parameter to `fetchTracksPage`; pass it to `fetch()` as `{ signal }`
+- `client/src/hooks/usePlaylistTracks.ts` — create an `AbortController` inside the `useEffect`; pass `controller.signal` to all `fetchTracksPage` calls; call `controller.abort()` in the cleanup (alongside the existing `cancelled = true`); guard catch blocks against `AbortError` so intentional cancellation doesn't surface as an error state
+
+**Effort:** S
+**Priority:** P1
 
 ---
 
@@ -88,34 +174,67 @@ Tasks are divided into independent agents — each agent owns a separate slice o
 
 ---
 
-## C3 · Tidal Liked Songs: pagination is fundamentally broken — ~83 tracks missing
-
-**What:** `GET /userCollectionTracks/me/relationships/items` (JSON:API) does not support reliable pagination. For collections where many tracks were bulk-imported (they share the same `addedAt` timestamp), pages overlap and skip, so only ~411/494 tracks load. The current implementation terminates correctly (no infinite loop) but silently drops ~17% of tracks.
+## ~~C3 · Tidal Liked Songs: pagination is fundamentally broken — ~83 tracks missing~~ ✅ SUBSTANTIALLY FIXED (3 tracks still missing — see below)
 
 **Root cause (confirmed):**
-Tidal's Liked Songs endpoint sorts by `addedAt` timestamp and generates cursors from that field. When many tracks share identical `addedAt` values (bulk import creates this), the cursor position is non-deterministic — each page request with the same cursor can return a different subset of tracks at that timestamp boundary. This causes simultaneous page overlap (duplicates) and skipping.
+Tidal's Liked Songs endpoint (`GET /userCollectionTracks/me/relationships/items`) sorts by `addedAt` and generates cursors from that field. When many tracks share identical `addedAt` values (bulk import), the cursor boundary is **deterministic, not random** — the same tracks are skipped on every single pass in the same sort order. `page[offset]` is silently ignored; `page[size]` does not exist in the OpenAPI spec (page size is server-hardcoded at 20 items).
 
-**Three approaches tried — all failed:**
+**What was tried and why each approach failed:**
 
-1. **`page[offset]` pagination** — `page[offset]` is silently ignored on this endpoint. Every request returns the same first 20 tracks regardless of offset value. Causes an infinite load loop (the original bug).
+1. **`page[offset]`** — silently ignored, returns page 1 every time. Infinite loop.
+2. **Single-pass cursor + client-side dedup** — terminates but drops ~83 tracks deterministically. Result: 411/494.
+3. **Multi-pass with same sort order** — all 3 passes skip the exact same 83 tracks. Still 411/494.
+4. **Server-side all-pages with no rate-limit back-off** — hit Tidal 429 before completing. Never loads.
 
-2. **Cursor pagination with client-side dedup** — Terminates correctly. Removes duplicates (no false positives on genuinely unique tracks). But the skipping problem means ~83 tracks that are *not* duplicates are never returned by any page. Result: 411/494 tracks loaded. User confirmed: "only 411/494 were loaded, all the rest are the duplicates that were removed but the original had 494 different tracks."
+**What worked:**
+Two passes with **opposite sort orders** (`sort=-addedAt` newest-first, then `sort=addedAt` oldest-first), combined with server-side dedup across both passes. Tracks stranded at a cursor boundary in newest-first order sit in the middle of the sequence in oldest-first order and are returned normally. Recovered 80/83 missing tracks.
 
-3. **Server-side all-pages fetch in a single request** — Fetches all pages in a loop before returning, with dedup applied to the full set. Terminates but hits Tidal's rate limits for large collections before all pages load. User confirmed: "the liked playlist on tidal bashed the rate limit too much, it never loads."
+**Current state:** `fetchLikedTracks` runs 2 full server-side page loops before returning — one pass per sort order. Results are deduped by track ID across both passes. A 5-minute in-memory result cache (`likedTracksCache`, keyed by uid) makes repeat navigations instant. 3 tracks remain missing — they happen to sit at a cursor boundary in **both** sort orders simultaneously.
 
-**Current state:** Cursor pagination without dedup (approach 2, dedup removed). Terminates. Shows ~411/494 tracks for bulk-imported collections. No infinite loop.
+**The remaining 3 tracks:**
+They are at a dense `addedAt` timestamp boundary that happens to be at a page edge in both ascending and descending order. A 3rd pass with a completely different sort key (e.g. `sort=title` or `sort=artists.name`) would shift the cursor boundaries to unrelated positions and likely recover them. Not implemented — 3/494 is an acceptable residual given the complexity cost.
 
-**What a future fix should investigate:**
-- `GET /userCollectionTracks/me` (non-relationships endpoint) — may support a different sort order or offset param
-- Tidal developer forum / changelog for any new pagination parameters added to the likes endpoint
-- Whether `page[size]` larger than 50 is accepted (reducing total requests reduces rate-limit exposure)
-- Server-side all-pages with exponential back-off and a longer timeout budget (currently Tidal returns 429 before completion on large collections)
+**OpenAPI spec findings (from tidal-music/tidal-sdk-web on GitHub):**
+- `sort` accepts: `addedAt`, `-addedAt` (default), `title`, `-title`, `artists.name`, `-artists.name`, `albums.title`, `-albums.title`, `duration`, `-duration`
+- `page[cursor]` is the only pagination parameter — no offset, no page number, no page size control
+- `GET /userCollectionTracks/me` (without `/relationships/items`) returns collection metadata only, not a track listing
 
-**Files to change:** `server/src/lib/platform/tidal.ts` — `fetchLikedTracks` method (~line 370)
+**Files changed:** `server/src/lib/platform/tidal.ts` — `fetchLikedTracks` method
 
-**Effort:** M (needs Tidal API research + testing with a 400+ track liked collection)
-**Priority:** P1 (known data loss — user sees fewer tracks than exist)
-**Blocked by:** Need to find a Tidal API endpoint or pagination mode that works for this collection type
+---
+
+## B4 · Add "Remove account" button to PlatformSwitcherSidebar
+
+**What:** The account list in the sidebar has no way to disconnect a platform account. Users who connect Tidal or SoundCloud can never remove it without manually clearing localStorage. A destructive "Remove" button is needed on each account card (except the currently active account — removing the active account should either be blocked or require switching first).
+
+**Why:** Without this, accidentally connecting a wrong account is permanent from the user's perspective. Required before public launch.
+
+**What to change:**
+- `client/src/components/PlatformSwitcherSidebar.tsx` — add a remove button (destructive style, icon-only or small label) to each non-active account card. On click: show an inline confirmation ("Remove Tidal account?") → on confirm, call the new DELETE endpoint, remove the account from local state, and if no accounts remain redirect to `/login`.
+- `server/src/routes/auth.ts` — add `DELETE /auth/:userId` route. Deletes the `User` row for the given `userId`. Returns 204. Does not affect other platform accounts for the same browser session.
+- `client/src/utils/accounts.ts` — add a `removeAccount(userId)` helper that calls the DELETE route and removes the entry from localStorage.
+
+**Effort:** S
+**Priority:** P1 (required before publish — users must be able to disconnect accounts)
+
+---
+
+## C4 · Thread AbortSignal into PlatformAdapter.fetchPlaylistTracks
+
+**What:** The server-side `req.on('close')` AbortController (added in C1) fires when the client drops the connection, but its signal is not passed into `adapter.fetchPlaylistTracks()`. So even when the browser cancels the request, the platform API calls (Tidal pagination loop, Spotify page fetches) keep running to completion.
+
+**Why:** Without this, aborting on the client (B3) stops the HTTP response being delivered but doesn't stop the server from continuing to call Tidal/Spotify. On a 500-track playlist this can mean 10+ outbound API calls that no one will ever use, burning rate-limit budget.
+
+**Root cause (if known):** `PlatformAdapter` interface has no `signal` parameter on `fetchPlaylistTracks`. The deferred note in C1 says: "doing so requires adding an optional signal parameter to the `PlatformAdapter` interface and all adapter implementations".
+
+**What to change:**
+- `server/src/lib/platform/types.ts` — add `signal?: AbortSignal` to `fetchPlaylistTracks` signature on the `PlatformAdapter` interface
+- `server/src/lib/platform/spotify.ts`, `tidal.ts`, `soundcloud.ts` — accept and forward the signal to `requestWithRetry` calls inside `fetchPlaylistTracks`
+- `server/src/routes/playlists.ts` — pass the existing `controller.signal` (from the `req.on('close')` controller) into `adapter.fetchPlaylistTracks()`
+
+**Effort:** S
+**Priority:** P2 (nice-to-have — B3 already fixes the user-visible symptom)
+**Depends on:** B3
 
 ---
 

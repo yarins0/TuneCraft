@@ -194,6 +194,12 @@ export class TidalAdapter implements PlatformAdapter {
   // need the real running total to display an accurate "X out of Y" counter in the UI.
   private playlistCursorCache = new Map<string, { cursor: string; accumulated: number; expiresAt: number }>();
 
+  // Full liked-tracks result cache, keyed by uid.
+  // fetchLikedTracks fetches every page server-side before returning, which takes a few
+  // seconds for large libraries. Caching the result means navigating away and back to
+  // Liked Songs is instant for the next 5 minutes instead of triggering another full fetch.
+  private likedTracksCache = new Map<string, { tracks: PlatformTrack[]; total: number; expiresAt: number }>();
+
   // Builds the cache key that maps a page request to its Tidal cursor.
   private cursorKey = (uid: string, playlistId: string, page: number) =>
     `${uid}:${playlistId}:${page}`;
@@ -207,6 +213,9 @@ export class TidalAdapter implements PlatformAdapter {
       }
       for (const [key, entry] of this.playlistCursorCache) {
         if (entry.expiresAt < now) this.playlistCursorCache.delete(key);
+      }
+      for (const [uid, entry] of this.likedTracksCache) {
+        if (entry.expiresAt < now) this.likedTracksCache.delete(uid);
       }
     }, 10 * 60 * 1000);
   }
@@ -620,57 +629,112 @@ export class TidalAdapter implements PlatformAdapter {
   ): Promise<{ tracks: PlatformTrack[]; total: number; hasMore: boolean }> {
     const { uid, cc } = decodeTidalToken(accessToken);
 
-    let cursor: string | null = null;
-    let accumulated = 0;
-    if (page > 0) {
-      const entry = this.playlistCursorCache.get(this.cursorKey(uid, 'liked', page));
-      if (!entry || entry.expiresAt < Date.now()) return { tracks: [], total: 0, hasMore: false };
-      cursor      = entry.cursor;
-      accumulated = entry.accumulated;
-      this.playlistCursorCache.delete(this.cursorKey(uid, 'liked', page));
+    // Return the cached result if it is still fresh. The full fetch takes a few seconds
+    // for large libraries; a 5-minute cache makes subsequent navigations to Liked Songs
+    // feel instant without showing stale data for more than a brief window.
+    const cached = this.likedTracksCache.get(uid);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { tracks: cached.tracks, total: cached.total, hasMore: false };
     }
 
-    const params: Record<string, any> = {
-      countryCode: cc,
-      'page[size]': 50,
-      include: 'items,items.artists,items.albums,items.albums.coverArt,items.genres',
-    };
-    if (cursor) params['page[cursor]'] = cursor;
+    // The page parameter satisfies the PlatformAdapter interface but is unused here.
+    // Tidal's cursor is derived from addedAt timestamps. When many tracks share the same
+    // addedAt value (e.g. bulk import), the cursor boundary is non-deterministic and
+    // consistently skips the same ~83 tracks in every pass with the same sort order.
+    //
+    // The fix: run two passes with opposite sort orders and take the union.
+    // - Pass 0: sort=-addedAt (newest first — Tidal's default)
+    // - Pass 1: sort=addedAt  (oldest first — cursor boundaries are at opposite positions)
+    //
+    // Tracks stranded at a boundary in newest-first order sit in the middle of the
+    // sequence in oldest-first order, where they are returned normally. The union of
+    // both passes covers the full collection.
+    //
+    // Source: Tidal OpenAPI spec confirms `sort` accepts `addedAt` / `-addedAt`,
+    // `-addedAt` is the server default, and there is no page[size] parameter
+    // (page size is always server-determined at 20 items).
+    const SORT_ORDERS = ['-addedAt', 'addedAt'] as const;
 
-    const response = await requestWithRetry(
-      'get',
-      `${TIDAL_OPENAPI}/userCollectionTracks/me/relationships/items`,
-      { headers: { Authorization: `Bearer ${accessToken}` }, params },
-      undefined, 3, 'Tidal'
-    );
+    const allRefs:     any[] = [];  // JSON:API relationship refs accumulated across both passes
+    const allIncluded: any[] = [];  // full resource objects embedded by the API, both passes
+    let total = 0;
 
-    const body     = response.data;
-    const included: any[] = body.included ?? [];
+    for (let pass = 0; pass < SORT_ORDERS.length; pass++) {
+      const sort = SORT_ORDERS[pass];
+      let cursor: string | null = null;
+      let pageCount = 0;
+      let passRefCount = 0;
 
-    const nextCursor: string | null = body.links?.meta?.nextCursor ?? null;
-    const newAccumulated = accumulated + (body.data ?? []).length;
+      // Pause between passes (not before the very first one) to let the rate-limit window reset.
+      if (pass > 0) await new Promise(resolve => setTimeout(resolve, 1000));
 
-    if (nextCursor) {
-      this.playlistCursorCache.set(this.cursorKey(uid, 'liked', page + 1), {
-        cursor:      nextCursor,
-        accumulated: newAccumulated,
-        expiresAt:   Date.now() + 10 * 60 * 1000,
-      });
+      do {
+        const params: Record<string, any> = {
+          countryCode: cc,
+          sort,
+          include: 'items,items.artists,items.albums,items.albums.coverArt,items.genres',
+        };
+        if (cursor) params['page[cursor]'] = cursor;
+
+        const response = await requestWithRetry(
+          'get',
+          `${TIDAL_OPENAPI}/userCollectionTracks/me/relationships/items`,
+          { headers: { Authorization: `Bearer ${accessToken}` }, params },
+          undefined, 3, 'Tidal'
+        );
+
+        const body = response.data;
+        pageCount++;
+        passRefCount += (body.data ?? []).length;
+
+        // Read meta.total from page 1 of pass 0 only — it is absent on all other pages.
+        if (pass === 0 && pageCount === 1) {
+          total = body.meta?.total ?? 0;
+        }
+
+        allRefs.push(...(body.data ?? []));
+        allIncluded.push(...(body.included ?? []));
+
+        cursor = body.links?.meta?.nextCursor ?? null;
+
+        // Wait between pages so we don't exhaust Tidal's rate limit window.
+        if (cursor) await new Promise(resolve => setTimeout(resolve, 300));
+
+      } while (cursor);
+
+      console.log(`[Tidal] fetchLikedTracks: pass ${pass + 1}/2 (sort=${sort}) — ${pageCount} pages, ${passRefCount} refs`);
     }
 
-    const total: number = body.meta?.total ?? newAccumulated;
+    console.log(`[Tidal] fetchLikedTracks: all passes done — ${allRefs.length} total refs before dedup`);
 
-    const tracksMap = buildIncludedMap(included, 'tracks');
-    const refs: any[] = body.data ?? [];
-    const rawTracks: any[] = refs
-      .filter(ref => ref.type === 'tracks')
+    // Deduplicate by track ID. Because cursors are generated from addedAt timestamps,
+    // the same track can appear on two consecutive pages when many tracks share a
+    // timestamp boundary. A Set ensures each ID is counted only once.
+    const seenIds = new Set<string>();
+    const uniqueRefs = allRefs.filter(ref => {
+      if (ref.type !== 'tracks') return false;
+      const key = String(ref.id);
+      if (seenIds.has(key)) return false;
+      seenIds.add(key);
+      return true;
+    });
+
+    // Build lookup maps from the combined included array across all pages.
+    // buildIncludedMap groups resources by type — passing the full allIncluded array
+    // ensures a track's artist/album/artwork is found even if it was embedded on a
+    // different page than the track reference itself.
+    const tracksMap   = buildIncludedMap(allIncluded, 'tracks');
+    const artistsMap  = buildIncludedMap(allIncluded, 'artists');
+    const albumsMap   = buildIncludedMap(allIncluded, 'albums');
+    const artworksMap = buildIncludedMap(allIncluded, 'artworks');
+    const genresMap   = buildIncludedMap(allIncluded, 'genres');
+
+    const rawTracks: any[] = uniqueRefs
       .map(ref => tracksMap.get(String(ref.id)))
       .filter(Boolean);
 
-    const artistsMap  = buildIncludedMap(included, 'artists');
-    const albumsMap   = buildIncludedMap(included, 'albums');
-    const artworksMap = buildIncludedMap(included, 'artworks');
-    const genresMap   = buildIncludedMap(included, 'genres');
+    // Fall back to the actual deduplicated count if meta.total was absent.
+    if (total === 0) total = rawTracks.length;
 
     const enrichmentInput: EnrichmentTrack[] = rawTracks.map((t: any) => {
       const artistRef  = t.relationships?.artists?.data?.[0];
@@ -700,7 +764,12 @@ export class TidalAdapter implements PlatformAdapter {
       buildTrackV2(t, artistsMap, albumsMap, artworksMap, genresMap, audioFeaturesMap, artistGenreMap)
     );
 
-    return { tracks, total, hasMore: !!nextCursor };
+    // Cache the full result before returning. Any subsequent request within the next
+    // 5 minutes (e.g. the user navigates away and back) hits the cache instead of
+    // re-fetching all pages from Tidal.
+    this.likedTracksCache.set(uid, { tracks, total, expiresAt: Date.now() + 5 * 60 * 1000 });
+
+    return { tracks, total, hasMore: false };
   }
 
   // Fetches all tracks in a playlist with minimal data — no audio-feature enrichment.
