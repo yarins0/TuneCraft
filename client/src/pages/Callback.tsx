@@ -12,14 +12,17 @@ export default function Callback() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const userId = params.get('userId');
+    const userId       = params.get('userId');
     const platformUserId = params.get('platformUserId');
-    const platform = params.get('platform') ?? 'SPOTIFY';
-    const displayName = params.get('displayName') ?? '';
+    const platform     = params.get('platform') ?? 'SPOTIFY';
+    const displayName  = params.get('displayName') ?? '';
+    const userToken    = params.get('userToken') ?? undefined;
 
     if (userId && platformUserId) {
       // Merge this account into the accounts list (add or update).
-      upsertAccount({ userId, platformUserId, platform, displayName });
+      // userToken is the HMAC-signed userId from the server — stored here so every
+      // subsequent API call can attach it as X-User-Token for server-side verification.
+      upsertAccount({ userId, platformUserId, platform, displayName, userToken });
       // Make the freshly-logged-in account the active one.
       setActiveAccount(userId);
       navigate('/dashboard');

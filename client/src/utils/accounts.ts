@@ -10,8 +10,9 @@
 export interface StoredAccount {
   userId: string;       // internal DB cuid
   platformUserId: string; // platform's own user ID (Spotify/SoundCloud ID)
-  platform: string;     // 'SPOTIFY' | 'SOUNDCLOUD'
+  platform: string;     // 'SPOTIFY' | 'SOUNDCLOUD' | 'TIDAL'
   displayName: string;
+  userToken?: string;   // HMAC-SHA256 of userId, signed server-side — sent as X-User-Token on every API call
 }
 
 // Reads all stored accounts from localStorage.
@@ -45,14 +46,6 @@ export function upsertAccount(account: StoredAccount): void {
   }
 
   saveAccounts(accounts);
-
-  // Keep legacy 'userId' / 'platformUserId' keys in sync so existing code
-  // that reads them directly continues to work.
-  const activeId = localStorage.getItem('activeUserId') ?? account.userId;
-  if (activeId === account.userId) {
-    localStorage.setItem('userId', account.userId);
-    localStorage.setItem('platformUserId', account.platformUserId);
-  }
 }
 
 // Returns the currently active account.
@@ -98,14 +91,10 @@ export function setActiveAccount(userId: string): void {
   if (!account) return;
 
   localStorage.setItem('activeUserId', userId);
-  localStorage.setItem('userId', account.userId);
-  localStorage.setItem('platformUserId', account.platformUserId);
 
-  // Mirror to sessionStorage so this tab's getUserId() sees the update immediately.
+  // Mirror to sessionStorage so this tab sees the switch immediately.
   // sessionStorage is per-tab so other open tabs are not affected.
   sessionStorage.setItem('activeUserId', userId);
-  sessionStorage.setItem('userId', account.userId);
-  sessionStorage.setItem('platformUserId', account.platformUserId);
 }
 
 // Activates an account for the current tab only, without touching localStorage.
@@ -122,9 +111,6 @@ export function setSessionAccount(userId: string): void {
   if (!account) return;
 
   sessionStorage.setItem('activeUserId', userId);
-  // Mirror the legacy keys so getUserId() / getPlatformUserId() picks them up.
-  sessionStorage.setItem('userId', account.userId);
-  sessionStorage.setItem('platformUserId', account.platformUserId);
 }
 
 // Removes a single account from the stored list and cleans up related keys.
@@ -141,8 +127,15 @@ export async function removeAccount(userId: string): Promise<void> {
 
   // Fire-and-forget the server deletion; if it fails we still clean up locally
   // so the user isn't stuck. A 404 (row already gone) is also fine.
+  // Must send the X-User-Token for the account being removed, not the currently active one,
+  // since the user may be removing a non-active account.
+  const allAccounts = getAccounts();
+  const accountToDelete = allAccounts.find(a => a.userId === userId);
   try {
-    await fetch(`${API_BASE_URL}/auth/${userId}`, { method: 'DELETE' });
+    await fetch(`${API_BASE_URL}/auth/${userId}`, {
+      method: 'DELETE',
+      headers: accountToDelete?.userToken ? { 'X-User-Token': accountToDelete.userToken } : {},
+    });
   } catch {
     // Network error — proceed with local cleanup regardless
   }
@@ -173,4 +166,15 @@ export function clearAccounts(): void {
   localStorage.removeItem('activeUserId');
   localStorage.removeItem('userId');
   localStorage.removeItem('platformUserId');
+}
+
+// Returns the X-User-Token header for the currently active account.
+// Every API call spreads these headers into its fetch options so the server can verify
+// that the caller owns the userId in the request URL.
+// Returns an empty object if no account is active or the account has no token yet
+// (old sessions pre-HMAC) — the server will return 401, prompting re-login.
+export function getAuthHeaders(): Record<string, string> {
+  const account = getActiveAccount();
+  if (!account?.userToken) return {};
+  return { 'X-User-Token': account.userToken };
 }

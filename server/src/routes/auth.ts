@@ -1,10 +1,18 @@
 import { Router } from 'express';
+import { createHmac } from 'crypto';
 import { Resend } from 'resend';
 import prisma from '../lib/prisma';
 import { getAdapter } from '../lib/platform/registry';
 import { TidalAdapter } from '../lib/platform/tidal';
 import type { Platform } from '../lib/platform/types';
 import { refreshTokenMiddleware } from '../middleware/refreshToken';
+
+// Signs a userId with the server's HMAC secret, producing a token the client stores and
+// sends with every request. The server verifies this token in refreshTokenMiddleware before
+// processing any authenticated route — preventing one user from acting as another by merely
+// knowing their userId cuid.
+const signUserId = (userId: string): string =>
+  createHmac('sha256', process.env.HMAC_SECRET!).update(userId).digest('hex');
 
 // Resend client — initialised once and reused for all outgoing emails.
 // The API key is loaded from .env; if missing, email sending will fail gracefully
@@ -72,7 +80,7 @@ router.get('/spotify/callback', async (req, res) => {
     });
 
     res.redirect(
-      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}&platform=${platform}&displayName=${encodeURIComponent(user.displayName ?? '')}`
+      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}&platform=${platform}&displayName=${encodeURIComponent(user.displayName ?? '')}&userToken=${signUserId(user.id)}`
     );
   } catch (error) {
     console.error('Spotify auth error:', error);
@@ -120,7 +128,7 @@ router.get('/soundcloud/callback', async (req, res) => {
     });
 
     res.redirect(
-      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}&platform=${platform}&displayName=${encodeURIComponent(user.displayName ?? '')}`
+      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}&platform=${platform}&displayName=${encodeURIComponent(user.displayName ?? '')}&userToken=${signUserId(user.id)}`
     );
   } catch (error) {
     console.error('SoundCloud auth error:', error);
@@ -181,7 +189,7 @@ router.get('/tidal/callback', async (req, res) => {
     });
 
     res.redirect(
-      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}&platform=${platform}&displayName=${encodeURIComponent(user.displayName ?? '')}`
+      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}&platform=${platform}&displayName=${encodeURIComponent(user.displayName ?? '')}&userToken=${signUserId(user.id)}`
     );
   } catch (error) {
     console.error('Tidal auth error:', error);
