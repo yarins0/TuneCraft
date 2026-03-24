@@ -121,7 +121,7 @@ export default function PlaylistDetail() {
     reshuffleLoading,
     handleSaveReshuffle,
     handleDisableReshuffle,
-  } = useReshuffleSchedule({ playlistId, isOwner, name, onSuccess: showSuccess, onError: showError });
+  } = useReshuffleSchedule({ playlistId, isOwner, name, platform: playlistPlatform, onSuccess: showSuccess, onError: showError });
 
   // ─── Track editing and playlist persistence ───────────────────────────────────
   const {

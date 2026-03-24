@@ -29,14 +29,15 @@ export const enableReshuffle = async (
     artistSpread: boolean;
     genreSpread: boolean;
     chronological: boolean;
-  }
+  },
+  platform?: string
 ): Promise<{ schedule: ReshuffleSchedule }> => {
   const response = await fetch(
     `${API_BASE_URL}/reshuffle/${userId}/${playlistId}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playlistName: name, intervalDays, algorithms }),
+      body: JSON.stringify({ playlistName: name, intervalDays, algorithms, platform }),
     }
   );
   if (!response.ok) throw new Error('Failed to enable auto-reshuffle');

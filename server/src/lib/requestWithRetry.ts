@@ -51,7 +51,7 @@ const sleepOrAbort = (ms: number, signal: AbortSignal): Promise<void> =>
 //   - On any other error: rethrows immediately (no silent swallowing).
 //   - After maxRetries exhausted: rethrows the last error.
 export const requestWithRetry = async (
-  method: 'get' | 'post' | 'put' | 'delete',
+  method: 'get' | 'post' | 'put' | 'delete' | 'patch',
   url: string,
   config: object,
   data?: any,
@@ -76,6 +76,7 @@ export const requestWithRetry = async (
       if (method === 'post')   return await axios.post(url, data, axiosConfig);
       if (method === 'put')    return await axios.put(url, data, axiosConfig);
       if (method === 'delete') return await axios.delete(url, axiosConfig);
+      if (method === 'patch')  return await axios.patch(url, data, axiosConfig);
     } catch (error: any) {
       // If axios cancelled the request because the AbortSignal fired, re-throw immediately
       // rather than treating it as a retryable error. axios wraps cancellations in a
