@@ -93,6 +93,8 @@ const buildTrack = (
 //   - replacePlaylistTracks sends the full track list in one PUT (no 100-item chunking)
 export class SoundCloudAdapter implements PlatformAdapter {
   readonly platform = 'SOUNDCLOUD' as const;
+  readonly trackCacheIdField  = 'soundcloudId';
+  readonly artistCacheIdField = 'soundcloudArtistId';
 
   // Builds the SoundCloud OAuth authorization URL.
   // The user is redirected here when clicking "Connect SoundCloud".
@@ -229,12 +231,30 @@ export class SoundCloudAdapter implements PlatformAdapter {
     return [...owned, ...uniqueLiked];
   }
 
-  // Fetches metadata for a single SoundCloud playlist by its numeric ID.
-  // Used when a user discovers a playlist they don't own.
+  // Fetches metadata for a single SoundCloud playlist.
+  // Accepts either a numeric playlist ID or a full SoundCloud URL (e.g. soundcloud.com/user/sets/name).
+  // When a URL is passed, SoundCloud's /resolve API translates the slug to a numeric ID first.
+  // This keeps all SoundCloud-specific resolution logic inside the adapter — the route layer
+  // calls fetchPlaylist uniformly regardless of whether the input is an ID or URL.
   async fetchPlaylist(accessToken: string, playlistId: string): Promise<PlatformPlaylist> {
+    let numericId = playlistId;
+
+    // URL slugs can't be used directly — resolve to a numeric ID first.
+    if (playlistId.startsWith('https://')) {
+      const { default: axios } = await import('axios');
+      const resolved = await axios.get('https://api.soundcloud.com/resolve', {
+        params: { url: playlistId },
+        headers: scAuthHeader(accessToken),
+      });
+      if (resolved.data.kind !== 'playlist') {
+        throw new Error('URL does not point to a SoundCloud playlist');
+      }
+      numericId = String(resolved.data.id);
+    }
+
     const response = await requestWithRetry(
       'get',
-      `https://api.soundcloud.com/playlists/${playlistId}`,
+      `https://api.soundcloud.com/playlists/${numericId}`,
       { headers: scAuthHeader(accessToken) },
       undefined,
       3,
@@ -256,10 +276,13 @@ export class SoundCloudAdapter implements PlatformAdapter {
   //
   // Audio features require an extra ISRC → Spotify ID lookup step (handled in backgroundEnrichTracks).
   // Tracks without an ISRC (many indie uploads) will have null audio features — graceful in the UI.
+  // signal is forwarded into both parallel requestWithRetry calls so both are cancelled
+  // simultaneously when the client drops the HTTP connection.
   async fetchPlaylistTracks(
     accessToken: string,
     playlistId: string,
-    page: number
+    page: number,
+    signal?: AbortSignal
   ): Promise<{ tracks: PlatformTrack[]; total: number }> {
     const limit = 50;
     const offset = page * limit;
@@ -272,7 +295,8 @@ export class SoundCloudAdapter implements PlatformAdapter {
         { headers: scAuthHeader(accessToken) },
         undefined,
         3,
-        'SoundCloud'
+        'SoundCloud',
+        signal
       ),
       requestWithRetry(
         'get',
@@ -283,7 +307,8 @@ export class SoundCloudAdapter implements PlatformAdapter {
         },
         undefined,
         3,
-        'SoundCloud'
+        'SoundCloud',
+        signal
       ),
     ]);
 
@@ -297,6 +322,7 @@ export class SoundCloudAdapter implements PlatformAdapter {
     const enrichmentInput: EnrichmentTrack[] = rawTracks.map((t: any) => ({
       platformId: scId(t.id),
       spotifyId: null,
+      idField: this.trackCacheIdField,
       artistId: scId(t.user.id),
       artistName: t.user.username,
       isrc: t.publisher_metadata?.isrc || undefined,
@@ -307,9 +333,6 @@ export class SoundCloudAdapter implements PlatformAdapter {
       await readEnrichmentCache(enrichmentInput);
 
     if (missedTracks.length > 0 || uniqueMissedArtists.length > 0) {
-      console.log(
-        `[SC] Fetching enrichment for ${missedTracks.length} uncached track(s) in background`
-      );
       backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
         console.error('[SC] Background enrichment error:', err)
       );
@@ -371,6 +394,7 @@ export class SoundCloudAdapter implements PlatformAdapter {
     const enrichmentInput: EnrichmentTrack[] = rawTracks.map((t: any) => ({
       platformId: scId(t.id),
       spotifyId: null,
+      idField: this.trackCacheIdField,
       artistId: scId(t.user.id),
       artistName: t.user.username,
       isrc: t.publisher_metadata?.isrc || undefined,
@@ -534,5 +558,17 @@ export class SoundCloudAdapter implements PlatformAdapter {
       // Any other error (network, 5xx, 403) — assume it still exists
       return true;
     }
+  }
+
+  // Accepts a SoundCloud playlist URL: soundcloud.com/username/sets/playlist-name
+  // The URL slug cannot be resolved to a numeric ID client-side, so we return a
+  // normalized https:// URL as a signal to the caller that server-side resolution
+  // via the SoundCloud /resolve?url=... endpoint is required.
+  extractPlaylistId(input: string): string | null {
+    const trimmed = input.trim();
+    const match = trimmed.match(
+      /(?:https?:\/\/)?(?:www\.)?soundcloud\.com\/([^/?#]+)\/sets\/([^/?#]+)/
+    );
+    return match ? `https://soundcloud.com/${match[1]}/sets/${match[2]}` : null;
   }
 }

@@ -70,6 +70,8 @@ const buildTrack = (
 // All Spotify-specific API details live here — routes and middleware only call the interface.
 export class SpotifyAdapter implements PlatformAdapter {
   readonly platform = 'SPOTIFY' as const;
+  readonly trackCacheIdField  = 'spotifyId';
+  readonly artistCacheIdField = 'spotifyArtistId';
 
   // Builds the Spotify OAuth authorization URL the user is redirected to when clicking "Connect".
   // The `show_dialog: true` flag forces the consent screen even if the user has logged in before.
@@ -215,10 +217,13 @@ export class SpotifyAdapter implements PlatformAdapter {
 
   // Fetches one page of tracks from a playlist, enriched with audio features and genres.
   // page=0 returns tracks 0–49, page=1 returns 50–99, and so on.
+  // signal is forwarded into requestWithRetry so the platform API call is cancelled
+  // immediately when the client drops the HTTP connection.
   async fetchPlaylistTracks(
     accessToken: string,
     playlistId: string,
-    page: number
+    page: number,
+    signal?: AbortSignal
   ): Promise<{ tracks: PlatformTrack[]; total: number }> {
     const limit = 50;
     const offset = page * limit;
@@ -232,7 +237,8 @@ export class SpotifyAdapter implements PlatformAdapter {
       },
       undefined,
       3,
-      'Spotify'
+      'Spotify',
+      signal
     );
 
     // Filter out null entries and non-track items (e.g. podcast episodes)
@@ -250,6 +256,7 @@ export class SpotifyAdapter implements PlatformAdapter {
     const enrichmentInput: EnrichmentTrack[] = rawTracks.map((t: any) => ({
       platformId: t.id,
       spotifyId: t.id,
+      idField: this.trackCacheIdField,
       artistId: t.artists[0].id,
       artistName: t.artists[0].name,
       isrc: t.external_ids?.isrc ?? undefined,
@@ -262,7 +269,6 @@ export class SpotifyAdapter implements PlatformAdapter {
     // Fire background enrichment for cache misses — don't block the response.
     // Features will be null on this load but arrive via the /features polling endpoint.
     if (missedTracks.length > 0 || uniqueMissedArtists.length > 0) {
-      console.log(`Fetching enrichment for ${missedTracks.length} uncached track(s) in background`);
       backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
         console.error('Background enrichment error:', err)
       );
@@ -318,6 +324,7 @@ export class SpotifyAdapter implements PlatformAdapter {
     const enrichmentInput: EnrichmentTrack[] = rawTracks.map((t: any) => ({
       platformId: t.id,
       spotifyId: t.id,
+      idField: this.trackCacheIdField,
       artistId: t.artists[0].id,
       artistName: t.artists[0].name,
       isrc: t.external_ids?.isrc ?? undefined,
@@ -328,7 +335,6 @@ export class SpotifyAdapter implements PlatformAdapter {
       await readEnrichmentCache(enrichmentInput);
 
     if (missedTracks.length > 0 || uniqueMissedArtists.length > 0) {
-      console.log(`Fetching enrichment for ${missedTracks.length} uncached track(s) in background`);
       backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
         console.error('Background enrichment error:', err)
       );
@@ -389,7 +395,13 @@ export class SpotifyAdapter implements PlatformAdapter {
     return tracks;
   }
 
-  // Creates a new empty playlist in the user's Spotify account.
+  // Creates a new empty playlist in the user's Spotify account and follows it.
+  //
+  // Why the follow call is necessary:
+  //   POST /v1/me/playlists creates the playlist but does not automatically add it
+  //   to the user's Spotify library sidebar. PUT /v1/playlists/{id}/followers is the
+  //   explicit "add to library" step — without it the playlist exists on Spotify but
+  //   is invisible until the user manually searches for it.
   async createPlaylist(
     accessToken: string,
     name: string,
@@ -404,10 +416,23 @@ export class SpotifyAdapter implements PlatformAdapter {
       'Spotify'
     );
 
-    return {
-      id: response.data.id,
-      ownerId: response.data.owner.id,
-    };
+    const { id, owner } = response.data;
+
+    // Follow the newly created playlist so it appears in the user's library.
+    // This call is fire-and-forget — a failure here is non-fatal since the playlist
+    // was created successfully; the user can always follow it manually from Spotify.
+    await requestWithRetry(
+      'put',
+      `https://api.spotify.com/v1/playlists/${id}/followers`,
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } },
+      { public: false },
+      3,
+      'Spotify'
+    ).catch(err =>
+      console.warn(`Spotify follow-playlist failed for ${id}:`, err.response?.status ?? err.message)
+    );
+
+    return { id, ownerId: owner.id };
   }
 
   // Replaces the entire content of a Spotify playlist with a new ordered track list.
@@ -499,5 +524,15 @@ export class SpotifyAdapter implements PlatformAdapter {
     } catch {
       return true; // network/5xx — assume it still exists
     }
+  }
+
+  // Accepts a Spotify playlist URL or a raw 22-character alphanumeric ID.
+  // Spotify IDs are always exactly 22 chars — no other format ambiguity exists.
+  extractPlaylistId(input: string): string | null {
+    const trimmed = input.trim();
+    const urlMatch = trimmed.match(/spotify\.com\/playlist\/([a-zA-Z0-9]+)/);
+    if (urlMatch) return urlMatch[1];
+    if (/^[a-zA-Z0-9]{22}$/.test(trimmed)) return trimmed;
+    return null;
   }
 }

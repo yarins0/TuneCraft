@@ -29,8 +29,9 @@ export const startCleanupCron = (): void => {
     const playlist = notDue[cleanupCursor];
     cleanupCursor = (cleanupCursor + 1) % notDue.length;
 
-    const accessToken = await getValidAccessToken(playlist.userId);
-    if (!accessToken) return;
+    const tokenResult = await getValidAccessToken(playlist.userId);
+    if (!tokenResult) return;
+    const { accessToken } = tokenResult;
 
     const adapter = getAdapter(playlist.platform as Platform);
     const inLibrary = await adapter.playlistInLibrary(accessToken, playlist.platformPlaylistId);

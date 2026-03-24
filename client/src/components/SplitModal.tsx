@@ -91,7 +91,7 @@ function TrackActionPopover({
           <button
             type="button"
             onClick={() => { onRemove(); onClose(); }}
-            className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+            className="w-full text-left px-3 py-2 text-sm text-[var(--color-warning)] hover:bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] hover:shadow-[0_0_8px_var(--color-warning-glow)] rounded-lg transition-colors"
           >
             🗑️ Remove
           </button>

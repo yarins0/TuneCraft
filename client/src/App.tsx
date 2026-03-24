@@ -3,10 +3,13 @@ import Login from './pages/Login';
 import Callback from './pages/Callback';
 import Dashboard from './pages/Dashboard';
 import PlaylistDetail from './pages/PlaylistDetail.tsx';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import Contact from './pages/Contact';
+import { getActiveAccount } from './utils/accounts';
 
-// Checks if a userId exists in session storage.
+// Returns true if at least one account is stored and active.
 // Used to protect routes that require authentication.
-const isAuthenticated = () => !!localStorage.getItem('userId');
+const isAuthenticated = () => !!getActiveAccount();
 
 // ProtectedRoute wraps any page that requires the user to be logged in.
 // If the user is not authenticated, they are redirected to the login page.
@@ -20,6 +23,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Login />} />
         <Route path="/callback" element={<Callback />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="/contact" element={<Contact />} />
         <Route
           path="/dashboard"
           element={
@@ -40,3 +45,4 @@ export default function App() {
     </BrowserRouter>
   );
 }
+

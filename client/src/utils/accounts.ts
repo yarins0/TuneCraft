@@ -10,8 +10,9 @@
 export interface StoredAccount {
   userId: string;       // internal DB cuid
   platformUserId: string; // platform's own user ID (Spotify/SoundCloud ID)
-  platform: string;     // 'SPOTIFY' | 'SOUNDCLOUD'
+  platform: string;     // 'SPOTIFY' | 'SOUNDCLOUD' | 'TIDAL'
   displayName: string;
+  userToken?: string;   // HMAC-SHA256 of userId, signed server-side — sent as X-User-Token on every API call
 }
 
 // Reads all stored accounts from localStorage.
@@ -45,14 +46,6 @@ export function upsertAccount(account: StoredAccount): void {
   }
 
   saveAccounts(accounts);
-
-  // Keep legacy 'userId' / 'platformUserId' keys in sync so existing code
-  // that reads them directly continues to work.
-  const activeId = localStorage.getItem('activeUserId') ?? account.userId;
-  if (activeId === account.userId) {
-    localStorage.setItem('userId', account.userId);
-    localStorage.setItem('platformUserId', account.platformUserId);
-  }
 }
 
 // Returns the currently active account.
@@ -79,21 +72,91 @@ export function getActiveAccount(): StoredAccount | null {
 
   if (accounts.length === 0) return null;
 
-  const activeId = localStorage.getItem('activeUserId');
+  // sessionStorage takes priority — it's a per-tab override written by setSessionAccount()
+  // when the tab was opened via "open in new tab" from the account switcher.
+  const activeId = sessionStorage.getItem('activeUserId') ?? localStorage.getItem('activeUserId');
   // Fall back to the first account if activeUserId points to a removed account.
   return accounts.find(a => a.userId === activeId) ?? accounts[0];
 }
 
-// Switches the active account and syncs the legacy 'userId' key.
+// Switches the active account for the current tab and persists it globally.
+//
+// Writes to both localStorage (global default) and sessionStorage (per-tab override).
+// sessionStorage must be kept in sync because getUserId() reads it first — without this,
+// a tab that has a sessionStorage override (e.g. opened via ?switchTo) would ignore
+// the account switch and keep returning the stale sessionStorage value.
 export function setActiveAccount(userId: string): void {
   const accounts = getAccounts();
   const account = accounts.find(a => a.userId === userId);
   if (!account) return;
 
   localStorage.setItem('activeUserId', userId);
-  // Keep legacy keys in sync so existing API call code keeps working.
-  localStorage.setItem('userId', account.userId);
-  localStorage.setItem('platformUserId', account.platformUserId);
+
+  // Mirror to sessionStorage so this tab sees the switch immediately.
+  // sessionStorage is per-tab so other open tabs are not affected.
+  sessionStorage.setItem('activeUserId', userId);
+}
+
+// Activates an account for the current tab only, without touching localStorage.
+//
+// localStorage is shared across every tab — writing to it from a new tab would
+// switch the account in the original tab too. sessionStorage is isolated per tab,
+// so this is used when a tab is opened via the "open in new tab" flow.
+//
+// getActiveAccount() and getUserId() check sessionStorage first, so the tab
+// behaves as if this account is active without affecting any other tab.
+export function setSessionAccount(userId: string): void {
+  const accounts = getAccounts(); // the accounts list itself lives in localStorage and is shared — that's fine
+  const account = accounts.find(a => a.userId === userId);
+  if (!account) return;
+
+  sessionStorage.setItem('activeUserId', userId);
+}
+
+// Removes a single account from the stored list and cleans up related keys.
+//
+// If the removed account was the active one, the legacy 'userId' / 'platformUserId'
+// keys are cleared so no stale identity lingers. The caller is responsible for
+// redirecting to login or switching to another account after this returns.
+//
+// Also calls DELETE /auth/:userId on the server to remove the User row from the DB.
+// The server deletes only that row — other platform accounts in the same browser
+// session are not affected.
+export async function removeAccount(userId: string): Promise<void> {
+  const { API_BASE_URL } = await import('../api/config');
+
+  // Fire-and-forget the server deletion; if it fails we still clean up locally
+  // so the user isn't stuck. A 404 (row already gone) is also fine.
+  // Must send the X-User-Token for the account being removed, not the currently active one,
+  // since the user may be removing a non-active account.
+  const allAccounts = getAccounts();
+  const accountToDelete = allAccounts.find(a => a.userId === userId);
+  try {
+    await fetch(`${API_BASE_URL}/auth/${userId}`, {
+      method: 'DELETE',
+      headers: accountToDelete?.userToken ? { 'X-User-Token': accountToDelete.userToken } : {},
+    });
+  } catch {
+    // Network error — proceed with local cleanup regardless
+  }
+
+  // Remove the account from the local array
+  const accounts = getAccounts();
+  const updated = accounts.filter(a => a.userId !== userId);
+  saveAccounts(updated);
+
+  // Clean up active-account keys if this was the active one
+  const activeId = localStorage.getItem('activeUserId');
+  if (activeId === userId) {
+    localStorage.removeItem('activeUserId');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('platformUserId');
+
+    // Mirror the removal into sessionStorage as well — getUserId() checks it first
+    sessionStorage.removeItem('activeUserId');
+    sessionStorage.removeItem('userId');
+    sessionStorage.removeItem('platformUserId');
+  }
 }
 
 // Removes all stored accounts and resets all auth keys.
@@ -103,4 +166,15 @@ export function clearAccounts(): void {
   localStorage.removeItem('activeUserId');
   localStorage.removeItem('userId');
   localStorage.removeItem('platformUserId');
+}
+
+// Returns the X-User-Token header for the currently active account.
+// Every API call spreads these headers into its fetch options so the server can verify
+// that the caller owns the userId in the request URL.
+// Returns an empty object if no account is active or the account has no token yet
+// (old sessions pre-HMAC) — the server will return 401, prompting re-login.
+export function getAuthHeaders(): Record<string, string> {
+  const account = getActiveAccount();
+  if (!account?.userToken) return {};
+  return { 'X-User-Token': account.userToken };
 }

@@ -1,6 +1,6 @@
 // Platform identifies which streaming service a resource belongs to.
 // Values match the Prisma Platform enum — keep them in sync if you add new platforms.
-export type Platform = 'SPOTIFY' | 'SOUNDCLOUD' | 'APPLE_MUSIC';
+export type Platform = 'SPOTIFY' | 'SOUNDCLOUD' | 'TIDAL' | 'APPLE_MUSIC';
 
 // A playlist with enough data to render a dashboard card.
 // Uses a generic `id` field — routes expose it as `platformId` in JSON responses.
@@ -65,6 +65,19 @@ export interface TokenRefreshResult {
 export interface PlatformAdapter {
   readonly platform: Platform;
 
+  // The TrackCache column that stores this platform's native track ID.
+  // Used by the /features polling endpoint and the enrichment pipeline to query and write
+  // the correct column without any if/else chains — adding a new platform only requires
+  // setting this field on the new adapter.
+  // Examples: 'spotifyId', 'soundcloudId', 'tidalId'
+  readonly trackCacheIdField: string;
+
+  // The ArtistCache column that stores this platform's native artist ID.
+  // Mirrors trackCacheIdField — the enrichment pipeline uses this to index and backfill
+  // artist rows without any per-platform if/else logic in enrichment.ts.
+  // Examples: 'spotifyArtistId', 'soundcloudArtistId', 'tidalArtistId'
+  readonly artistCacheIdField: string;
+
   // --- Auth ---
 
   // Returns the full OAuth authorization URL to redirect the user to.
@@ -88,21 +101,29 @@ export interface PlatformAdapter {
 
   // Fetches one page of enriched tracks from a playlist.
   // page=0 → first 50 tracks, page=1 → next 50, etc.
+  // hasMore is optional — adapters that can't express it via page*limit+count (e.g. Tidal,
+  // which caps pages at 20 regardless of page[size]) return it explicitly instead.
+  // signal is optional — when provided, it is forwarded into requestWithRetry so in-flight
+  // platform API calls are cancelled immediately if the client drops the connection.
   fetchPlaylistTracks(
     accessToken: string,
     playlistId: string,
-    page: number
-  ): Promise<{ tracks: PlatformTrack[]; total: number }>;
+    page: number,
+    signal?: AbortSignal
+  ): Promise<{ tracks: PlatformTrack[]; total: number; hasMore?: boolean }>;
 
   // Returns the total track count in the user's liked/saved library.
   // Lightweight — does not return track data.
   fetchLikedCount(accessToken: string): Promise<number>;
 
   // Fetches one page of enriched liked/saved tracks.
+  // hasMore is optional: adapters that use cursor-based pagination (e.g. Tidal) return it
+  // directly since they can't reliably derive it from total alone. Offset-based adapters
+  // (Spotify, SoundCloud) may omit it — the route falls back to the page*limit computation.
   fetchLikedTracks(
     accessToken: string,
     page: number
-  ): Promise<{ tracks: PlatformTrack[]; total: number }>;
+  ): Promise<{ tracks: PlatformTrack[]; total: number; hasMore?: boolean }>;
 
   // Fetches ALL tracks in a playlist across all pages, with minimal data (no enrichment).
   // Used by the auto-reshuffle cron — avoids the overhead of audio-feature lookups.
@@ -140,4 +161,12 @@ export interface PlatformAdapter {
   // Used by the cleanup cron to detect playlists the user deleted or unfollowed.
   // Must return true on any network/API error — never delete a schedule on uncertainty.
   playlistInLibrary(accessToken: string, playlistId: string): Promise<boolean>;
+
+  // Extracts a bare platform playlist ID from a user-supplied string (URL or raw ID).
+  // Returns null if the input doesn't match this platform's known URL format.
+  // For platforms where the URL slug can't be resolved client-side (e.g. SoundCloud),
+  // returns the normalized https:// URL as a signal to the caller that it needs
+  // server-side resolution via the platform's resolve API.
+  // This method is pure — it performs no network calls and needs no access token.
+  extractPlaylistId(input: string): string | null;
 }

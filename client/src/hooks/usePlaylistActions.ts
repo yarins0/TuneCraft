@@ -5,8 +5,9 @@ import { savePlaylist, copyPlaylist, splitPlaylist } from '../api/playlists';
 import type { SplitGroup } from '../utils/splitPlaylist';
 import { findDuplicates } from '../utils/findDuplicates';
 import type { ReshuffleSchedule } from '../api/reshuffle';
+import { getActiveAccount } from '../utils/accounts';
 
-const getUserId = () => localStorage.getItem('userId') || '';
+const getUserId = () => getActiveAccount()?.userId || '';
 
 interface Options {
   playlistId: string | undefined;
@@ -17,6 +18,8 @@ interface Options {
   setReshuffleSchedule: React.Dispatch<React.SetStateAction<ReshuffleSchedule | null>>;
   // Called after a shuffle so the parent can close the ShuffleModal and reset open row state
   onShuffleApplied: () => void;
+  // Called after a successful copy so the parent can close the CopyModal
+  onCopyComplete: () => void;
   onSuccess: (msg: string, durationMs?: number) => void;
   onError: (msg: string, durationMs?: number) => void;
 }
@@ -52,12 +55,13 @@ export interface UsePlaylistActionsResult {
 // Uses onShuffleApplied to let the parent close its ShuffleModal and clear open rows.
 export const usePlaylistActions = ({
   playlistId,
-  name,
+  name: _name,
   tracks,
   setTracks,
   reshuffleSchedule,
   setReshuffleSchedule,
   onShuffleApplied,
+  onCopyComplete,
   onSuccess,
   onError,
 }: Options): UsePlaylistActionsResult => {
@@ -137,7 +141,7 @@ export const usePlaylistActions = ({
       }
     } catch {
       onError(
-        'Spotify restricts playlist modifications in development mode. This will work once the app is published.',
+        'Failed to save — please try again.',
         5000
       );
     } finally {
@@ -158,6 +162,7 @@ export const usePlaylistActions = ({
         copyName
       );
       setHasUnsavedChanges(false);
+      onCopyComplete();
       onSuccess('Copy saved to your library!');
 
       const params = new URLSearchParams({
@@ -167,7 +172,7 @@ export const usePlaylistActions = ({
       window.open(`/playlist/${newPlaylist.platformId}?${params}`, '_blank');
     } catch {
       onError(
-        'Spotify restricts playlist modifications in development mode. This will work once the app is published.',
+        'Failed to save — please try again.',
         5000
       );
     } finally {
@@ -187,7 +192,7 @@ export const usePlaylistActions = ({
       }));
 
       await splitPlaylist(getUserId(), payload);
-      onSuccess(`Split into ${groups.length} playlists — check your Spotify library!`, 5000);
+      onSuccess(`Split into ${groups.length} playlists — check your library!`, 5000);
     } catch {
       onError('Failed to split playlist. Please try again.', 5000);
     } finally {
