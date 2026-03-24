@@ -204,7 +204,7 @@ Input tracks array
                                                    │                    │
                                                    └─────────┬──────────┘
                                                              │
-                                                   Write order to Spotify
+                                                   Write order to platform
                                                    via PlatformAdapter
                                                              │
                                                    Update DB:
@@ -292,7 +292,7 @@ Adding a new platform means implementing `PlatformAdapter` and registering it in
 All platform APIs enforce rate limits. `requestWithRetry` in `server/src/lib/requestWithRetry.ts` handles this transparently across every adapter:
 
 1. Make the request
-2. If 429 → read `Retry-After` header (default 5s, max 30s)
+2. If 429 → read `Retry-After` header (default 5s, max 120s)
 3. Retry up to 3 times
 4. On third failure, propagate the error
 
@@ -482,7 +482,7 @@ tunecraft/
     └── src/
         ├── lib/
         │   ├── crons/             # Auto-reshuffle cron job
-        │   ├── platform/          # PlatformAdapter interface, SpotifyAdapter, registry
+        │   ├── platform/          # PlatformAdapter interface, SpotifyAdapter, TidalAdapter, SoundCloudAdapter, registry
         │   └── shuffleAlgorithms.ts
         ├── middleware/            # refreshToken.ts — transparent token refresh
         └── routes/                # auth.ts, playlists.ts, reshuffle.ts, tracks.ts
@@ -528,8 +528,10 @@ All routes are prefixed with the Express base path. The `userId` segment is the 
 ### Auth
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/auth/login` | Redirects to Spotify OAuth |
-| `GET` | `/auth/callback` | Handles Spotify redirect, upserts user, redirects to frontend |
+| `GET` | `/auth/login?platform=SPOTIFY\|TIDAL\|SOUNDCLOUD` | Redirects to the appropriate platform OAuth / PKCE flow |
+| `GET` | `/auth/spotify/callback` | Handles Spotify OAuth redirect, upserts user, redirects to frontend |
+| `GET` | `/auth/tidal/callback` | Handles Tidal PKCE callback, exchanges code + verifier, upserts user |
+| `GET` | `/auth/soundcloud/callback` | Handles SoundCloud OAuth redirect, upserts user, redirects to frontend |
 
 ### Playlists
 | Method | Path | Description |

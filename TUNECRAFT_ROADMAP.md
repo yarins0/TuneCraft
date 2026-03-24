@@ -92,7 +92,7 @@ The backend is fully platform-agnostic. Adding a new platform means implementing
 - [x] `PlatformAdapter` interface (`server/src/lib/platform/types.ts`) — defines all methods a platform must implement
 - [x] `SpotifyAdapter` (`server/src/lib/platform/spotify.ts`) — full Spotify implementation
 - [x] `SoundCloudAdapter` (`server/src/lib/platform/soundcloud.ts`) — full SoundCloud implementation (awaiting API credentials)
-- [x] `TidalAdapter` (`server/src/lib/platform/tidal.ts`) — full Tidal implementation (PKCE OAuth 2.0, awaiting API credentials)
+- [x] `TidalAdapter` (`server/src/lib/platform/tidal.ts`) — full Tidal implementation (PKCE OAuth 2.0)
 - [x] Registry (`server/src/lib/platform/registry.ts`) — singleton adapters, `getAdapter(platform)` lookup
 - [x] All DB fields are platform-agnostic (`platformUserId`, `platformPlaylistId`)
 - [x] All server routes use `getAdapter()` — no platform-specific code in routes
@@ -117,11 +117,11 @@ ReccoBeats only accepts Spotify track IDs. Most commercially released tracks car
 5. Submit resolved Spotify ID to ReccoBeats; upsert result by ISRC so both platform IDs share the row
 6. No ISRC or no Spotify match → track gets no audio features (graceful fallback)
 
-### What's needed to activate Tidal
-- [ ] Obtain Tidal developer credentials at [developer.tidal.com/dashboard](https://developer.tidal.com/dashboard)
-- [ ] Add `TIDAL_CLIENT_ID`, `TIDAL_CLIENT_SECRET`, `TIDAL_REDIRECT_URI` to `.env`
-- [ ] Register redirect URI `http://127.0.0.1:3000/auth/tidal/callback` in the Tidal developer dashboard
-- [ ] Verify OAuth scopes: `user.read`, `collection.read`, `collection.write`, `playlists.read`, `playlists.write`
+### Tidal activation ✅ COMPLETE
+- [x] Obtained Tidal developer credentials at [developer.tidal.com/dashboard](https://developer.tidal.com/dashboard)
+- [x] Added `TIDAL_CLIENT_ID`, `TIDAL_CLIENT_SECRET`, `TIDAL_REDIRECT_URI` to `.env`
+- [x] Registered redirect URI `http://127.0.0.1:3000/auth/tidal/callback` in the Tidal developer dashboard
+- [x] Verified OAuth scopes: `user.read`, `collection.read`, `collection.write`, `playlists.read`, `playlists.write`
 
 ### What's needed to activate SoundCloud
 - [ ] Obtain SoundCloud API credentials (client ID + secret)
