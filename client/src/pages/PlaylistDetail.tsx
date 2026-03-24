@@ -19,8 +19,8 @@ import { useReshuffleSchedule } from '../hooks/useReshuffleSchedule';
 import { findDuplicates } from '../utils/findDuplicates';
 import AppFooter from '../components/AppFooter';
 
-const getUserId = () => sessionStorage.getItem('userId') || localStorage.getItem('userId') || '';
-const getPlatformUserId = () => sessionStorage.getItem('platformUserId') || localStorage.getItem('platformUserId') || '';
+const getUserId = () => getActiveAccount()?.userId || '';
+const getPlatformUserId = () => getActiveAccount()?.platformUserId || '';
 
 export default function PlaylistDetail() {
   const { playlistId } = useParams<{ playlistId: string }>();
@@ -36,7 +36,7 @@ export default function PlaylistDetail() {
   // account for this tab. Must run synchronously here — before any hook effects fire —
   // so getUserId() in usePlaylistTracks reads the right userId on its first call.
   const urlUserId = searchParams.get('userId');
-  if (urlUserId && !sessionStorage.getItem('userId')) {
+  if (urlUserId && !sessionStorage.getItem('activeUserId')) {
     setSessionAccount(urlUserId);
   }
 

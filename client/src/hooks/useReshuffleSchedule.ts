@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { enableReshuffle, disableReshuffle, fetchReshuffleSchedule } from '../api/reshuffle';
 import type { ReshuffleSchedule } from '../api/reshuffle';
+import { getActiveAccount } from '../utils/accounts';
 
-const getUserId = () => sessionStorage.getItem('userId') || localStorage.getItem('userId') || '';
+const getUserId = () => getActiveAccount()?.userId || '';
 
 interface Options {
   playlistId: string | undefined;

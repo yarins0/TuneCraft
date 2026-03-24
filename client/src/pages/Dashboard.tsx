@@ -13,10 +13,8 @@ import AppFooter from '../components/AppFooter';
 import { PLATFORM_COLORS, PLATFORM_LABELS, getPlatformConfig } from '../utils/platform';
 import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
 
-// Reads the active userId — checks sessionStorage first (per-tab override for multi-tab
-// use) then falls back to localStorage (shared across tabs).
-const getUserId = () => sessionStorage.getItem('userId') || localStorage.getItem('userId') || '';
-const getPlatformUserId = () => sessionStorage.getItem('platformUserId') || localStorage.getItem('platformUserId');
+const getUserId = () => getActiveAccount()?.userId || '';
+const getPlatformUserId = () => getActiveAccount()?.platformUserId ?? null;
 
 // Sentinel ID used to represent Liked Songs in the selection set
 // Liked Songs have no real Spotify playlist ID, so we use this constant as a stand-in

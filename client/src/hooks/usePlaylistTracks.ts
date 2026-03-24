@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { fetchTracksPage, fetchPendingFeatures, fetchPendingGenres } from '../api/tracks';
 import type { Track, PlaylistAverages } from '../api/tracks';
+import { getActiveAccount } from '../utils/accounts';
 
-const getUserId = () => sessionStorage.getItem('userId') || localStorage.getItem('userId') || '';
+const getUserId = () => getActiveAccount()?.userId || '';
 
 // Recalculates playlist averages from the full set of loaded tracks.
 // Called after each page loads and after feature polling updates arrive,

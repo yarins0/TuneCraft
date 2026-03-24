@@ -32,6 +32,28 @@ Tasks are divided into independent agents — each agent owns a separate slice o
 
 ---
 
+# Agent E — Performance
+> Owns: `server/src/lib/enrichment.ts`
+
+## E1 · ReccoBeats enrichment: adaptive request timing
+
+**Current state:** `backgroundEnrichTracks` Phase 3 waits a fixed 300ms between every ReccoBeats audio-feature request, regardless of whether the API is actually under pressure. This means a 500-track playlist takes ~150 seconds minimum to fully enrich.
+
+**What needs to be done:** Replace the unconditional `await sleep(300)` with adaptive timing: only introduce a delay when ReccoBeats responds with 429, and use the `Retry-After` header value (already parsed by `requestWithRetry`). During low-traffic windows, the gap drops to near-zero; during rate-limit pressure, it backs off exactly as much as required.
+
+**Implementation notes:**
+- `requestWithRetry` already handles 429 back-off at the HTTP level — but Phase 3 calls it once per track and then sleeps regardless
+- The fix: remove the unconditional `await sleep(300)` after `requestWithRetry`, and instead pass a callback or check the response timestamp to decide if a pause is needed
+- Simpler alternative: halve the fixed delay to 150ms — ReccoBeats allows this in practice and cuts enrichment time by ~50% without any adaptive logic
+- File: `server/src/lib/enrichment.ts` — Phase 3 loop (around line 644-668)
+
+**Why deferred:** The progressive loading UX (features arrive one-by-one as the client polls) already handles the wait gracefully. No user is blocked. This is a UX improvement, not a correctness fix.
+
+**Effort:** XS
+**Priority:** P3
+
+---
+
 # Agent D — QA / Manual Testing
 > No code changes — manual testing only. Unblocked only by credentials being available.
 

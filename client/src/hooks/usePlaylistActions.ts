@@ -5,8 +5,9 @@ import { savePlaylist, copyPlaylist, splitPlaylist } from '../api/playlists';
 import type { SplitGroup } from '../utils/splitPlaylist';
 import { findDuplicates } from '../utils/findDuplicates';
 import type { ReshuffleSchedule } from '../api/reshuffle';
+import { getActiveAccount } from '../utils/accounts';
 
-const getUserId = () => sessionStorage.getItem('userId') || localStorage.getItem('userId') || '';
+const getUserId = () => getActiveAccount()?.userId || '';
 
 interface Options {
   playlistId: string | undefined;
