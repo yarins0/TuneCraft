@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { API_BASE_URL } from '../api/config';
 import AppFooter from '../components/AppFooter';
+import SpotifyAccessModal from '../components/SpotifyAccessModal';
 import { getAllPlatformConfigs, PLATFORM_COLORS } from '../utils/platform';
 
 // Redirects the user to the selected platform's OAuth login flow via the Tunecraft backend.
@@ -22,6 +24,11 @@ export default function Login() {
   // the authorization screen on Spotify or SoundCloud. Show a brief explanatory message
   // so they're not confused by the page reloading with no feedback.
   const denied = new URLSearchParams(window.location.search).get('error') === 'denied';
+
+  // Controls whether the Spotify access modal is open.
+  // Clicking "Connect Spotify" opens it instead of immediately redirecting,
+  // so the user can confirm they're approved or request access if they're not.
+  const [showSpotifyModal, setShowSpotifyModal] = useState(false);
 
   return (
     <div className="min-h-screen bg-bg-primary flex flex-col">
@@ -65,7 +72,11 @@ export default function Login() {
             {PLATFORMS.map(({ id, label, available, color }) => (
               <button
                 key={id}
-                onClick={available ? () => handleLogin(id) : undefined}
+                onClick={available
+                  ? id === 'SPOTIFY'
+                    ? () => setShowSpotifyModal(true)
+                    : () => handleLogin(id)
+                  : undefined}
                 disabled={!available}
                 title={available ? undefined : 'Coming soon'}
                 // --btn-color exposes the brand colour as a CSS custom property so Tailwind's
@@ -93,6 +104,13 @@ export default function Login() {
           </p>
         </div>
       </div>
+
+      {showSpotifyModal && (
+        <SpotifyAccessModal
+          onApproved={() => { setShowSpotifyModal(false); handleLogin('spotify'); }}
+          onClose={() => setShowSpotifyModal(false)}
+        />
+      )}
 
       <AppFooter />
     </div>

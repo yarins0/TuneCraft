@@ -1,8 +1,14 @@
 import { Router } from 'express';
+import { Resend } from 'resend';
 import prisma from '../lib/prisma';
 import { getAdapter } from '../lib/platform/registry';
 import { TidalAdapter } from '../lib/platform/tidal';
 import type { Platform } from '../lib/platform/types';
+
+// Resend client — initialised once and reused for all outgoing emails.
+// The API key is loaded from .env; if missing, email sending will fail gracefully
+// without crashing the server (the catch block in the route handles it).
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Router groups related routes into a modular unit
 // that can be mounted onto the main Express app
@@ -179,6 +185,97 @@ router.get('/tidal/callback', async (req, res) => {
   } catch (error) {
     console.error('Tidal auth error:', error);
     res.status(500).json({ error: 'Authentication failed' });
+  }
+});
+
+// DELETE /auth/:userId
+// Removes a single platform account from the database.
+// Only deletes the User row matching the given internal cuid — other platform
+// accounts connected in the same browser session are stored as separate rows
+// and are not affected.
+// Returns 204 No Content on success; 404 if the user doesn't exist.
+router.delete('/:userId', async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    await prisma.user.delete({ where: { id: userId } });
+    res.status(204).send();
+  } catch (err: unknown) {
+    // Prisma throws P2025 when the record to delete is not found
+    const isPrismaNotFound =
+      typeof err === 'object' &&
+      err !== null &&
+      'code' in err &&
+      (err as { code: string }).code === 'P2025';
+
+    if (isPrismaNotFound) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    console.error('Delete account error:', err);
+    res.status(500).json({ error: 'Failed to delete account' });
+  }
+});
+
+// POST /auth/spotify/request-access
+// Saves a Spotify access request to the DB and emails the admin to add the user
+// to the Spotify Developer Dashboard allowlist.
+// Duplicate requests (same email, status=PENDING) are silently ignored so the
+// user can safely resubmit without flooding the admin's inbox.
+router.post('/spotify/request-access', async (req, res) => {
+  const { firstName, lastName, email } = req.body as {
+    firstName?: string;
+    lastName?:  string;
+    email?:     string;
+  };
+
+  if (!firstName?.trim() || !lastName?.trim() || !email?.trim()) {
+    res.status(400).json({ error: 'First name, last name, and email are required.' });
+    return;
+  }
+
+  // Capitalize each name part independently, then join — "john doe" → "John Doe".
+  const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  const normalizedName = `${capitalize(firstName.trim())} ${capitalize(lastName.trim())}`;
+
+  try {
+    // Check for an existing pending request from the same email address.
+    const existing = await prisma.spotifyAccessRequest.findFirst({
+      where: { email: email.trim(), status: 'PENDING' },
+    });
+
+    if (!existing) {
+      await prisma.spotifyAccessRequest.create({
+        data: { fullName: normalizedName, email: email.trim() },
+      });
+    }
+
+    // Send the admin notification regardless of whether this is a duplicate —
+    // the email is a prompt to act, not a record of every submission.
+    await resend.emails.send({
+      from:    'Tunecraft <onboarding@resend.dev>',
+      to:      process.env.ADMIN_EMAIL!,
+      subject: `[Tunecraft] Spotify access request — ${normalizedName}`,
+      html: `
+        <p>A new user is requesting Spotify access on Tunecraft.</p>
+        <table cellpadding="6">
+          <tr><td><strong>Name</strong></td><td>${normalizedName}</td></tr>
+          <tr><td><strong>Email</strong></td><td>${email.trim()}</td></tr>
+        </table>
+        <p>
+          Add them at:<br/>
+          <a href="https://developer.spotify.com/dashboard">
+            Spotify Developer Dashboard → Your App → User Management
+          </a>
+        </p>
+      `,
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Spotify access request error:', error);
+    res.status(500).json({ error: 'Failed to submit request. Please try again.' });
   }
 });
 

@@ -175,7 +175,8 @@ const buildTrackV2 = (
 //   - No single "replace all tracks" endpoint — we clear then re-add in chunks
 export class TidalAdapter implements PlatformAdapter {
   readonly platform = 'TIDAL' as const;
-  readonly trackCacheIdField = 'tidalId';
+  readonly trackCacheIdField  = 'tidalId';
+  readonly artistCacheIdField = 'tidalArtistId';
 
   // Stores state → { verifier, expiresAt } while a PKCE auth flow is in flight.
   // The state parameter links the auth URL (where the challenge was embedded) to the
@@ -483,10 +484,13 @@ export class TidalAdapter implements PlatformAdapter {
   //
   // If the cursor for a page is not in cache (e.g. the server restarted mid-load),
   // the response returns empty so the client's hasMore check resolves to false.
+  // signal is forwarded into requestWithRetry so the Tidal API call is cancelled
+  // immediately when the client drops the HTTP connection.
   async fetchPlaylistTracks(
     accessToken: string,
     playlistId: string,
-    page: number
+    page: number,
+    signal?: AbortSignal
   ): Promise<{ tracks: PlatformTrack[]; total: number; hasMore: boolean }> {
     const limit = 50;
     const { uid, cc } = decodeTidalToken(accessToken);
@@ -517,7 +521,7 @@ export class TidalAdapter implements PlatformAdapter {
       'get',
       `${TIDAL_OPENAPI}/playlists/${playlistId}/relationships/items`,
       { headers: { Authorization: `Bearer ${accessToken}` }, params },
-      undefined, 3, 'Tidal'
+      undefined, 3, 'Tidal', signal
     );
 
     const body     = response.data;
@@ -701,11 +705,8 @@ export class TidalAdapter implements PlatformAdapter {
         if (cursor) await new Promise(resolve => setTimeout(resolve, 300));
 
       } while (cursor);
-
-      console.log(`[Tidal] fetchLikedTracks: pass ${pass + 1}/2 (sort=${sort}) — ${pageCount} pages, ${passRefCount} refs`);
     }
 
-    console.log(`[Tidal] fetchLikedTracks: all passes done — ${allRefs.length} total refs before dedup`);
 
     // Deduplicate by track ID. Because cursors are generated from addedAt timestamps,
     // the same track can appear on two consecutive pages when many tracks share a
@@ -823,29 +824,44 @@ export class TidalAdapter implements PlatformAdapter {
   // NOTE: This endpoint still uses TIDAL_API_V2 (api.tidal.com/v2) rather than TIDAL_OPENAPI.
   // If it returns a 403 "missing scope" error, migrate it to openapi.tidal.com/v2 once
   // a suitable v2 OpenAPI playlist-creation endpoint is documented.
+  // Creates a new playlist in the user's Tidal account via the OpenAPI v2 endpoint.
+  // Uses POST /playlists with a JSON:API body — same base URL as all other write operations.
+  // An Idempotency-Key header is included so a retried request on network failure
+  // returns the already-created playlist instead of creating a duplicate.
   async createPlaylist(
     accessToken: string,
     name: string,
     description: string
   ): Promise<{ id: string; ownerId: string }> {
-    const { uid } = decodeTidalToken(accessToken);
+    const { uid, cc } = decodeTidalToken(accessToken);
 
     const response = await requestWithRetry(
-      'put',
-      `${TIDAL_API_V2}/my-collection/playlists/folders/create-playlist`,
+      'post',
+      `${TIDAL_OPENAPI}/playlists`,
       {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        params: { name, description, folderId: 'root' },
+        headers: {
+          Authorization:     `Bearer ${accessToken}`,
+          'Content-Type':    'application/vnd.api+json',
+          'Idempotency-Key': crypto.randomUUID(),
+        },
+        params: { countryCode: cc },
       },
-      undefined,
+      // JSON:API resource object — `type` identifies the resource, `attributes` holds the data.
+      {
+        data: {
+          type:       'playlists',
+          attributes: { name, description, accessType: 'PUBLIC' },
+        },
+      },
       3,
       'Tidal'
     );
 
-    // The v2 endpoint returns { data: { uuid, ... } }
+    // OpenAPI v2 returns { data: { id, type, attributes, ... } }
+    // `id` is a UUID string assigned by the server.
     const data = response.data?.data ?? response.data;
     return {
-      id:      data.uuid,
+      id:      String(data.id),
       ownerId: uid,
     };
   }
@@ -881,9 +897,10 @@ export class TidalAdapter implements PlatformAdapter {
       for (const ref of (r.data.data ?? [])) {
         if (ref.type === 'tracks') currentIds.push(String(ref.id));
       }
-      cursor = r.data.links?.next
-        ? new URL(r.data.links.next, TIDAL_OPENAPI).searchParams.get('page[cursor]')
-        : null;
+      // Use the same cursor path as all other Tidal pagination — links.meta.nextCursor.
+      // The previous links.next URL-parsing approach was inconsistent and always returned
+      // null, causing Phase 1 to stop after one page and miss tracks beyond position 50.
+      cursor = r.data.links?.meta?.nextCursor ?? null;
     } while (cursor);
 
     // Phase 2: delete existing tracks in chunks of 50 by track ID.

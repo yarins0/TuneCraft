@@ -82,9 +82,19 @@ model TrackCache {
   cachedAt      DateTime @default(now())
 }
 
+// Tracks Spotify access requests from users who hit the dev-mode user cap.
+// Each row represents one person who submitted the request form on the login page.
+// Status moves from PENDING → APPROVED (once added to Spotify dashboard) or REJECTED.
+model SpotifyAccessRequest {
+  id        String   @id @default(cuid())
+  fullName  String
+  email     String
+  status    String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  createdAt DateTime @default(now())
+}
+
 model ArtistCache {
   id         String   @id @default(cuid())
-  artistId   String   @unique               // platform-native artist ID (kept for backward compatibility)
   artistName String
 
   // Lowercase + trimmed artist name — used as the primary cross-platform dedup key.
