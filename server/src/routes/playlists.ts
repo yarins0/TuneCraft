@@ -60,8 +60,8 @@ const calculateAverages = (tracks: TrackWithFeatures[]) => {
 // GET /playlists/:userId
 // Fetches all playlists for the authenticated user
 router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const playlists = await adapter.fetchPlaylists(accessToken);
@@ -89,14 +89,14 @@ router.get('/:userId', refreshTokenMiddleware, async (req, res) => {
 // so this route contains no platform-specific logic.
 router.get('/:userId/discover', refreshTokenMiddleware, async (req, res) => {
   const url = req.query.url as string | undefined;
-  const accessToken = (req as any).accessToken;
+  const accessToken = req.accessToken;
 
   if (!url) {
     res.status(400).json({ error: 'url query param required' });
     return;
   }
 
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const playlist = await adapter.fetchPlaylist(accessToken, url);
@@ -128,8 +128,8 @@ router.get('/:userId/discover', refreshTokenMiddleware, async (req, res) => {
 // Used when a user pastes a URL or ID they don't own
 router.get('/:userId/discover/:playlistId', refreshTokenMiddleware, async (req, res) => {
   const playlistId = req.params.playlistId as string;
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const playlist = await adapter.fetchPlaylist(accessToken, playlistId);
@@ -160,7 +160,7 @@ router.get('/:userId/features', refreshTokenMiddleware, async (req, res) => {
   const ids = ((req.query.ids as string) || '').split(',').filter(Boolean);
   if (ids.length === 0) return res.json({ features: {} });
 
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const adapter = getAdapter(req.userPlatform as Platform);
   // The adapter declares which TrackCache column holds its native track IDs.
   // No if/else chain needed — adding a new platform only requires updating the adapter.
   const idField = adapter.trackCacheIdField;
@@ -229,8 +229,8 @@ router.get('/:userId/genres', refreshTokenMiddleware, async (req, res) => {
 // Fetches the Liked Songs count for the dashboard card
 // Liked Songs are not included in the regular playlists endpoint — they need a separate call
 router.get('/:userId/liked', refreshTokenMiddleware, async (req, res) => {
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const trackCount = await adapter.fetchLikedCount(accessToken);
@@ -255,8 +255,8 @@ router.get('/:userId/liked', refreshTokenMiddleware, async (req, res) => {
 // Fetches a single page of enriched tracks from the user's Liked Songs
 // Supports pagination via ?page= query parameter
 router.get('/:userId/liked/tracks', refreshTokenMiddleware, async (req, res) => {
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
   const page = parseInt(req.query.page as string) || 0;
   const limit = 50;
 
@@ -286,8 +286,8 @@ router.get('/:userId/liked/tracks', refreshTokenMiddleware, async (req, res) => 
 // Supports pagination via ?page= query parameter
 router.get('/:userId/:playlistId/tracks', refreshTokenMiddleware, async (req, res) => {
   const playlistId = req.params.playlistId as string;
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
   const page = parseInt(req.query.page as string) || 0;
   const limit = 50;
 
@@ -338,8 +338,8 @@ router.post('/:userId/:playlistId/shuffle', refreshTokenMiddleware, async (req, 
   const userId = req.params.userId as string;
   const playlistId = req.params.playlistId as string;
   const { tracks } = req.body;
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const trackIds = tracks.map((t: { id: string }) => t.id);
@@ -390,8 +390,8 @@ router.post('/:userId/:playlistId/shuffle', refreshTokenMiddleware, async (req, 
 router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
   const { tracks, name } = req.body;
   const userId = req.params.userId as string;
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const trackIds = tracks.map((t: { id: string }) => t.id);
@@ -418,8 +418,8 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
 router.post('/:userId/merge', refreshTokenMiddleware, async (req, res) => {
   const { tracks, name } = req.body;
   const userId = req.params.userId as string;
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const trackIds = tracks.map((t: { id: string }) => t.id);
@@ -448,8 +448,8 @@ router.post('/:userId/split', refreshTokenMiddleware, async (req, res) => {
     groups: { name: string; tracks: { id: string }[]; description: string }[];
   };
   const userId = req.params.userId as string;
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const created = await enqueueWrite(userId, async () => {
@@ -484,8 +484,8 @@ router.put('/:userId/:playlistId/save', refreshTokenMiddleware, async (req, res)
   const userId = req.params.userId as string;
   const playlistId = req.params.playlistId as string;
   const { tracks } = req.body;
-  const accessToken = (req as any).accessToken;
-  const adapter = getAdapter((req as any).userPlatform as Platform);
+  const accessToken = req.accessToken;
+  const adapter = getAdapter(req.userPlatform as Platform);
 
   try {
     const trackIds = tracks.map((t: { id: string }) => t.id);
