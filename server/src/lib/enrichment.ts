@@ -1,6 +1,7 @@
 import prisma from './prisma';
 import { isrcLookup } from './isrcLookup';
 import { requestWithRetry } from './requestWithRetry';
+import { getAdapter, getAllAdapters } from './platform/registry';
 import type { Platform } from './platform/types';
 
 // Pauses execution for ms milliseconds.
@@ -25,16 +26,24 @@ const sanitizeAudioFeatures = (features: unknown): Record<string, unknown> => {
   return rest;
 };
 
-// Maps a Platform value to the ArtistCache column that stores that platform's artist ID.
-// Returns null for platforms that don't yet have a dedicated column.
-// This mirrors the `idField` pattern used in EnrichmentTrack for TrackCache.
-const artistCacheIdField = (platform: Platform): string | null => {
-  switch (platform) {
-    case 'SPOTIFY':    return 'spotifyArtistId';
-    case 'TIDAL':      return 'tidalArtistId';
-    case 'SOUNDCLOUD': return 'soundcloudArtistId';
-    default:           return null;
+// Returns the ArtistCache column for a platform by delegating to the adapter registered
+// in the registry. No hardcoded platform list — adding a new platform only requires
+// registering its adapter with an artistCacheIdField set.
+const artistCacheIdField = (platform: Platform): string => {
+  return getAdapter(platform).artistCacheIdField;
+};
+
+// Every registered adapter's artistCacheIdField, deduplicated.
+// Derived lazily on first use (not at module load time) to avoid a circular-dependency
+// issue: enrichment.ts → registry.ts → adapters → enrichment.ts. Calling getAllAdapters()
+// at the top level would evaluate before the adapters have finished loading, returning
+// an empty array. Wrapping in a getter defers the call until the module graph is fully loaded.
+let _ALL_ARTIST_ID_FIELDS: string[] | null = null;
+const getAllArtistIdFields = (): string[] => {
+  if (!_ALL_ARTIST_ID_FIELDS) {
+    _ALL_ARTIST_ID_FIELDS = [...new Set(getAllAdapters().map(a => a.artistCacheIdField))];
   }
+  return _ALL_ARTIST_ID_FIELDS;
 };
 
 // ─── EnrichmentTrack ───────────────────────────────────────────────────────────
@@ -70,10 +79,9 @@ export interface EnrichmentTrack {
 
 // Builds Prisma OR conditions to find ArtistCache rows for a batch of tracks.
 //
-// Three lookup strategies (all combined in one query):
+// Two lookup strategies (all combined in one query):
 //   1. Per-platform artist ID column (e.g. tidalArtistId) — exact match for this platform
-//   2. Legacy artistId field — backward compatibility with rows written before per-platform columns
-//   3. normalizedName — cross-platform dedup: a Spotify row is reused for a Tidal artist
+//   2. normalizedName — cross-platform dedup: a Spotify row is reused for a Tidal artist
 //      with the same name, avoiding a second Last.fm call and a duplicate DB row
 const buildArtistCacheOrConditions = (tracks: EnrichmentTrack[]): object[] => {
   const conditions: object[] = [];
@@ -82,20 +90,14 @@ const buildArtistCacheOrConditions = (tracks: EnrichmentTrack[]): object[] => {
   const idsByField: Record<string, string[]> = {};
   for (const t of tracks) {
     const field = artistCacheIdField(t.platform);
-    if (field) {
-      if (!idsByField[field]) idsByField[field] = [];
-      idsByField[field].push(t.artistId);
-    }
+    if (!idsByField[field]) idsByField[field] = [];
+    idsByField[field].push(t.artistId);
   }
   for (const [field, ids] of Object.entries(idsByField)) {
     conditions.push({ [field]: { in: ids } });
   }
 
-  // Strategy 2: legacy artistId column
-  const artistIds = [...new Set(tracks.map(t => t.artistId))];
-  conditions.push({ artistId: { in: artistIds } });
-
-  // Strategy 3: normalizedName for cross-platform dedup
+  // Strategy 2: normalizedName for cross-platform dedup
   const normalizedNames = [...new Set(tracks.map(t => t.artistName.toLowerCase().trim()))];
   conditions.push({ normalizedName: { in: normalizedNames } });
 
@@ -104,7 +106,7 @@ const buildArtistCacheOrConditions = (tracks: EnrichmentTrack[]): object[] => {
 
 // Builds an artistId → genres map from cached ArtistCache rows.
 //
-// A row may be found via any of the three strategies above, so we index it by every
+// A row may be found via either of the two lookup strategies above, so we index it by every
 // possible key that a track in this batch might look it up by. This ensures a Tidal
 // track (tidalArtistId: 'abc') correctly resolves genres from a row that was originally
 // stored by Spotify (spotifyArtistId: 'xyz') if both share the same normalizedName.
@@ -117,23 +119,24 @@ const buildArtistGenreMap = (
   for (const row of cachedArtists) {
     const genres = row.genres as string[];
 
-    // Index by every platform-specific ID stored on the row
-    if (row.artistId)            map[row.artistId]            = genres;
-    if (row.spotifyArtistId)     map[row.spotifyArtistId]     = genres;
-    if (row.tidalArtistId)       map[row.tidalArtistId]       = genres;
-    if (row.soundcloudArtistId)  map[row.soundcloudArtistId]  = genres;
+    // Index by every known per-platform ID column — derived from getAllArtistIdFields() so
+    // adding a new platform only requires registering its adapter, not editing this loop.
+    for (const field of getAllArtistIdFields()) {
+      const id = (row as any)[field];
+      if (id) map[id] = genres;
+    }
 
     // Cross-platform hit: map the requesting track's artistId when it shares a normalizedName.
     // Also backfill the requesting platform's artist ID column onto the row if it is missing,
     // so future requests can find it by platform ID directly (Strategy 1) instead of always
-    // falling through to the normalizedName lookup (Strategy 3).
+    // falling through to the normalizedName lookup (Strategy 2).
     if (row.normalizedName) {
       for (const track of tracks) {
         if (track.artistName.toLowerCase().trim() !== row.normalizedName) continue;
         map[track.artistId] = genres;
 
         const idField = artistCacheIdField(track.platform);
-        if (idField && !(row as any)[idField]) {
+        if (!(row as any)[idField]) {
           prisma.artistCache
             .update({ where: { id: row.id }, data: { [idField]: track.artistId } })
             .catch(e => console.error('[Enrichment] ArtistCache backfill failed:', e.message));
@@ -493,24 +496,27 @@ const persistArtistGenres = async (
   results: { id: string; name: string; platform: Platform; genres: string[] }[]
 ): Promise<void> => {
   if (results.length === 0) return;
-  console.log(`[ArtistCache] Persisting ${results.length} artist(s):`, results.map(r => `${r.name} (${r.platform}, ${r.genres.length} genres)`).join(', '));
 
   await Promise.all(
     results.map(({ id, name, platform, genres }) => {
       const normalizedName = name.toLowerCase().trim();
       const idField = artistCacheIdField(platform);
       // Stores the originating platform's artist ID in its dedicated column (e.g. tidalArtistId).
-      const platformIdData = idField ? { [idField]: id } : {};
+      const platformIdData = { [idField]: id };
+
+      // Guard: if the artist name is empty we cannot compute a valid normalizedName and
+      // therefore cannot upsert. Skip rather than crashing — this is an extremely unlikely
+      // edge case (unnamed artists in platform metadata).
+      if (!normalizedName) {
+        console.warn(`[ArtistCache] Skipping artist with empty name (platform: ${platform}, id: ${id})`);
+        return Promise.resolve();
+      }
 
       return prisma.artistCache
         .upsert({
           // Upsert by normalizedName — the cross-platform dedup key.
-          // Falls back to artistId for the (extremely unlikely) case of an empty artist name.
-          where: normalizedName
-            ? { normalizedName }
-            : { artistId: id },
+          where: { normalizedName },
           create: {
-            artistId: id,
             artistName: name,
             normalizedName,
             genres,
@@ -546,9 +552,13 @@ const persistArtistGenres = async (
 //   │  Phase 0: ISRC → Spotify ID (sequential, 1s gap, non-Spotify only)      │
 //   │  Phase 1: ReccoBeats batch ID lookup ─┐ (parallel)                      │
 //   │           Last.fm genre lookup        ─┘                                │
-//   │  Phase 2: Per-track audio features (sequential, 300ms gap, rate limit)  │
-//   │  Phase 3: Persist genres to ArtistCache                                 │
+//   │  Phase 2: Persist genres to ArtistCache  ← immediately after Phase 1   │
+//   │  Phase 3: Per-track audio features (sequential, 300ms gap, rate limit)  │
 //   └──────────────────────────────────────────────────────────────────────────┘
+//
+// Genres (Phase 2) are persisted BEFORE the sequential audio-feature loop (Phase 3)
+// so the client's /genres poller can receive them well within its 60-second window,
+// even for large playlists where Phase 3 takes 20-60+ seconds.
 
 // Tracks whose enrichment is currently in flight (keyed by platformId).
 // Prevents duplicate concurrent enrichment — each page reload would otherwise stack
@@ -565,7 +575,6 @@ export const backgroundEnrichTracks = async (
   // Genre enrichment can be needed even when all audio features are already cached
   // (e.g. ArtistCache was cleared independently of TrackCache).
   if (tracks.length === 0 && uniqueMissedArtists.length === 0) return;
-  console.log(`[Enrichment] Starting background enrichment: ${tracks.length} track(s), ${uniqueMissedArtists.length} artist(s) — platforms: ${[...new Set([...tracks.map(t => t.platform), ...uniqueMissedArtists.map(a => a.platform)])].join(', ')}`);
   tracks.forEach(t => enrichingIds.add(t.platformId));
 
   try {
@@ -612,17 +621,25 @@ export const backgroundEnrichTracks = async (
     const tracksForRecco = tracksWithSpotifyId.filter(t => !alreadyCachedSpotifyIds.has(t.spotifyId!));
     const spotifyIds     = tracksForRecco.map(t => t.spotifyId as string);
 
-    // Reverse map: spotifyId → track object (for Phase 2 to look up the full track).
+    // Reverse map: spotifyId → track object (for Phase 3 to look up the full track).
     const spotifyIdToTrack: Record<string, EnrichmentTrack> = {};
     tracksForRecco.forEach(t => { spotifyIdToTrack[t.spotifyId as string] = t; });
 
     // Phase 1: ReccoBeats ID lookup + Last.fm genres in parallel.
+    // Both are kicked off at the same time — genre results do not depend on ReccoBeats IDs.
     const [reccoBeatsIdMap, genreResults] = await Promise.all([
       fetchReccoBeatsIds(spotifyIds),
       fetchArtistGenres(uniqueMissedArtists),
     ]);
 
-    // Phase 2: Fetch audio features sequentially (ReccoBeats rate limit).
+    // Phase 2 (genres): Persist genre tags to ArtistCache immediately after Last.fm returns.
+    // This runs BEFORE the sequential audio-feature loop below so that genre data is available
+    // to the client's /genres poller as soon as possible. For large playlists Phase 3 (audio
+    // features) can take 15-60+ seconds; if genres were written after it, the client's 60-second
+    // polling window could expire before genres ever hit the DB.
+    await persistArtistGenres(genreResults);
+
+    // Phase 3: Fetch audio features sequentially (ReccoBeats rate limit).
     // Each track is written to TrackCache immediately so the poller can surface features one by one.
     for (const [spotifyId, reccoId] of Object.entries(reccoBeatsIdMap)) {
       let features: Record<string, unknown> | null = null;
@@ -651,12 +668,6 @@ export const backgroundEnrichTracks = async (
       await sleep(300);
     }
 
-    // Phase 3: Persist genre tags to ArtistCache.
-    await persistArtistGenres(genreResults);
-
-    console.log(
-      `Background enrichment complete: ${Object.keys(reccoBeatsIdMap).length} track(s) feature-cached`
-    );
   } finally {
     // Always release the lock — even if an error occurs mid-enrichment —
     // so the next page load can retry rather than being permanently blocked.

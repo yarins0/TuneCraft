@@ -629,7 +629,7 @@ export default function PlaylistDetail() {
 
       {/* Error toast */}
       {saveError && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-6 py-3 rounded-full shadow-lg z-50 text-center max-w-md">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[color-mix(in_srgb,var(--color-warning)_90%,transparent)] text-white px-6 py-3 rounded-full shadow-[0_0_16px_var(--color-warning-glow)] z-50 text-center max-w-md">
           ⚠️ {saveError}
         </div>
       )}

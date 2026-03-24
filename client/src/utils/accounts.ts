@@ -127,6 +127,45 @@ export function setSessionAccount(userId: string): void {
   sessionStorage.setItem('platformUserId', account.platformUserId);
 }
 
+// Removes a single account from the stored list and cleans up related keys.
+//
+// If the removed account was the active one, the legacy 'userId' / 'platformUserId'
+// keys are cleared so no stale identity lingers. The caller is responsible for
+// redirecting to login or switching to another account after this returns.
+//
+// Also calls DELETE /auth/:userId on the server to remove the User row from the DB.
+// The server deletes only that row — other platform accounts in the same browser
+// session are not affected.
+export async function removeAccount(userId: string): Promise<void> {
+  const { API_BASE_URL } = await import('../api/config');
+
+  // Fire-and-forget the server deletion; if it fails we still clean up locally
+  // so the user isn't stuck. A 404 (row already gone) is also fine.
+  try {
+    await fetch(`${API_BASE_URL}/auth/${userId}`, { method: 'DELETE' });
+  } catch {
+    // Network error — proceed with local cleanup regardless
+  }
+
+  // Remove the account from the local array
+  const accounts = getAccounts();
+  const updated = accounts.filter(a => a.userId !== userId);
+  saveAccounts(updated);
+
+  // Clean up active-account keys if this was the active one
+  const activeId = localStorage.getItem('activeUserId');
+  if (activeId === userId) {
+    localStorage.removeItem('activeUserId');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('platformUserId');
+
+    // Mirror the removal into sessionStorage as well — getUserId() checks it first
+    sessionStorage.removeItem('activeUserId');
+    sessionStorage.removeItem('userId');
+    sessionStorage.removeItem('platformUserId');
+  }
+}
+
 // Removes all stored accounts and resets all auth keys.
 // Used on logout.
 export function clearAccounts(): void {

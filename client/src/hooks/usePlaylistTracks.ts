@@ -98,6 +98,14 @@ export const usePlaylistTracks = (
 
     let cancelled = false;
 
+    // AbortController lets us cancel in-flight fetch() calls at the network level.
+    // When abort() is called, any pending fetchTracksPage() promises will reject
+    // with a DOMException whose name is 'AbortError'. This is different from the
+    // `cancelled` flag, which only prevents state updates — the fetch itself would
+    // otherwise keep running and consuming bandwidth/server resources.
+    const controller = new AbortController();
+    const { signal } = controller;
+
     // Clears all pending sets and stops both polling intervals
     const stopPolling = () => {
       if (featurePollingRef.current) {
@@ -249,7 +257,8 @@ export const usePlaylistTracks = (
 
       while (more && !cancelled) {
         try {
-          const data = await fetchTracksPage(getUserId(), playlistId, currentPage);
+          // Pass the AbortSignal so navigation drops the network request immediately.
+          const data = await fetchTracksPage(getUserId(), playlistId, currentPage, signal);
           if (cancelled) break;
 
           setTracks(prev => [...prev, ...data.tracks]);
@@ -266,7 +275,10 @@ export const usePlaylistTracks = (
 
           // Yield to the event loop so React renders this page before fetching the next one
           await new Promise(resolve => setTimeout(resolve, 0));
-        } catch {
+        } catch (err) {
+          // An AbortError means the user navigated away and we intentionally cancelled
+          // the request — this is not a real error and should not be logged or shown.
+          if (err instanceof DOMException && err.name === 'AbortError') break;
           console.error(`Failed to load page ${currentPage}`);
           break;
         }
@@ -275,8 +287,10 @@ export const usePlaylistTracks = (
       if (!cancelled) setLoadingMore(false);
     };
 
-    // Load the first page immediately, then kick off background loading for the rest
-    fetchTracksPage(getUserId(), playlistId, 0)
+    // Load the first page immediately, then kick off background loading for the rest.
+    // The AbortSignal is passed so navigating away drops the network request, not just
+    // the state update.
+    fetchTracksPage(getUserId(), playlistId, 0, signal)
       .then(data => {
         if (cancelled) return;
         setTracks(data.tracks);
@@ -289,14 +303,20 @@ export const usePlaylistTracks = (
         if (data.hasMore) loadAllPages(data.nextPage);
       })
       .catch(err => {
+        // AbortError: the user navigated away — not a real error, do not surface it.
+        if (err instanceof DOMException && err.name === 'AbortError') return;
         if (cancelled) return;
         setError(err.message || 'Failed to load tracks');
         setLoading(false);
       });
 
-    // If playlistId changes before loading finishes, cancel in-flight requests and stop polling
+    // If playlistId changes (or the component unmounts) before loading finishes,
+    // abort all in-flight fetch() calls at the network level and stop polling.
+    // The `cancelled` flag then prevents any stale state updates that may still
+    // land between abort() and the AbortError being thrown.
     return () => {
       cancelled = true;
+      controller.abort();
       stopPolling();
     };
   }, [playlistId]);

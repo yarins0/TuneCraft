@@ -70,7 +70,8 @@ const buildTrack = (
 // All Spotify-specific API details live here — routes and middleware only call the interface.
 export class SpotifyAdapter implements PlatformAdapter {
   readonly platform = 'SPOTIFY' as const;
-  readonly trackCacheIdField = 'spotifyId';
+  readonly trackCacheIdField  = 'spotifyId';
+  readonly artistCacheIdField = 'spotifyArtistId';
 
   // Builds the Spotify OAuth authorization URL the user is redirected to when clicking "Connect".
   // The `show_dialog: true` flag forces the consent screen even if the user has logged in before.
@@ -216,10 +217,13 @@ export class SpotifyAdapter implements PlatformAdapter {
 
   // Fetches one page of tracks from a playlist, enriched with audio features and genres.
   // page=0 returns tracks 0–49, page=1 returns 50–99, and so on.
+  // signal is forwarded into requestWithRetry so the platform API call is cancelled
+  // immediately when the client drops the HTTP connection.
   async fetchPlaylistTracks(
     accessToken: string,
     playlistId: string,
-    page: number
+    page: number,
+    signal?: AbortSignal
   ): Promise<{ tracks: PlatformTrack[]; total: number }> {
     const limit = 50;
     const offset = page * limit;
@@ -233,7 +237,8 @@ export class SpotifyAdapter implements PlatformAdapter {
       },
       undefined,
       3,
-      'Spotify'
+      'Spotify',
+      signal
     );
 
     // Filter out null entries and non-track items (e.g. podcast episodes)
@@ -264,7 +269,6 @@ export class SpotifyAdapter implements PlatformAdapter {
     // Fire background enrichment for cache misses — don't block the response.
     // Features will be null on this load but arrive via the /features polling endpoint.
     if (missedTracks.length > 0 || uniqueMissedArtists.length > 0) {
-      console.log(`Fetching enrichment for ${missedTracks.length} uncached track(s) in background`);
       backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
         console.error('Background enrichment error:', err)
       );
@@ -331,7 +335,6 @@ export class SpotifyAdapter implements PlatformAdapter {
       await readEnrichmentCache(enrichmentInput);
 
     if (missedTracks.length > 0 || uniqueMissedArtists.length > 0) {
-      console.log(`Fetching enrichment for ${missedTracks.length} uncached track(s) in background`);
       backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
         console.error('Background enrichment error:', err)
       );

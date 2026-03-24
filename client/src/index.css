@@ -14,6 +14,11 @@
     --color-text-muted: rgba(255, 255, 255, 0.55);
     --color-border: rgba(255, 255, 255, 0.1);
 
+    /* Warning / destructive accent — used for remove buttons, error states, and destructive actions */
+    --color-warning: #ef4444;
+    --color-warning-hover: #dc2626;
+    --color-warning-glow: rgba(239, 68, 68, 0.5);
+
     /* Platform brand colours — used for badges, trust signals, and platform-aware UI elements */
     --color-platform-spotify: #1DB954;
     --color-platform-soundcloud: #FF5500;

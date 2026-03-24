@@ -72,6 +72,12 @@ export interface PlatformAdapter {
   // Examples: 'spotifyId', 'soundcloudId', 'tidalId'
   readonly trackCacheIdField: string;
 
+  // The ArtistCache column that stores this platform's native artist ID.
+  // Mirrors trackCacheIdField — the enrichment pipeline uses this to index and backfill
+  // artist rows without any per-platform if/else logic in enrichment.ts.
+  // Examples: 'spotifyArtistId', 'soundcloudArtistId', 'tidalArtistId'
+  readonly artistCacheIdField: string;
+
   // --- Auth ---
 
   // Returns the full OAuth authorization URL to redirect the user to.
@@ -97,10 +103,13 @@ export interface PlatformAdapter {
   // page=0 → first 50 tracks, page=1 → next 50, etc.
   // hasMore is optional — adapters that can't express it via page*limit+count (e.g. Tidal,
   // which caps pages at 20 regardless of page[size]) return it explicitly instead.
+  // signal is optional — when provided, it is forwarded into requestWithRetry so in-flight
+  // platform API calls are cancelled immediately if the client drops the connection.
   fetchPlaylistTracks(
     accessToken: string,
     playlistId: string,
-    page: number
+    page: number,
+    signal?: AbortSignal
   ): Promise<{ tracks: PlatformTrack[]; total: number; hasMore?: boolean }>;
 
   // Returns the total track count in the user's liked/saved library.

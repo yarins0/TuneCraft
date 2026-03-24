@@ -14,6 +14,11 @@ const adapters: Partial<Record<Platform, PlatformAdapter>> = {
   // APPLE_MUSIC: new AppleMusicAdapter(), ← add when implemented
 };
 
+// Returns all registered adapter instances.
+// Used by the enrichment pipeline to derive platform-specific column names without
+// hardcoding platform lists — adding a new platform only requires registering it here.
+export const getAllAdapters = (): PlatformAdapter[] => Object.values(adapters) as PlatformAdapter[];
+
 // Returns the adapter for the given platform.
 // Throws if no adapter is registered — this signals an unimplemented platform,
 // not a runtime configuration error.

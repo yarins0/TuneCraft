@@ -294,20 +294,15 @@ router.get('/:userId/:playlistId/tracks', refreshTokenMiddleware, async (req, re
   // Create an AbortController tied to the lifetime of this HTTP request.
   // When the client closes the connection (tab closed, navigation away, component unmount),
   // Node fires the 'close' event on the underlying socket, which triggers abort() here.
-  // The signal is passed into requestWithRetry so any in-flight platform API call and
-  // any back-off sleep in a retry loop are both cancelled immediately rather than
-  // continuing to consume API quota for a response nobody is waiting for.
-  //
-  // Note: the signal is NOT forwarded into adapter.fetchPlaylistTracks() here because
-  // doing so would require adding an optional signal parameter to the PlatformAdapter
-  // interface and every adapter implementation — a broader refactor tracked separately.
-  // The AbortController is wired here so the pattern is in place and ready to be
-  // threaded through once the interface is extended.
+  // The signal is forwarded into fetchPlaylistTracks and then into requestWithRetry so
+  // any in-flight platform API call and any back-off sleep in a retry loop are both
+  // cancelled immediately rather than continuing to consume API quota for a response
+  // nobody is waiting for.
   const abortController = new AbortController();
   req.on('close', () => abortController.abort());
 
   try {
-    const result = await adapter.fetchPlaylistTracks(accessToken, playlistId, page);
+    const result = await adapter.fetchPlaylistTracks(accessToken, playlistId, page, abortController.signal);
     const { tracks, total } = result;
     const tracksWithPlatform = tracks.map(t => ({ ...t, platform: adapter.platform }));
 

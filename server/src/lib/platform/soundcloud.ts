@@ -93,7 +93,8 @@ const buildTrack = (
 //   - replacePlaylistTracks sends the full track list in one PUT (no 100-item chunking)
 export class SoundCloudAdapter implements PlatformAdapter {
   readonly platform = 'SOUNDCLOUD' as const;
-  readonly trackCacheIdField = 'soundcloudId';
+  readonly trackCacheIdField  = 'soundcloudId';
+  readonly artistCacheIdField = 'soundcloudArtistId';
 
   // Builds the SoundCloud OAuth authorization URL.
   // The user is redirected here when clicking "Connect SoundCloud".
@@ -275,10 +276,13 @@ export class SoundCloudAdapter implements PlatformAdapter {
   //
   // Audio features require an extra ISRC → Spotify ID lookup step (handled in backgroundEnrichTracks).
   // Tracks without an ISRC (many indie uploads) will have null audio features — graceful in the UI.
+  // signal is forwarded into both parallel requestWithRetry calls so both are cancelled
+  // simultaneously when the client drops the HTTP connection.
   async fetchPlaylistTracks(
     accessToken: string,
     playlistId: string,
-    page: number
+    page: number,
+    signal?: AbortSignal
   ): Promise<{ tracks: PlatformTrack[]; total: number }> {
     const limit = 50;
     const offset = page * limit;
@@ -291,7 +295,8 @@ export class SoundCloudAdapter implements PlatformAdapter {
         { headers: scAuthHeader(accessToken) },
         undefined,
         3,
-        'SoundCloud'
+        'SoundCloud',
+        signal
       ),
       requestWithRetry(
         'get',
@@ -302,7 +307,8 @@ export class SoundCloudAdapter implements PlatformAdapter {
         },
         undefined,
         3,
-        'SoundCloud'
+        'SoundCloud',
+        signal
       ),
     ]);
 
@@ -327,9 +333,6 @@ export class SoundCloudAdapter implements PlatformAdapter {
       await readEnrichmentCache(enrichmentInput);
 
     if (missedTracks.length > 0 || uniqueMissedArtists.length > 0) {
-      console.log(
-        `[SC] Fetching enrichment for ${missedTracks.length} uncached track(s) in background`
-      );
       backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
         console.error('[SC] Background enrichment error:', err)
       );

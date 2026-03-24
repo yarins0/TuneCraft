@@ -79,18 +79,29 @@ export const fetchPendingGenres = async (
   return response.json();
 };
 
-// Fetches a single page of tracks for a playlist
+// Fetches a single page of tracks for a playlist.
 // page=0 returns the first 50 tracks, page=1 returns the next 50, etc.
+//
+// signal — optional AbortSignal from an AbortController. When the controller is
+// aborted (e.g. because the user navigated away), the underlying fetch() is
+// cancelled at the network level, not just ignored in JavaScript. The browser
+// closes the TCP connection and the server stops sending the response body.
+// Callers should catch DOMException with name 'AbortError' to distinguish an
+// intentional cancellation from a real network failure.
 export const fetchTracksPage = async (
   userId: string,
   playlistId: string,
-  page: number = 0
+  page: number = 0,
+  signal?: AbortSignal
 ): Promise<TracksPageResponse> => {
   const base = playlistId === 'liked'
     ? `${API_BASE_URL}/playlists/${userId}/liked/tracks`
     : `${API_BASE_URL}/playlists/${userId}/${playlistId}/tracks`;
 
-  const response = await fetch(`${base}?page=${page}`);
+  // Pass the signal into fetch so the request can be aborted mid-flight.
+  // If signal is undefined, fetch behaves exactly as before — no behaviour change
+  // for callers that don't pass a signal.
+  const response = await fetch(`${base}?page=${page}`, { signal });
 
   if (!response.ok) {
     throw new Error('Failed to fetch tracks');

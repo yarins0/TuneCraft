@@ -12,10 +12,10 @@ export default function AppFooter() {
 
       {/* Links — slightly more prominent than metadata, these are the interactive elements */}
       <div className="flex gap-4">
-        <Link to="/contact" className="text-xs text-text-primary/60 hover:text-text-primary transition-all duration-200 py-1">
+        <Link to="/contact" className="text-xs text-text-primary transition-all duration-200 py-1">
           Contact
         </Link>
-        <Link to="/privacy" className="text-xs text-text-primary/60 hover:text-text-primary transition-all duration-200 py-1">
+        <Link to="/privacy" className="text-xs text-text-primary transition-all duration-200 py-1">
           Privacy Policy
         </Link>
       </div>
