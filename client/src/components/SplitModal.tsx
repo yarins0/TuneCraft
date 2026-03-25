@@ -462,9 +462,9 @@ export default function SplitModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-5 shrink-0">
-          <div>
+          <div className="min-w-0 mr-4">
             <h2 className="text-lg font-bold text-text-primary">✂️ Split Playlist</h2>
-            <p className="text-text-muted text-sm mt-1">
+            <p className="text-text-muted text-sm mt-1 truncate">
               Divide <span className="text-text-primary font-medium">{playlistName}</span> into smaller playlists
             </p>
           </div>
