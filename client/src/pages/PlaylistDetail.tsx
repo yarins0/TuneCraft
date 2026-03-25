@@ -150,6 +150,7 @@ export default function PlaylistDetail() {
       setInsightsOpen(false);
     },
     onCopyComplete: () => setCopyModalOpen(false),
+    onSplitComplete: () => setSplitModalOpen(false),
     onSuccess: showSuccess,
     onError: showError,
   });

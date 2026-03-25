@@ -20,6 +20,8 @@ interface Options {
   onShuffleApplied: () => void;
   // Called after a successful copy so the parent can close the CopyModal
   onCopyComplete: () => void;
+  // Called after a successful split so the parent can close the SplitModal
+  onSplitComplete: () => void;
   onSuccess: (msg: string, durationMs?: number) => void;
   onError: (msg: string, durationMs?: number) => void;
 }
@@ -62,6 +64,7 @@ export const usePlaylistActions = ({
   setReshuffleSchedule,
   onShuffleApplied,
   onCopyComplete,
+  onSplitComplete,
   onSuccess,
   onError,
 }: Options): UsePlaylistActionsResult => {
@@ -193,6 +196,7 @@ export const usePlaylistActions = ({
 
       await splitPlaylist(getUserId(), payload);
       onSuccess(`Split into ${groups.length} playlists — check your library!`, 5000);
+      onSplitComplete();
     } catch {
       onError('Failed to split playlist. Please try again.', 5000);
     } finally {
