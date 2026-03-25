@@ -17,3 +17,6 @@ logs/
 # OS files
 .DS_Store
 /src/generated/prisma
+
+# Sandbox scripts — may contain API keys, never commit
+sandbox/
