@@ -367,18 +367,16 @@ export default function PlaylistDetail() {
               <span className="text-xs font-normal opacity-80 leading-tight">Active</span>
             )}
           </button>
-          {isOwner && (
-            <>
-              <button
-                onClick={() => setSplitModalOpen(true)}
-                disabled={loadingMore}
-                className="bg-accent hover:bg-bg-secondary
-                disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full
-                border border-border-color transition-all duration-200 hover:border-accent/50"
-              >
-                ✂️ Split
-              </button>
-              {playlistId !== 'liked' && (
+          <button
+            onClick={() => setSplitModalOpen(true)}
+            disabled={loadingMore}
+            className="bg-accent hover:bg-bg-secondary
+            disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full
+            border border-border-color transition-all duration-200 hover:border-accent/50"
+          >
+            ✂️ Split
+          </button>
+          {isOwner && playlistId !== 'liked' && (
                 <button
                   onClick={handleSave}
                   disabled={saveLoading || loadingMore}
@@ -390,8 +388,6 @@ export default function PlaylistDetail() {
                     {saveLoading ? saveLabel : '💾 Save'}
                   </span>
                 </button>
-              )}
-            </>
           )}
           <button
             onClick={() => setCopyModalOpen(true)}

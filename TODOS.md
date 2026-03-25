@@ -44,19 +44,9 @@ Tasks are divided into independent agents — each agent owns a separate slice o
 
 ---
 
-## F1 · Allow split on followed (non-owned) playlists
+## ~~F1 · Allow split on followed (non-owned) playlists~~ ✅ DONE
 
-**What:** The Split option is currently unavailable for followed playlists. Split creates brand-new playlists owned by the user — it never modifies the original — so there is no reason to block it on followed playlists.
-
-**Why:** Users often want to reorganise followed playlists (e.g. a large liked-songs export or a shared playlist) without needing to copy it first.
-
-**What to change:**
-- `client/src/pages/PlaylistDetail.tsx` — find the condition that disables/hides the Split button for followed playlists and remove it (or change it to only gate on platforms that genuinely can't support split)
-- `client/src/components/SplitModal.tsx` — verify no ownership assumption is baked into the modal itself
-- `server/src/routes/playlists.ts` — check the `/:userId/:playlistId/split` handler for any ownership guard; remove it if present (the route already creates new playlists under the user's account, not under the source playlist's owner)
-
-**Effort:** XS
-**Priority:** P2
+Removed the `isOwner &&` guard from the Split button in `PlaylistDetail.tsx`. Split was already sharing the guard with Save; the two buttons were separated so Save remains owner-only while Split is now available for all playlists.
 
 ---
 

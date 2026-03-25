@@ -529,7 +529,20 @@ export class TidalAdapter implements PlatformAdapter {
     const included: any[] = body.included ?? [];
 
     const nextCursor: string | null = body.links?.meta?.nextCursor ?? null;
-    const newAccumulated = accumulated + (body.data ?? []).length;
+
+    // Build rawTracks BEFORE computing the accumulated count so that newAccumulated
+    // reflects only audio tracks. Tidal playlists can contain non-audio items (videos,
+    // podcasts) which appear in body.data but have type !== 'tracks'. Using body.data.length
+    // would over-count them, making `total` higher than the number of tracks the client
+    // actually receives — which the user perceives as data loss during splits.
+    const tracksMap = buildIncludedMap(included, 'tracks');
+    const rawTracks: any[] = (body.data ?? [])
+      .filter((ref: any) => ref.type === 'tracks')
+      .map((ref: any) => tracksMap.get(String(ref.id)))
+      .filter(Boolean);
+
+    // Accumulate only actual audio tracks across pages (not all playlist items).
+    const newAccumulated = accumulated + rawTracks.length;
 
     // Store the cursor for the next page, along with the running accumulated count,
     // so the next request knows how many tracks have truly been loaded so far.
@@ -541,18 +554,10 @@ export class TidalAdapter implements PlatformAdapter {
       });
     }
 
-    // total = real accumulated track count (used for display: "X out of total").
-    // Tidal caps pages at 20 refs regardless of page[size]=50, so we can't derive total from
-    // page*limit — we use the running accumulated count from the cursor cache instead.
-    // Prefer meta.total when Tidal provides it (gives the full count immediately).
-    const total: number = body.meta?.total ?? newAccumulated;
-
-    // data holds relationship refs { type: 'tracks', id }; full objects are in included.
-    const tracksMap = buildIncludedMap(included, 'tracks');
-    const rawTracks: any[] = (body.data ?? [])
-      .filter((ref: any) => ref.type === 'tracks')
-      .map((ref: any) => tracksMap.get(String(ref.id)))
-      .filter(Boolean);
+    // total = running audio-track count only. We intentionally do not use body.meta?.total
+    // because Tidal's total counts ALL playlist items (tracks + videos + other), which
+    // can be higher than the number of audio tracks we return.
+    const total: number = newAccumulated;
 
     const artistsMap  = buildIncludedMap(included, 'artists');
     const albumsMap   = buildIncludedMap(included, 'albums');
