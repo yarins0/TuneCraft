@@ -30,5 +30,10 @@ declare module 'express-serve-static-core' {
     // Set by refreshTokenMiddleware — identifies which streaming platform this
     // user belongs to ('SPOTIFY' | 'SOUNDCLOUD' | 'TIDAL').
     userPlatform: string;
+
+    // Raw request body bytes captured by the express.json() verify callback.
+    // Required for Svix webhook signature verification, which must compute the
+    // HMAC over the exact bytes received — not a re-serialised JSON object.
+    rawBody?: string;
   }
 }

@@ -266,24 +266,27 @@ router.post('/spotify/request-access', async (req, res) => {
       where: { email: email.trim(), status: 'PENDING' },
     });
 
-    if (!existing) {
-      await prisma.spotifyAccessRequest.create({
-        data: { fullName: normalizedName, email: email.trim() },
-      });
-    }
+    // Retrieve or create the DB record so we can embed its ID in the notification
+    // email — the inbound-email handler uses the ID for a reliable exact-match
+    // lookup when the admin replies to approve or reject the request.
+    const requestRecord = existing ?? await prisma.spotifyAccessRequest.create({
+      data: { fullName: normalizedName, email: email.trim() },
+    });
 
     // Send the admin notification regardless of whether this is a duplicate —
     // the email is a prompt to act, not a record of every submission.
     await resend.emails.send({
       from:    'Tunecraft <onboarding@resend.dev>',
       to:      process.env.ADMIN_EMAIL!,
-      subject: `[Tunecraft] Spotify access request — ${normalizedName}`,
+      subject: `[Tunecraft] Spotify access request — ${normalizedName} [${requestRecord.id}]`,
       html: `
         <p>A new user is requesting Spotify access on Tunecraft.</p>
         <table cellpadding="6">
           <tr><td><strong>Name</strong></td><td>${escapeHtml(normalizedName)}</td></tr>
           <tr><td><strong>Email</strong></td><td>${escapeHtml(email.trim())}</td></tr>
         </table>
+        <p>Reply to this email with <strong>APPROVED</strong> or <strong>REJECTED</strong>
+        to update the request status automatically.</p>
         <p>
           Add them at:<br/>
           <a href="https://developer.spotify.com/dashboard">

@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import authRouter from './routes/auth';
 import playlistsRouter from './routes/playlists';
 import reshuffleRouter from './routes/reshuffle';
+import emailRouter from './routes/email';
 import { startCrons } from './lib/crons';
 
 // Environment variables must be loaded before any other configuration
@@ -24,12 +25,20 @@ const PORT = process.env.PORT || 3000;
 // CORS is restricted to the configured frontend origin — no other site can make
 // authenticated requests to this server from a user's browser.
 app.use(cors({ origin: process.env.FRONTEND_URL }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  // Capture the raw bytes before JSON.parse so that the inbound-email webhook
+  // handler can verify Svix signatures (which are computed over the raw body).
+  verify: (req: express.Request, _res, buf: Buffer) => {
+    req.rawBody = buf.toString();
+  },
+}));
 
 // Routes are mounted with a base path prefix
 app.use('/auth', authRouter);
 app.use('/playlists', playlistsRouter);
 app.use('/reshuffle', reshuffleRouter);
+app.use('/email', emailRouter);
 
 startCrons();
 
