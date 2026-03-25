@@ -1,7 +1,6 @@
 import { requestWithRetry } from '../requestWithRetry';
 import {
-  readEnrichmentCache,
-  backgroundEnrichTracks,
+  fetchEnrichmentMaps,
   type EnrichmentTrack,
 } from '../enrichment';
 import type {
@@ -329,14 +328,7 @@ export class SoundCloudAdapter implements PlatformAdapter {
       platform: 'SOUNDCLOUD' as const,
     }));
 
-    const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
-      await readEnrichmentCache(enrichmentInput);
-
-    if (missedTracks.length > 0 || uniqueMissedArtists.length > 0) {
-      backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
-        console.error('[SC] Background enrichment error:', err)
-      );
-    }
+    const { audioFeaturesMap, artistGenreMap } = await fetchEnrichmentMaps(enrichmentInput, '[SC] ');
 
     const tracks = rawTracks.map((t: any) => buildTrack(t, audioFeaturesMap, artistGenreMap));
     return { tracks, total };
@@ -401,14 +393,7 @@ export class SoundCloudAdapter implements PlatformAdapter {
       platform: 'SOUNDCLOUD' as const,
     }));
 
-    const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
-      await readEnrichmentCache(enrichmentInput);
-
-    if (missedTracks.length > 0 || uniqueMissedArtists.length > 0) {
-      backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
-        console.error('[SC] Background enrichment error:', err)
-      );
-    }
+    const { audioFeaturesMap, artistGenreMap } = await fetchEnrichmentMaps(enrichmentInput, '[SC] ');
 
     const tracks = rawTracks.map((t: any) => buildTrack(t, audioFeaturesMap, artistGenreMap));
     return { tracks, total };

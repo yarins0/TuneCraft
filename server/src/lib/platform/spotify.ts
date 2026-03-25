@@ -1,8 +1,7 @@
 import prisma from '../prisma';
 import { requestWithRetry } from '../requestWithRetry';
 import {
-  readEnrichmentCache,
-  backgroundEnrichTracks,
+  fetchEnrichmentMaps,
   type EnrichmentTrack,
 } from '../enrichment';
 import type {
@@ -263,16 +262,9 @@ export class SpotifyAdapter implements PlatformAdapter {
       platform: 'SPOTIFY' as const,
     }));
 
-    const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
-      await readEnrichmentCache(enrichmentInput);
-
     // Fire background enrichment for cache misses — don't block the response.
     // Features will be null on this load but arrive via the /features polling endpoint.
-    if (missedTracks.length > 0 || uniqueMissedArtists.length > 0) {
-      backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
-        console.error('Background enrichment error:', err)
-      );
-    }
+    const { audioFeaturesMap, artistGenreMap } = await fetchEnrichmentMaps(enrichmentInput);
 
     const tracks = rawTracks.map((t: any) => buildTrack(t, audioFeaturesMap, artistGenreMap));
     return { tracks, total: tracksResponse.data.total };
@@ -331,14 +323,7 @@ export class SpotifyAdapter implements PlatformAdapter {
       platform: 'SPOTIFY' as const,
     }));
 
-    const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
-      await readEnrichmentCache(enrichmentInput);
-
-    if (missedTracks.length > 0 || uniqueMissedArtists.length > 0) {
-      backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
-        console.error('Background enrichment error:', err)
-      );
-    }
+    const { audioFeaturesMap, artistGenreMap } = await fetchEnrichmentMaps(enrichmentInput);
 
     const tracks = rawTracks.map((t: any) => buildTrack(t, audioFeaturesMap, artistGenreMap));
     return { tracks, total: tracksResponse.data.total };

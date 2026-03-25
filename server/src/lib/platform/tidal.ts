@@ -1,8 +1,7 @@
 import crypto from 'crypto';
 import { requestWithRetry } from '../requestWithRetry';
 import {
-  readEnrichmentCache,
-  backgroundEnrichTracks,
+  fetchEnrichmentMaps,
   type EnrichmentTrack,
 } from '../enrichment';
 import type {
@@ -159,6 +158,39 @@ const buildTrackV2 = (
     },
   };
 };
+
+// Builds the EnrichmentTrack input for a batch of raw Tidal v2 track nodes.
+// Both fetchPlaylistTracks and fetchLikedTracks follow the same pattern — extract the
+// first artist ref, resolve it against the provided artistsMap, and map to EnrichmentTrack[].
+// Centralizing this removes the duplicated block and makes the relationship-traversal
+// logic easier to find and update if the Tidal v2 schema changes.
+const buildTidalEnrichmentInput = (
+  rawTracks: any[],
+  artistsMap: Map<string, any>
+): EnrichmentTrack[] =>
+  rawTracks.map((t: any) => {
+    const artistRef  = t.relationships?.artists?.data?.[0];
+    const artistId   = String(artistRef?.id ?? '');
+    const artistData = artistRef ? artistsMap.get(String(artistRef.id)) : null;
+    return {
+      platformId: String(t.id),
+      spotifyId:  null,
+      idField:    'tidalId',
+      artistId,
+      artistName: artistData?.attributes?.name ?? '',
+      isrc:       t.attributes?.isrc ?? undefined,
+      platform:   'TIDAL' as const,
+    };
+  });
+
+// Builds the Authorization + Content-Type headers required for all Tidal v2 write
+// operations (POST, PATCH, DELETE on /playlists/.../relationships/items).
+// Extracted because the same two-field object was constructed independently in
+// createPlaylist, replacePlaylistTracks, and addTracksToPlaylist.
+const tidalWriteHeaders = (accessToken: string) => ({
+  Authorization:  `Bearer ${accessToken}`,
+  'Content-Type': 'application/vnd.api+json',
+});
 
 // ─── TidalAdapter ─────────────────────────────────────────────────────────────
 
@@ -564,31 +596,11 @@ export class TidalAdapter implements PlatformAdapter {
     const artworksMap = buildIncludedMap(included, 'artworks');
     const genresMap   = buildIncludedMap(included, 'genres');
 
-    const enrichmentInput: EnrichmentTrack[] = rawTracks.map((t: any) => {
-      const artistRef  = t.relationships?.artists?.data?.[0];
-      const artistId   = String(artistRef?.id ?? '');
-      const artistData = artistRef ? artistsMap.get(String(artistRef.id)) : null;
-      return {
-        platformId: String(t.id),
-        spotifyId:  null,
-        idField:    this.trackCacheIdField,
-        artistId,
-        artistName: artistData?.attributes?.name ?? '',
-        isrc:       t.attributes?.isrc ?? undefined,
-        platform:   'TIDAL' as const,
-      };
-    });
+    // Tidal's native genre API returns empty for most tracks, so we fall back to Last.fm
+    // for genre lookup — the same approach SoundCloud uses.
+    const enrichmentInput = buildTidalEnrichmentInput(rawTracks, artistsMap);
+    const { audioFeaturesMap, artistGenreMap } = await fetchEnrichmentMaps(enrichmentInput, '[Tidal] ');
 
-    const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
-      await readEnrichmentCache(enrichmentInput);
-
-    if (missedTracks.length > 0 || uniqueMissedArtists.length > 0) {
-      // Tidal's native genre API returns empty for most tracks, so we fall back to Last.fm
-      // for genre lookup — the same approach SoundCloud uses.
-      backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
-        console.error('[Tidal] Background enrichment error:', err)
-      );
-    }
     const tracks = rawTracks.map(t =>
       buildTrackV2(t, artistsMap, albumsMap, artworksMap, genresMap, audioFeaturesMap, artistGenreMap)
     );
@@ -721,29 +733,8 @@ export class TidalAdapter implements PlatformAdapter {
     // Fall back to the actual deduplicated count if meta.total was absent.
     if (total === 0) total = rawTracks.length;
 
-    const enrichmentInput: EnrichmentTrack[] = rawTracks.map((t: any) => {
-      const artistRef  = t.relationships?.artists?.data?.[0];
-      const artistId   = String(artistRef?.id ?? '');
-      const artistData = artistRef ? artistsMap.get(String(artistRef.id)) : null;
-      return {
-        platformId: String(t.id),
-        spotifyId:  null,
-        idField:    this.trackCacheIdField,
-        artistId,
-        artistName: artistData?.attributes?.name ?? '',
-        isrc:       t.attributes?.isrc ?? undefined,
-        platform:   'TIDAL' as const,
-      };
-    });
-
-    const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
-      await readEnrichmentCache(enrichmentInput);
-
-    if (missedTracks.length > 0) {
-      backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
-        console.error('[Tidal] Background enrichment error:', err)
-      );
-    }
+    const enrichmentInput = buildTidalEnrichmentInput(rawTracks, artistsMap);
+    const { audioFeaturesMap, artistGenreMap } = await fetchEnrichmentMaps(enrichmentInput, '[Tidal] ');
 
     const tracks = rawTracks.map(t =>
       buildTrackV2(t, artistsMap, albumsMap, artworksMap, genresMap, audioFeaturesMap, artistGenreMap)
@@ -823,11 +814,7 @@ export class TidalAdapter implements PlatformAdapter {
       'post',
       `${TIDAL_OPENAPI}/playlists`,
       {
-        headers: {
-          Authorization:     `Bearer ${accessToken}`,
-          'Content-Type':    'application/vnd.api+json',
-          'Idempotency-Key': crypto.randomUUID(),
-        },
+        headers: { ...tidalWriteHeaders(accessToken), 'Idempotency-Key': crypto.randomUUID() },
         params: { countryCode: cc },
       },
       // JSON:API resource object — `type` identifies the resource, `attributes` holds the data.
@@ -876,10 +863,7 @@ export class TidalAdapter implements PlatformAdapter {
     trackIds: string[]
   ): Promise<void> {
     const readHeaders  = { Authorization: `Bearer ${accessToken}` };
-    const writeHeaders = {
-      Authorization:  `Bearer ${accessToken}`,
-      'Content-Type': 'application/vnd.api+json',
-    };
+    const writeHeaders = tidalWriteHeaders(accessToken);
 
     // Phase 1: collect every current { trackId, itemId } pair in playlist order.
     // Duplicates produce separate entries — e.g. two slots for the same track ID,
@@ -1002,10 +986,6 @@ export class TidalAdapter implements PlatformAdapter {
   ): Promise<void> {
     const { cc } = decodeTidalToken(accessToken);
     const addedAt = new Date().toISOString();
-    const headers = {
-      Authorization:  `Bearer ${accessToken}`,
-      'Content-Type': 'application/vnd.api+json',
-    };
 
     for (let i = 0; i < trackIds.length; i += TIDAL_TRACKS_PER_PAGE) {
       const chunk = trackIds.slice(i, i + TIDAL_TRACKS_PER_PAGE);
@@ -1013,7 +993,7 @@ export class TidalAdapter implements PlatformAdapter {
         'post',
         `${TIDAL_OPENAPI}/playlists/${playlistId}/relationships/items`,
         {
-          headers: { ...headers, 'Idempotency-Key': crypto.randomUUID() },
+          headers: { ...tidalWriteHeaders(accessToken), 'Idempotency-Key': crypto.randomUUID() },
           params:  { countryCode: cc },
         },
         {

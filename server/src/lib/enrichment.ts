@@ -703,3 +703,39 @@ export const backgroundEnrichTracks = async (
     tracks.forEach(t => enrichingIds.delete(t.platformId));
   }
 };
+
+// ─── fetchEnrichmentMaps ───────────────────────────────────────────────────────
+
+// Reads the enrichment cache for a batch of tracks and fires background enrichment
+// for any cache misses — all in one call.
+//
+// Every adapter used to repeat this exact two-step block:
+//   const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
+//     await readEnrichmentCache(input);
+//   if (missedTracks.length > 0 || ...) backgroundEnrichTracks(...).catch(...);
+//
+// That block was copy-pasted 6 times (fetchPlaylistTracks + fetchLikedTracks in each
+// of the three adapters). Centralizing it here means any future change — log format,
+// enrichment gating, error handling — only needs to happen in one place.
+//
+// logPrefix is optional; adapters pass their platform tag (e.g. '[Tidal]') so log
+// lines remain distinguishable in production output.
+//
+// Returns only audioFeaturesMap and artistGenreMap — the two values adapters need
+// to build PlatformTrack objects. missedTracks and uniqueMissedArtists are handled
+// internally and never exposed to callers.
+export const fetchEnrichmentMaps = async (
+  input: EnrichmentTrack[],
+  logPrefix = ''
+): Promise<{ audioFeaturesMap: Record<string, any>; artistGenreMap: Record<string, string[]> }> => {
+  const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
+    await readEnrichmentCache(input);
+
+  if (missedTracks.length > 0 || uniqueMissedArtists.length > 0) {
+    backgroundEnrichTracks(missedTracks, uniqueMissedArtists).catch(err =>
+      console.error(`${logPrefix}Background enrichment error:`, err)
+    );
+  }
+
+  return { audioFeaturesMap, artistGenreMap };
+};
