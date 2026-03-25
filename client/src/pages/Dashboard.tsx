@@ -319,7 +319,7 @@ export default function Dashboard() {
       <div className="min-h-screen pb-28">
 
       {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-border-color px-8 py-6 bg-bg-secondary">
+      <div className="sticky top-0 z-20 border-b border-border-color px-8 py-6 bg-bg-secondary">
         <div className="flex items-center justify-between">
           {/* ?switchTo encodes the active userId so middle-click / Ctrl+click opens a new
               tab on the correct platform instead of falling back to localStorage. */}
