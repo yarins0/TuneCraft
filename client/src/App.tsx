@@ -6,6 +6,7 @@ import PlaylistDetail from './pages/PlaylistDetail.tsx';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import Contact from './pages/Contact';
 import { getActiveAccount } from './utils/accounts';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 // Returns true if at least one account is stored and active.
 // Used to protect routes that require authentication.
@@ -42,6 +43,7 @@ export default function App() {
           }
         />
       </Routes>
+      <SpeedInsights />
     </BrowserRouter>
   );
 }

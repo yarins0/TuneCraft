@@ -19,5 +19,8 @@
   "bugs": {
     "url": "https://github.com/yarins0/TuneCraft/issues"
   },
-  "homepage": "https://github.com/yarins0/TuneCraft#readme"
+  "homepage": "https://github.com/yarins0/TuneCraft#readme",
+  "dependencies": {
+    "@vercel/speed-insights": "^2.0.0"
+  }
 }
