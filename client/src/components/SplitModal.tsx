@@ -260,7 +260,10 @@ export default function SplitModal({
       setStrategy(prev =>
         AUDIO_FEATURE_STRATEGIES.has(prev) && audioFeatureCoverage < 0.2 ? 'genre' : prev
       );
-      setGroupMeta({});
+      // groupMeta is intentionally NOT cleared here — effect 1 already resets it whenever
+      // isOpen or strategy changes. Clearing it here caused a second render on first open
+      // where groupMeta was empty, making names render before the flex container was
+      // measured and breaking truncation for the initial genres view.
       setEditingGroupId(null);
       setMergeTarget(null);
       setOpenPopover(null);
@@ -514,7 +517,10 @@ export default function SplitModal({
           </div>
 
           {/* Right column — preview + actions (~70%) */}
-          <div className="flex-1 flex flex-col min-h-0">
+          {/* w-0 flex-1 overflow-hidden: starts at zero width so flex-grow has a baseline,
+              and overflow-hidden hard-clips content so child elements can never push
+              the column wider than its flex allocation. */}
+          <div className="w-0 flex-1 overflow-hidden flex flex-col min-h-0">
 
             {/* Preview header row with select-all toggle */}
             <div className="flex items-center justify-between mb-2 shrink-0">
