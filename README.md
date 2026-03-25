@@ -426,17 +426,18 @@ cp server/.env.example server/.env
 `server/.env`:
 
 ```env
+# Base URL of this server — redirect URIs for all platforms are derived from it.
+# Dev: http://127.0.0.1:3000  |  Prod: https://your-api-domain.com
+SERVER_URL=http://127.0.0.1:3000
+
 SPOTIFY_CLIENT_ID=your_spotify_client_id
 SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
-SPOTIFY_REDIRECT_URI=http://127.0.0.1:3000/auth/spotify/callback
 
 SOUNDCLOUD_CLIENT_ID=your_soundcloud_client_id
 SOUNDCLOUD_CLIENT_SECRET=your_soundcloud_client_secret
-SOUNDCLOUD_REDIRECT_URI=http://127.0.0.1:3000/auth/soundcloud/callback
 
 TIDAL_CLIENT_ID=your_tidal_client_id
 TIDAL_CLIENT_SECRET=your_tidal_client_secret
-TIDAL_REDIRECT_URI=http://127.0.0.1:3000/auth/tidal/callback
 
 LASTFM_API_KEY=your_lastfm_api_key
 LASTFM_SECRET=your_lastfm_secret

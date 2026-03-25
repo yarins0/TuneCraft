@@ -101,7 +101,7 @@ export class SoundCloudAdapter implements PlatformAdapter {
   getAuthUrl(): string {
     const params = new URLSearchParams({
       client_id: process.env.SOUNDCLOUD_CLIENT_ID!,
-      redirect_uri: process.env.SOUNDCLOUD_REDIRECT_URI!,
+      redirect_uri: `${process.env.SERVER_URL}/auth/soundcloud/callback`,
       response_type: 'code',
       scope: '*',
     });
@@ -124,7 +124,7 @@ export class SoundCloudAdapter implements PlatformAdapter {
       new URLSearchParams({
         grant_type: 'authorization_code',
         code,
-        redirect_uri: process.env.SOUNDCLOUD_REDIRECT_URI!,
+        redirect_uri: `${process.env.SERVER_URL}/auth/soundcloud/callback`,
       }),
       3,
       'SoundCloud auth'

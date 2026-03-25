@@ -237,7 +237,7 @@ export class TidalAdapter implements PlatformAdapter {
 
     const params = new URLSearchParams({
       client_id:             process.env.TIDAL_CLIENT_ID!,
-      redirect_uri:          process.env.TIDAL_REDIRECT_URI!,
+      redirect_uri:          `${process.env.SERVER_URL}/auth/tidal/callback`,
       response_type:         'code',
       scope:                 TIDAL_SCOPES,
       code_challenge:        challenge,
@@ -275,7 +275,7 @@ export class TidalAdapter implements PlatformAdapter {
         code,
         client_id:     process.env.TIDAL_CLIENT_ID!,
         client_secret: process.env.TIDAL_CLIENT_SECRET!,
-        redirect_uri:  process.env.TIDAL_REDIRECT_URI!,
+        redirect_uri:  `${process.env.SERVER_URL}/auth/tidal/callback`,
         code_verifier: verifier ?? '',
         scope:         TIDAL_SCOPES,
       }),

@@ -89,7 +89,7 @@ export class SpotifyAdapter implements PlatformAdapter {
     const params = new URLSearchParams({
       client_id: process.env.SPOTIFY_CLIENT_ID!,
       response_type: 'code',
-      redirect_uri: process.env.SPOTIFY_REDIRECT_URI!,
+      redirect_uri: `${process.env.SERVER_URL}/auth/spotify/callback`,
       scope: scopes,
       show_dialog: 'true',
     });
@@ -112,7 +112,7 @@ export class SpotifyAdapter implements PlatformAdapter {
       new URLSearchParams({
         grant_type: 'authorization_code',
         code,
-        redirect_uri: process.env.SPOTIFY_REDIRECT_URI!,
+        redirect_uri: `${process.env.SERVER_URL}/auth/spotify/callback`,
       }),
       3,
       'Spotify auth'
