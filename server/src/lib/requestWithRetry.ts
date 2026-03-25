@@ -90,7 +90,9 @@ export const requestWithRetry = async (
         // retries to land inside the same rate-limit window and fail again immediately.
         // Cap raised to 120s so a single request can survive realistic rate-limit windows.
         const parsed = retryAfter ? parseInt(retryAfter, 10) : 5;
-        const waitSeconds = Math.min(Number.isNaN(parsed) ? 5 : parsed, 120);
+        // Floor at 1s: some APIs send Retry-After: 0 meaning "retry immediately", but
+        // doing so usually just hits the same rate-limit window again and wastes a retry.
+        const waitSeconds = Math.max(1, Math.min(Number.isNaN(parsed) ? 5 : parsed, 120));
         console.warn(`${label} rate limit hit — waiting ${waitSeconds}s (retry ${attempt + 1}/${maxRetries})`);
 
         // Use sleepOrAbort when a signal is present so we don't waste the full back-off

@@ -526,6 +526,11 @@ const persistArtistGenres = async (
         return Promise.resolve();
       }
 
+      // Never cache an empty genres array — Last.fm may not have data for this artist yet,
+      // but that can change at any time. Leaving the artist out of the cache means every
+      // future request will retry Last.fm, so genres appear as soon as they become available.
+      if (genres.length === 0) return Promise.resolve();
+
       return prisma.artistCache
         .upsert({
           // Upsert by normalizedName — the cross-platform dedup key.
@@ -676,13 +681,20 @@ export const backgroundEnrichTracks = async (
         console.error(`ReccoBeats failed for Spotify ID ${spotifyId} (status ${err.response?.status}) — skipping`);
       }
 
+      // Only skip caching on errors (null = exception, e.g. 429 exhausted retries).
+      // A 200 response — even with no feature data — is cached as-is: ReccoBeats answered,
+      // and the 90-day TTL will trigger a fresh attempt if features become available later.
       if (!features) continue;
 
       const track = spotifyIdToTrack[spotifyId];
       if (!track) continue;
 
       persistAudioFeatures(track, features);
-      await sleep(300);
+
+      // Small fixed delay between requests to avoid bursting ReccoBeats' rate limit.
+      // requestWithRetry handles back-off when a 429 actually occurs, but without any
+      // pacing we fire requests back-to-back and trigger rate limits unnecessarily.
+      await sleep(100);
     }
 
   } finally {
