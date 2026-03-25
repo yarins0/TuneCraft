@@ -107,7 +107,9 @@ GET /playlists/:userId/:playlistId/tracks
   │              Last.fm API              │
   │          (artist.getTopTags)          │
   │                       │              │
-  │             Persist to ArtistCache    │
+  │   genres empty? → skip cache         │
+  │   genres present? → persist          │
+  │             to ArtistCache           │
   └───────────────────────────────────────┘
           │
           ▼
@@ -118,6 +120,16 @@ GET /playlists/:userId/:playlistId/tracks
 ```
 
 **Why two caches?** Audio features are keyed per track (stable — a song's BPM doesn't change). Genres are keyed per artist (one artist → many tracks; caching at the artist level avoids redundant Last.fm calls).
+
+**Cache write policy:**
+
+| | TrackCache | ArtistCache |
+|---|---|---|
+| API error / 429 | Not cached — retried on next request | Not cached — retried on next request |
+| Empty response (no data) | Cached — TTL will trigger a fresh fetch in 90 days | Not cached — retried on every request until Last.fm returns tags |
+| Response with data | Cached | Cached |
+
+The asymmetry is intentional: audio features are stable and unlikely to appear after a 200 with no data, so caching the empty response avoids hammering ReccoBeats. Genre tags can be added to Last.fm at any time, so an empty response is never written to the cache — the next request always gets a fresh attempt.
 
 **Cross-platform deduplication:** `TrackCache` holds one row per unique recording, not one row per platform track entry. The row is keyed by ISRC when available, so if a song is loaded on Spotify first and later on SoundCloud, ReccoBeats is never called a second time — the existing features are returned immediately and the SoundCloud ID is backfilled onto the existing row.
 
@@ -292,9 +304,11 @@ Adding a new platform means implementing `PlatformAdapter` and registering it in
 All platform APIs enforce rate limits. `requestWithRetry` in `server/src/lib/requestWithRetry.ts` handles this transparently across every adapter:
 
 1. Make the request
-2. If 429 → read `Retry-After` header (default 5s, max 120s)
+2. If 429 → read `Retry-After` header (default 5s, floored at 1s, capped at 120s)
 3. Retry up to 3 times
 4. On third failure, propagate the error
+
+The 1s floor prevents APIs that send `Retry-After: 0` from burning all retry attempts with back-to-back requests inside the same rate-limit window.
 
 ---
 
