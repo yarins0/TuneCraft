@@ -621,12 +621,18 @@ export default function SplitModal({
                           }))
                         }
                         onBlur={() => {
-                          // Mark as changed when the user commits a rename so merge logic
-                          // treats it as a user-defined name rather than an auto-generated one.
-                          setGroupMeta(prev => ({
-                            ...prev,
-                            [group.name]: { ...prev[group.name], changed: true },
-                          }));
+                          // Only mark as changed if the display name differs from the
+                          // auto-generated default — clicking edit and walking away without
+                          // typing should not be treated as a user rename by merge logic.
+                          setGroupMeta(prev => {
+                            const current = prev[group.name];
+                            const defaultName = `${playlistName} — ${group.name}`;
+                            const isActuallyChanged = current?.displayName !== defaultName;
+                            return {
+                              ...prev,
+                              [group.name]: { ...current, changed: isActuallyChanged },
+                            };
+                          });
                           setEditingGroupId(null);
                         }}
                         onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
