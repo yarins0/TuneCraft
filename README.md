@@ -123,22 +123,22 @@ GET /playlists/:userId/:playlistId/tracks
 
 **Cache write policy:**
 
-| | TrackCache | ArtistCache |
-|---|---|---|
-| API error / 429 | Not cached — retried on next request | Not cached — retried on next request |
-| Empty response (no data) | Cached — TTL will trigger a fresh fetch in 90 days | Not cached — retried on every request until Last.fm returns tags |
-| Response with data | Cached | Cached |
+|                           | TrackCache                                          | ArtistCache                                                      |
+| ------------------------- | --------------------------------------------------- | ---------------------------------------------------------------- |
+| API error / 429           | Not cached — retried on next request                | Not cached — retried on next request                             |
+| Empty response (no data)  | Cached — TTL will trigger a fresh fetch in 90 days  | Not cached — retried on every request until Last.fm returns tags |
+| Response with data        | Cached                                              | Cached                                                           |
 
 The asymmetry is intentional: audio features are stable and unlikely to appear after a 200 with no data, so caching the empty response avoids hammering ReccoBeats. Genre tags can be added to Last.fm at any time, so an empty response is never written to the cache — the next request always gets a fresh attempt.
 
 **Cross-platform deduplication:** `TrackCache` holds one row per unique recording, not one row per platform track entry. The row is keyed by ISRC when available, so if a song is loaded on Spotify first and later on SoundCloud, ReccoBeats is never called a second time — the existing features are returned immediately and the SoundCloud ID is backfilled onto the existing row.
 
-| | TrackCache | ArtistCache |
-|---|---|---|
-| Cross-platform read hit | Found via `isrc` in the OR query | Found via `normalizedName` (lowercase artist name) |
-| Backfill native ID on hit | `tidalId` / `soundcloudId` written to row fire-and-forget | `tidalArtistId` / `soundcloudArtistId` written to row fire-and-forget |
-| Secondary cache check | After ISRC → Spotify ID resolution, re-checks DB by `spotifyId` before calling ReccoBeats — avoids a redundant API call when a Spotify-sourced row exists without an ISRC | N/A — `normalizedName` covers the cross-platform hit on the initial read; no secondary check needed |
-| Write collision handling | If a `spotifyId` row exists without an ISRC and a new ISRC resolves to that same ID, the ISRC is merged onto the existing row rather than creating a duplicate | N/A — upsert key is `normalizedName`; the same artist from two platforms always lands on one row |
+|                            | TrackCache                                                                                                                                                              | ArtistCache                                                                                          |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Cross-platform read hit    | Found via `isrc` in the OR query                                                                                                                                        | Found via `normalizedName` (lowercase artist name)                                                   |
+| Backfill native ID on hit  | `tidalId` / `soundcloudId` written to row fire-and-forget                                                                                                               | `tidalArtistId` / `soundcloudArtistId` written to row fire-and-forget                                |
+| Secondary cache check      | After ISRC → Spotify ID resolution, re-checks DB by `spotifyId` before calling ReccoBeats — avoids a redundant API call when a Spotify-sourced row exists without an ISRC | N/A — `normalizedName` covers the cross-platform hit on the initial read; no secondary check needed  |
+| Write collision handling   | If a `spotifyId` row exists without an ISRC and a new ISRC resolves to that same ID, the ISRC is merged onto the existing row rather than creating a duplicate           | N/A — upsert key is `normalizedName`; the same artist from two platforms always lands on one row     |
 
 **ReccoBeats batch cap:** The API accepts up to 40 track IDs per request. Requests are split into chunks of 40 before dispatch.
 
@@ -190,10 +190,10 @@ Input tracks array
 
 **Two identical copies exist** — one server-side for actual saves and the cron job, one client-side for instant preview before the user commits:
 
-| File | Used by |
-|---|---|
-| `server/src/lib/shuffleAlgorithms.ts` | Shuffle route, auto-reshuffle cron |
-| `client/src/utils/shuffleAlgorithms.ts` | UI preview (instant, no API call) |
+| File                                    | Used by                            |
+| --------------------------------------- | ---------------------------------- |
+| `server/src/lib/shuffleAlgorithms.ts`   | Shuffle route, auto-reshuffle cron |
+| `client/src/utils/shuffleAlgorithms.ts` | UI preview (instant, no API call)  |
 
 ---
 
@@ -383,14 +383,14 @@ The 1s floor prevents APIs that send `Retry-After: 0` from burning all retry att
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Frontend | React, TypeScript, Vite, Tailwind CSS |
-| Backend | Node.js, Express, TypeScript |
-| Database | PostgreSQL via Prisma ORM |
-| Auth | Spotify OAuth 2.0 with automatic token refresh |
-| External APIs | Spotify Web API, SoundCloud API, Tidal API (OpenAPI v2), Last.fm, ReccoBeats |
-| Background jobs | node-cron |
+| Layer           | Technology                                                                   |
+| --------------- | ---------------------------------------------------------------------------- |
+| Frontend        | React, TypeScript, Vite, Tailwind CSS                                        |
+| Backend         | Node.js, Express, TypeScript                                                 |
+| Database        | PostgreSQL via Prisma ORM                                                    |
+| Auth            | Spotify OAuth 2.0 with automatic token refresh                               |
+| External APIs   | Spotify Web API, SoundCloud API, Tidal API (OpenAPI v2), Last.fm, ReccoBeats |
+| Background jobs | node-cron                                                                    |
 
 ---
 
@@ -470,11 +470,11 @@ npm run dev
 
 This starts all three processes concurrently:
 
-| Process | URL |
-|---|---|
-| Backend API | `http://127.0.0.1:3000` |
-| Frontend | `http://127.0.0.1:5173` |
-| Prisma Studio | launched automatically |
+| Process       | URL                       |
+| ------------- | ------------------------- |
+| Backend API   | `http://127.0.0.1:3000`   |
+| Frontend      | `http://127.0.0.1:5173`   |
+| Prisma Studio | launched automatically    |
 
 Health check: `GET http://127.0.0.1:3000/health`
 
@@ -540,31 +540,31 @@ npx prisma studio         # Open DB GUI
 All routes are prefixed with the Express base path. The `userId` segment is the internal DB cuid stored in `localStorage` after login.
 
 ### Auth
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/auth/login?platform=SPOTIFY\|TIDAL\|SOUNDCLOUD` | Redirects to the appropriate platform OAuth / PKCE flow |
-| `GET` | `/auth/spotify/callback` | Handles Spotify OAuth redirect, upserts user, redirects to frontend |
-| `GET` | `/auth/tidal/callback` | Handles Tidal PKCE callback, exchanges code + verifier, upserts user |
-| `GET` | `/auth/soundcloud/callback` | Handles SoundCloud OAuth redirect, upserts user, redirects to frontend |
+| Method | Path                                              | Description                                                          |
+| ------ | ------------------------------------------------- | -------------------------------------------------------------------- |
+| `GET`  | `/auth/login?platform=SPOTIFY\|TIDAL\|SOUNDCLOUD` | Redirects to the appropriate platform OAuth / PKCE flow              |
+| `GET`  | `/auth/spotify/callback`                          | Handles Spotify OAuth redirect, upserts user, redirects to frontend  |
+| `GET`  | `/auth/tidal/callback`                            | Handles Tidal PKCE callback, exchanges code + verifier, upserts user |
+| `GET`  | `/auth/soundcloud/callback`                       | Handles SoundCloud OAuth redirect, upserts user, redirects to frontend |
 
 ### Playlists
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/playlists/:userId` | List all playlists for user (owned + following) |
-| `GET` | `/playlists/:userId/:playlistId/tracks` | Get enriched tracks for a playlist |
-| `PUT` | `/playlists/:userId/:playlistId/save` | Persist a new track order to Spotify |
-| `POST` | `/playlists/:userId/:playlistId/shuffle` | Shuffle and save to Spotify |
-| `POST` | `/playlists/:userId/:playlistId/split` | Create multiple new playlists from grouped tracks |
-| `POST` | `/playlists/:userId/merge` | Merge tracks from multiple playlists into one |
-| `POST` | `/playlists/:userId/copy` | Copy a playlist to the user's library |
-| `GET` | `/playlists/:userId/discover` | Fetch and enrich any public playlist by URL |
+| Method | Path                                       | Description                                       |
+| ------ | ------------------------------------------ | ------------------------------------------------- |
+| `GET`  | `/playlists/:userId`                       | List all playlists for user (owned + following)   |
+| `GET`  | `/playlists/:userId/:playlistId/tracks`    | Get enriched tracks for a playlist                |
+| `PUT`  | `/playlists/:userId/:playlistId/save`      | Persist a new track order to Spotify              |
+| `POST` | `/playlists/:userId/:playlistId/shuffle`   | Shuffle and save to Spotify                       |
+| `POST` | `/playlists/:userId/:playlistId/split`     | Create multiple new playlists from grouped tracks |
+| `POST` | `/playlists/:userId/merge`                 | Merge tracks from multiple playlists into one     |
+| `POST` | `/playlists/:userId/copy`                  | Copy a playlist to the user's library             |
+| `GET`  | `/playlists/:userId/discover`              | Fetch and enrich any public playlist by URL       |
 
 ### Reshuffle Schedule
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/reshuffle/:userId/:playlistId/schedule` | Create or update an auto-reshuffle schedule |
-| `DELETE` | `/reshuffle/:userId/:playlistId/schedule` | Remove an auto-reshuffle schedule |
-| `GET` | `/reshuffle/:userId/:playlistId/schedule` | Get current schedule for a playlist |
+| Method   | Path                                      | Description                                  |
+| -------- | ----------------------------------------- | -------------------------------------------- |
+| `POST`   | `/reshuffle/:userId/:playlistId/schedule` | Create or update an auto-reshuffle schedule  |
+| `DELETE` | `/reshuffle/:userId/:playlistId/schedule` | Remove an auto-reshuffle schedule            |
+| `GET`    | `/reshuffle/:userId/:playlistId/schedule` | Get current schedule for a playlist         |
 
 ---
 
