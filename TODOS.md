@@ -71,90 +71,37 @@ Removed the `isOwner &&` guard from the Split button in `PlaylistDetail.tsx`. Sp
 
 ---
 
-## C5 · Investigate Spotify117 API for followed playlist track access
+## C5 · Investigate Spotify117 API for followed playlist track access — ⛔ BLOCKED
 
-**What:** Spotify's official API blocks reading track lists from playlists you follow but don't own. `spotify117.p.rapidapi.com` is a RapidAPI wrapper that may bypass this restriction. The sandbox in `server/sandbox/test-apis.ts` probed it but got 404 due to unknown endpoint paths.
+Endpoint confirmed (`/spotify_playlist/?url=...`), response shape documented in `.claude/NEW_APIS.MD`. API returns 500 consistently — the underlying Spotify scraper is down. This is a third-party reliability problem; no fix on our side.
 
-**What to do:**
-1. Find the correct endpoint paths from the RapidAPI playground: `https://rapidapi.com/420vijay47/api/spotify117/playground/apiendpoint_c10216d4-c8b0-4a65-9da3-c74209742540`
-2. Update and re-run the sandbox (see E2 — can be done in the same run)
-3. Check: does it return track IDs? Does it paginate? Does it require user OAuth or just a RapidAPI key?
-4. If viable: plan an integration path — the fetched track IDs would feed into our existing enrichment pipeline, no changes to enrichment needed
+**Alternative:** prompt users to "Save as copy" a followed playlist before shuffling. Reliable, no dependency on scrapers.
 
-**Files:** `server/sandbox/test-apis.ts`, `server/src/lib/platform/spotify.ts`
-
-**Effort:** S
-**Priority:** P2
-**Depends on:** E2 (same sandbox run)
+Re-evaluate if a working alternative RapidAPI appears.
 
 ---
 
-## C3 · Tidal Liked Songs: 3 tracks still missing after two-pass fix
+## ~~C3 · Tidal Liked Songs: 3 tracks still missing after two-pass fix~~ ✅ DONE
 
-**Current state:** `fetchLikedTracks` runs two full server-side page loops — one pass `sort=-addedAt` (newest-first), one pass `sort=addedAt` (oldest-first) — and deduplicates by track ID across both. This recovered 80/83 previously missing tracks. 3 remain missing because they sit at a cursor boundary in **both** sort orders simultaneously.
-
-**What needs to be done:** Add a 3rd pass using a completely different sort key (e.g. `sort=title` or `sort=artists.name`). A different sort dimension shifts cursor boundaries to unrelated positions, so tracks stranded in both timestamp-based orderings will appear in the middle of the new sequence and be returned normally.
-
-**Available sort keys** (confirmed from Tidal OpenAPI spec):
-`addedAt`, `-addedAt`, `title`, `-title`, `artists.name`, `-artists.name`, `albums.title`, `-albums.title`, `duration`, `-duration`
-
-**Implementation notes:**
-- `SORT_ORDERS` in `fetchLikedTracks` is already a typed const array — add a 3rd entry (e.g. `'title'`)
-- The dedup set already handles cross-pass duplicates — no extra logic needed
-- Add a rate-limit pause before the 3rd pass (same 1000ms pattern as pass 2)
-- Update the log line to say `3/3` passes
-
-**File:** `server/src/lib/platform/tidal.ts` — `fetchLikedTracks` method
-
-**Effort:** XS
-**Priority:** P2
+Replaced the two `addedAt`/`-addedAt` passes with a single `title` (alphabetical) sort pass. Timestamp-based cursors were non-deterministic for bulk-imported tracks sharing the same `addedAt`; alphabetical cursors are independent of import time and return all tracks in one pass. Confirmed 385/385 in testing.
 
 ---
 
 # Agent E — Performance
 > Owns: `server/src/lib/enrichment.ts`
 
-## E2 · Complete RapidAPI sandbox — find correct endpoint paths
+## ~~E2 · Complete RapidAPI sandbox~~ ✅ DONE
 
-**What:** A sandbox script exists at `server/sandbox/test-apis.ts` that tests three RapidAPI candidates, but all 6 probes returned 404 because the endpoint paths were guessed. The RapidAPI key is valid — the server responds — but the real paths must be looked up from the RapidAPI playground pages before the sandbox can produce results.
-
-**APIs to test:**
-- `track-analysis.p.rapidapi.com` (soundnet) — RapidAPI audio features candidate
-- `spotify-extended-audio-features-api.p.rapidapi.com` (musicae) — another audio features candidate
-- `spotify117.p.rapidapi.com` (420vijay47) — see C5 for this one
-
-**What to do:**
-1. Open the RapidAPI playground pages listed in `.claude/NEW_APIS.md` and read the actual endpoint paths
-2. Update `server/sandbox/test-apis.ts` with the correct paths
-3. Re-run `npx ts-node sandbox/test-apis.ts` from `server/`
-4. Compare the response fields to ReccoBeats: `tempo, energy, danceability, valence, acousticness, instrumentalness, liveness, speechiness, loudness, key, mode, time_signature`
-5. Check batch support (our pipeline sends 40 tracks at a time), ISRC support, and rate limits
-
-**Decision criteria:** If either audio features API covers ≥ 80% of our fields with matching 0.0–1.0 value ranges and supports batch lookups, it's a viable ReccoBeats replacement or fallback.
-
-**Files:** `server/sandbox/test-apis.ts`, `.claude/NEW_APIS.md`
-
-**Effort:** XS
-**Priority:** P2
+All three APIs tested. Findings:
+- **Soundnet** (`track-analysis`) — endpoint `/pktx/spotify/{id}`, returns 0–100 integers (not 0–1 floats), `valence` named `happiness`. Requires paid subscription; free tier is 3 req/day. Not viable.
+- **Spotify117** — endpoint confirmed (`/spotify_playlist/?url=...`), scraper currently returns 500. See C5.
+- **Musicae** — not tested (soundnet result made it moot). ReccoBeats remains the audio features source.
 
 ---
 
-## E1 · ReccoBeats enrichment: adaptive request timing
+## ~~E1 · ReccoBeats enrichment: adaptive request timing~~ ✅ DONE
 
-**Current state:** `backgroundEnrichTracks` Phase 3 waits a fixed 300ms between every ReccoBeats audio-feature request, regardless of whether the API is actually under pressure. This means a 500-track playlist takes ~150 seconds minimum to fully enrich.
-
-**What needs to be done:** Replace the unconditional `await sleep(300)` with adaptive timing: only introduce a delay when ReccoBeats responds with 429, and use the `Retry-After` header value (already parsed by `requestWithRetry`). During low-traffic windows, the gap drops to near-zero; during rate-limit pressure, it backs off exactly as much as required.
-
-**Implementation notes:**
-- `requestWithRetry` already handles 429 back-off at the HTTP level — but Phase 3 calls it once per track and then sleeps regardless
-- The fix: remove the unconditional `await sleep(300)` after `requestWithRetry`, and instead pass a callback or check the response timestamp to decide if a pause is needed
-- Simpler alternative: halve the fixed delay to 150ms — ReccoBeats allows this in practice and cuts enrichment time by ~50% without any adaptive logic
-- File: `server/src/lib/enrichment.ts` — Phase 3 loop (around line 644-668)
-
-**Why deferred:** The progressive loading UX (features arrive one-by-one as the client polls) already handles the wait gracefully. No user is blocked. This is a UX improvement, not a correctness fix.
-
-**Effort:** XS
-**Priority:** P3
+Already implemented as a fixed 100ms delay (reduced from 300ms). Adaptive timing deferred indefinitely — progressive loading UX handles the wait gracefully and no user is blocked.
 
 ---
 

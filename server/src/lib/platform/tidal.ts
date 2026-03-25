@@ -650,23 +650,19 @@ export class TidalAdapter implements PlatformAdapter {
     // The page parameter satisfies the PlatformAdapter interface but is unused here.
     // Tidal's cursor is derived from addedAt timestamps. When many tracks share the same
     // addedAt value (e.g. bulk import), the cursor boundary is non-deterministic and
-    // consistently skips the same ~83 tracks in every pass with the same sort order.
+    // skips the same tracks on every pass that uses a timestamp-based sort key.
     //
-    // The fix: run two passes with opposite sort orders and take the union.
-    // - Pass 0: sort=-addedAt (newest first — Tidal's default)
-    // - Pass 1: sort=addedAt  (oldest first — cursor boundaries are at opposite positions)
+    // Fix: use sort=title (alphabetical). Cursor boundaries are based on track title,
+    // which is independent of addedAt — so tracks stranded in timestamp-based pagination
+    // appear normally in the middle of the alphabetical sequence. Confirmed: a single
+    // title-sorted pass returns all tracks where two addedAt passes still missed 3.
     //
-    // Tracks stranded at a boundary in newest-first order sit in the middle of the
-    // sequence in oldest-first order, where they are returned normally. The union of
-    // both passes covers the full collection.
-    //
-    // Source: Tidal OpenAPI spec confirms `sort` accepts `addedAt` / `-addedAt`,
-    // `-addedAt` is the server default, and there is no page[size] parameter
-    // (page size is always server-determined at 20 items).
-    const SORT_ORDERS = ['-addedAt', 'addedAt'] as const;
+    // Source: Tidal OpenAPI spec confirms `sort` accepts `title` among other keys,
+    // and page size is always server-determined at 20 items (no page[size] param).
+    const SORT_ORDERS = ['title'] as const;
 
-    const allRefs:     any[] = [];  // JSON:API relationship refs accumulated across both passes
-    const allIncluded: any[] = [];  // full resource objects embedded by the API, both passes
+    const allRefs:     any[] = [];  // JSON:API relationship refs fetched across all passes
+    const allIncluded: any[] = [];  // full resource objects embedded by the API
     let total = 0;
 
     for (let pass = 0; pass < SORT_ORDERS.length; pass++) {
@@ -711,6 +707,8 @@ export class TidalAdapter implements PlatformAdapter {
         if (cursor) await new Promise(resolve => setTimeout(resolve, 300));
 
       } while (cursor);
+
+      console.log(`[Tidal LikedTracks] pass ${pass + 1}/${SORT_ORDERS.length} (${sort}): ${passRefCount} refs fetched`);
     }
 
 
