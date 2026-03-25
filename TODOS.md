@@ -20,6 +20,7 @@ Tasks are divided into independent agents — each agent owns a separate slice o
 | D     | QA / Manual Testing         | _(no code — manual testing only)_                                                                                | D2         | 🔵 Active             |
 | E     | Performance & Enrichment    | `server/src/lib/enrichment.ts`                                                                                   | E2         | 🔵 Active             |
 | F     | Playlist Features / UI      | `client/src/pages/PlaylistDetail.tsx`, `client/src/components/SplitModal.tsx`, `server/src/routes/playlists.ts` | F2         | 🔵 Active             |
+| G     | YouTube Music Platform      | `server/src/lib/platform/youtube.ts`, `server/src/routes/auth.ts`, `client/src/pages/Login.tsx`                 | G1         | 🔵 Active             |
 
 ---
 
@@ -53,21 +54,12 @@ Removed the `isOwner &&` guard from the Split button in `PlaylistDetail.tsx`. Sp
 # Agent C — Platform / API Reliability
 > Owns: `server/src/lib/platform/tidal.ts`, `server/src/lib/platform/spotify.ts`, `server/src/lib/platform/soundcloud.ts`, `server/src/lib/platform/types.ts`, `server/src/lib/platform/registry.ts`
 
-## C4 · Refactor platform adapter files — single-responsibility functions
+## ~~C4 · Refactor platform adapter files — single-responsibility functions~~ ✅ DONE
 
-**What:** Each platform file (`spotify.ts`, `soundcloud.ts`, `tidal.ts`) has grown large with functions that do too much. Break them into smaller single-responsibility helpers, and promote any shared behaviour to the `PlatformAdapter` interface or a shared base so it isn't duplicated across adapters.
-
-**Why:** Easier to maintain and extend — adding a new platform or fixing a bug in one adapter currently means reading through hundreds of lines of interleaved logic.
-
-**What to change:**
-- `server/src/lib/platform/spotify.ts` — audit each method, extract helpers, group by concern (auth, tracks, playlists, write ops)
-- `server/src/lib/platform/soundcloud.ts` — same audit
-- `server/src/lib/platform/tidal.ts` — same audit (largest file, highest priority)
-- `server/src/lib/platform/types.ts` — identify any methods currently duplicated across adapters that belong on the interface (e.g. shared pagination logic, shared error mapping)
-- `server/src/lib/platform/registry.ts` — no changes expected, but verify after refactor
-
-**Effort:** M
-**Priority:** P2
+Extracted `fetchEnrichmentMaps()` into `enrichment.ts` — replaces 6 copy-pasted
+readEnrichmentCache + backgroundEnrichTracks blocks across all three adapters.
+Also extracted `buildTidalEnrichmentInput` and `tidalWriteHeaders` within `tidal.ts`
+to remove internal duplication. No behavior changes; tsc --noEmit clean.
 
 ---
 
@@ -84,6 +76,41 @@ Re-evaluate if a working alternative RapidAPI appears.
 ## ~~C3 · Tidal Liked Songs: 3 tracks still missing after two-pass fix~~ ✅ DONE
 
 Replaced the two `addedAt`/`-addedAt` passes with a single `title` (alphabetical) sort pass. Timestamp-based cursors were non-deterministic for bulk-imported tracks sharing the same `addedAt`; alphabetical cursors are independent of import time and return all tracks in one pass. Confirmed 385/385 in testing.
+
+---
+
+# Agent G — YouTube Music Platform
+> Owns: `server/src/lib/platform/youtube.ts`, `server/src/routes/auth.ts`, `client/src/pages/Login.tsx`
+
+## G1 · Add YouTube Music as a supported platform
+
+**What:** Implement a full `YouTubeMusicAdapter` that satisfies `PlatformAdapter`, add OAuth login for YouTube Music, and surface it in the Login page alongside Spotify, SoundCloud, and Tidal.
+
+**Why:** YouTube Music has a massive user base. Adding it gives TuneCraft access to the largest music library and the most potential users.
+
+**API situation (from NEW_APIS.MD):**
+- There is **no official public API** for YouTube Music specifically.
+- **Best option — `ytmusic-api` (NPM/TypeScript):** unofficial Node.js wrapper with TypeScript support. Covers search, library management (playlists, songs), and artist data. Uses OAuth cookies to act on behalf of the user.
+- **Fallback — YouTube Data API v3:** official Google API, but only covers general YouTube data (videos, channels). Does not expose YouTube Music library features like playlists, liked songs, or "My Mix".
+- Authentication is cookie/OAuth-header based rather than a standard OAuth 2.0 code flow — this is the biggest architectural difference from the existing platforms and needs careful design before implementation.
+
+**What to change:**
+- `server/src/lib/platform/youtube.ts` — new file; implement `YouTubeMusicAdapter` using `ytmusic-api` (or YouTube Data API v3 as fallback). Must satisfy the full `PlatformAdapter` interface: auth, fetchPlaylists, fetchPlaylistTracks, fetchLikedTracks, replacePlaylistTracks, addTracksToPlaylist, etc.
+- `server/src/lib/platform/types.ts` — add `'YOUTUBE_MUSIC'` to the `Platform` union
+- `server/src/lib/platform/registry.ts` — register the new adapter
+- `server/src/routes/auth.ts` — add `/auth/youtube/login` and `/auth/youtube/callback` routes
+- `client/src/pages/Login.tsx` — add YouTube Music connect button
+- `prisma/schema.prisma` — add `YOUTUBE_MUSIC` to the `Platform` enum; add `youtubeId` column to `TrackCache` and `youtubeArtistId` to `ArtistCache`
+- `server/src/lib/enrichment.ts` — no changes expected (platform-agnostic)
+
+**Key risks / open questions:**
+- Cookie-based auth is fragile — YouTube Music has no official OAuth 2.0 authorization code flow. Need to decide whether to use `ytmusic-api`'s cookie approach or restrict to YouTube Data API v3 (which loses library access).
+- `ytmusic-api` is unofficial and could break if Google changes internal endpoints — same reliability concern as the Spotify117 scraper.
+- Rate limits on the unofficial API are undocumented.
+- Investigate whether YouTube Data API v3 (official) is sufficient for the core use cases before committing to the unofficial wrapper.
+
+**Effort:** L
+**Priority:** P2
 
 ---
 

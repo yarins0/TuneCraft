@@ -192,6 +192,107 @@ const tidalWriteHeaders = (accessToken: string) => ({
   'Content-Type': 'application/vnd.api+json',
 });
 
+// Fetches every current { trackId, itemId } slot from a Tidal playlist in order,
+// using cursor-based pagination.
+//
+// Tidal assigns a unique itemId per playlist slot — two duplicate tracks occupy
+// separate slots with distinct itemIds. Collecting itemIds is required for targeted
+// DELETE operations, which must reference the exact slot to remove.
+const fetchPlaylistSlots = async (
+  accessToken: string,
+  playlistId: string
+): Promise<Array<{ trackId: string; itemId: string }>> => {
+  const slots: Array<{ trackId: string; itemId: string }> = [];
+  let cursor: string | null = null;
+
+  do {
+    const params: Record<string, any> = { 'page[size]': 50 };
+    if (cursor) params['page[cursor]'] = cursor;
+    const r = await requestWithRetry(
+      'get',
+      `${TIDAL_OPENAPI}/playlists/${playlistId}/relationships/items`,
+      { headers: { Authorization: `Bearer ${accessToken}` }, params },
+      undefined, 3, 'Tidal'
+    );
+    for (const ref of (r.data.data ?? [])) {
+      if (ref.type === 'tracks' && ref.meta?.itemId) {
+        slots.push({ trackId: String(ref.id), itemId: String(ref.meta.itemId) });
+      }
+    }
+    cursor = r.data.links?.meta?.nextCursor ?? null;
+  } while (cursor);
+
+  return slots;
+};
+
+// Pure function — no API calls.
+// Given the current playlist slots and the desired new track order, returns:
+//   slotsToDelete — slots that must be removed before re-adding
+//   needsReorder  — false when surviving slots are already in the right order
+//                   (e.g. pure duplicate removal), true for all other changes
+//
+// Duplicate tracks are handled via a per-trackId itemId queue: each occurrence
+// in the new list consumes the next available itemId from the queue. Any itemIds
+// left over after assignment are excess slots that must be deleted.
+// When a reorder is needed, ALL current slots are deleted so addTracksToPlaylist
+// can re-insert them in the correct order — Tidal's PATCH endpoint cannot be
+// chunked (each chunk overwrites the previous one).
+const computeSlotDiff = (
+  currentItems: Array<{ trackId: string; itemId: string }>,
+  trackIds: string[]
+): { slotsToDelete: Array<{ trackId: string; itemId: string }>; needsReorder: boolean } => {
+  const itemIdQueues = new Map<string, string[]>();
+  for (const { trackId, itemId } of currentItems) {
+    if (!itemIdQueues.has(trackId)) itemIdQueues.set(trackId, []);
+    itemIdQueues.get(trackId)!.push(itemId);
+  }
+
+  const newItems = trackIds.map(trackId => ({
+    trackId,
+    itemId: itemIdQueues.get(trackId)?.shift(),
+  }));
+
+  const usedItemIds  = new Set(newItems.map(i => i.itemId).filter(Boolean));
+  const toDelete     = currentItems.filter(({ itemId }) => !usedItemIds.has(itemId));
+  const survivingOrder = currentItems
+    .filter(({ itemId }) => usedItemIds.has(itemId))
+    .map(({ trackId }) => trackId);
+  const needsReorder = survivingOrder.join(',') !== trackIds.join(',');
+
+  return { slotsToDelete: needsReorder ? currentItems : toDelete, needsReorder };
+};
+
+// Sends chunked DELETE requests to remove specific playlist slots.
+// Each slot is identified by its itemId so duplicate tracks can be removed
+// individually without affecting their sibling slot.
+// Early-returns if the list is empty to avoid a no-op API call.
+const deletePlaylistSlots = async (
+  accessToken: string,
+  playlistId: string,
+  slots: Array<{ trackId: string; itemId: string }>
+): Promise<void> => {
+  if (slots.length === 0) return;
+
+  for (let i = 0; i < slots.length; i += TIDAL_TRACKS_PER_PAGE) {
+    const chunk = slots.slice(i, i + TIDAL_TRACKS_PER_PAGE);
+    await requestWithRetry(
+      'delete',
+      `${TIDAL_OPENAPI}/playlists/${playlistId}/relationships/items`,
+      {
+        headers: { ...tidalWriteHeaders(accessToken), 'Idempotency-Key': crypto.randomUUID() },
+        data: {
+          data: chunk.map(({ trackId, itemId }) => ({
+            id:   trackId,
+            type: 'tracks',
+            meta: { itemId },
+          })),
+        },
+      } as any,
+      undefined, 3, 'Tidal'
+    );
+  }
+};
+
 // ─── TidalAdapter ─────────────────────────────────────────────────────────────
 
 // Implements PlatformAdapter for Tidal.
@@ -857,118 +958,20 @@ export class TidalAdapter implements PlatformAdapter {
   //
   // Separating DELETE from PATCH is necessary because PATCH only reorders existing
   // slots — it cannot remove them.
+  // Replaces the entire track list of a Tidal playlist with a new ordered list.
+  //
+  // Strategy: fetch current slots → compute diff → delete removed slots → re-add in order.
+  // See fetchPlaylistSlots, computeSlotDiff, and deletePlaylistSlots for full details.
   async replacePlaylistTracks(
     accessToken: string,
     playlistId: string,
     trackIds: string[]
   ): Promise<void> {
-    const readHeaders  = { Authorization: `Bearer ${accessToken}` };
-    const writeHeaders = tidalWriteHeaders(accessToken);
-
-    // Phase 1: collect every current { trackId, itemId } pair in playlist order.
-    // Duplicates produce separate entries — e.g. two slots for the same track ID,
-    // each with a distinct itemId.
-    const currentItems: Array<{ trackId: string; itemId: string }> = [];
-    let cursor: string | null = null;
-    do {
-      const params: Record<string, any> = { 'page[size]': 50 };
-      if (cursor) params['page[cursor]'] = cursor;
-      const r = await requestWithRetry(
-        'get',
-        `${TIDAL_OPENAPI}/playlists/${playlistId}/relationships/items`,
-        { headers: readHeaders, params },
-        undefined, 3, 'Tidal'
-      );
-      for (const ref of (r.data.data ?? [])) {
-        if (ref.type === 'tracks' && ref.meta?.itemId) {
-          currentItems.push({ trackId: String(ref.id), itemId: String(ref.meta.itemId) });
-        }
-      }
-      cursor = r.data.links?.meta?.nextCursor ?? null;
-    } while (cursor);
-
-    // Build a queue of available itemIds per trackId (in the order they appear in the
-    // playlist). For each entry in the new track list, we pop the first available slot
-    // for that track — this ensures duplicate tracks each get a distinct itemId assigned.
-    const itemIdQueues = new Map<string, string[]>();
-    for (const { trackId, itemId } of currentItems) {
-      if (!itemIdQueues.has(trackId)) itemIdQueues.set(trackId, []);
-      itemIdQueues.get(trackId)!.push(itemId);
-    }
-
-    // Assign itemIds to the new track order by consuming from each track's queue.
-    const newItems = trackIds.map(trackId => {
-      const itemId = itemIdQueues.get(trackId)?.shift();
-      return { trackId, itemId };
-    });
-
-    // Any itemId still left in the queues after assignment belongs to a slot that was
-    // removed (e.g. the second occurrence of a duplicate). Collect them for deletion.
-    const usedItemIds = new Set(newItems.map(i => i.itemId).filter(Boolean));
-    const toDelete    = currentItems.filter(({ itemId }) => !usedItemIds.has(itemId));
-
-    // Determine whether the order of remaining tracks actually changed.
-    // Compare the current playlist order (minus deleted slots) against the new order.
-    // If they match (e.g. pure duplicate removal), PATCH is unnecessary and should be
-    // skipped — calling PATCH right after DELETE causes a 400.
-    const remainingOrder = currentItems
-      .filter(({ itemId }) => usedItemIds.has(itemId))
-      .map(({ trackId }) => trackId);
-    const needsReorder = remainingOrder.join(',') !== trackIds.join(',');
-
-    // Phase 2: DELETE slots that need to be removed.
-    // - Pure duplicate removal (needsReorder=false): only toDelete slots are removed.
-    // - Shuffle / drag-reorder (needsReorder=true): ALL current slots are deleted so
-    //   Phase 3 can re-add them in the correct order via POST.
-    //   PATCH would be the natural fit for reordering, but Tidal enforces the same
-    //   20-item limit on PATCH as on POST, and PATCH cannot be chunked (each chunk
-    //   would overwrite the previous one). DELETE-all + POST-all sidesteps this.
-    const slotsToDelete = needsReorder ? currentItems : toDelete;
-
-    for (let i = 0; i < slotsToDelete.length; i += TIDAL_TRACKS_PER_PAGE) {
-      const chunk = slotsToDelete.slice(i, i + TIDAL_TRACKS_PER_PAGE);
-      await requestWithRetry(
-        'delete',
-        `${TIDAL_OPENAPI}/playlists/${playlistId}/relationships/items`,
-        {
-          headers: { ...writeHeaders, 'Idempotency-Key': crypto.randomUUID() },
-          data: {
-            data: chunk.map(({ trackId, itemId }) => ({
-              id:   trackId,
-              type: 'tracks',
-              meta: { itemId },
-            })),
-          },
-        } as any,
-        undefined, 3, 'Tidal'
-      );
-    }
-
-    // Phase 3: POST all tracks in the new order.
-    // Only runs when the order actually changed — skipped for pure duplicate removal
-    // where the relative order of remaining tracks is already correct after DELETE.
+    const currentItems = await fetchPlaylistSlots(accessToken, playlistId);
+    const { slotsToDelete, needsReorder } = computeSlotDiff(currentItems, trackIds);
+    await deletePlaylistSlots(accessToken, playlistId, slotsToDelete);
     if (needsReorder) {
-      const { cc }  = decodeTidalToken(accessToken);
-      const addedAt = new Date().toISOString();
-      for (let i = 0; i < trackIds.length; i += TIDAL_TRACKS_PER_PAGE) {
-        const chunk = trackIds.slice(i, i + TIDAL_TRACKS_PER_PAGE);
-        await requestWithRetry(
-          'post',
-          `${TIDAL_OPENAPI}/playlists/${playlistId}/relationships/items`,
-          {
-            headers: { ...writeHeaders, 'Idempotency-Key': crypto.randomUUID() },
-            params:  { countryCode: cc },
-          },
-          {
-            data: chunk.map(id => ({
-              id,
-              type: 'tracks',
-              meta: { addedAt },
-            })),
-          },
-          3, 'Tidal'
-        );
-      }
+      await this.addTracksToPlaylist(accessToken, playlistId, trackIds);
     }
   }
 
