@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "npx concurrently --kill-others \"npm run dev --prefix server\" \"npm run dev --prefix client\" \"cd server && npx prisma studio\""
+    "dev": "npx concurrently --kill-others \"npm run dev --prefix server\" \"npm run dev --prefix client\" \"cd server && npx prisma studio\"",
+    "build": "npm install --prefix server && npm run build --prefix server",
+    "start": "node server/dist/server/src/index.js"
   },
   "repository": {
     "type": "git",
