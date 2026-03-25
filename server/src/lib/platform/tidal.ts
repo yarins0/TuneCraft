@@ -648,73 +648,53 @@ export class TidalAdapter implements PlatformAdapter {
     }
 
     // The page parameter satisfies the PlatformAdapter interface but is unused here.
-    // Tidal's cursor is derived from addedAt timestamps. When many tracks share the same
-    // addedAt value (e.g. bulk import), the cursor boundary is non-deterministic and
-    // skips the same tracks on every pass that uses a timestamp-based sort key.
-    //
-    // Fix: use sort=title (alphabetical). Cursor boundaries are based on track title,
-    // which is independent of addedAt — so tracks stranded in timestamp-based pagination
-    // appear normally in the middle of the alphabetical sequence. Confirmed: a single
-    // title-sorted pass returns all tracks where two addedAt passes still missed 3.
-    //
-    // Source: Tidal OpenAPI spec confirms `sort` accepts `title` among other keys,
-    // and page size is always server-determined at 20 items (no page[size] param).
-    const SORT_ORDERS = ['title'] as const;
-
-    const allRefs:     any[] = [];  // JSON:API relationship refs fetched across all passes
+    // We fetch all pages server-side using sort=title (alphabetical). Tidal's default
+    // addedAt-based cursors are non-deterministic when many tracks share the same
+    // addedAt timestamp (e.g. bulk imports), consistently skipping the same tracks.
+    // Alphabetical cursors are independent of import time and return the full collection.
+    const allRefs:     any[] = [];  // JSON:API relationship refs across all pages
     const allIncluded: any[] = [];  // full resource objects embedded by the API
-    let total = 0;
+    let total      = 0;
+    let cursor: string | null = null;
+    let pageCount  = 0;
+    let totalRefs  = 0;
 
-    for (let pass = 0; pass < SORT_ORDERS.length; pass++) {
-      const sort = SORT_ORDERS[pass];
-      let cursor: string | null = null;
-      let pageCount = 0;
-      let passRefCount = 0;
+    do {
+      const params: Record<string, any> = {
+        countryCode: cc,
+        sort: 'title',
+        include: 'items,items.artists,items.albums,items.albums.coverArt,items.genres',
+      };
+      if (cursor) params['page[cursor]'] = cursor;
 
-      // Pause between passes (not before the very first one) to let the rate-limit window reset.
-      if (pass > 0) await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await requestWithRetry(
+        'get',
+        `${TIDAL_OPENAPI}/userCollectionTracks/me/relationships/items`,
+        { headers: { Authorization: `Bearer ${accessToken}` }, params },
+        undefined, 3, 'Tidal'
+      );
 
-      do {
-        const params: Record<string, any> = {
-          countryCode: cc,
-          sort,
-          include: 'items,items.artists,items.albums,items.albums.coverArt,items.genres',
-        };
-        if (cursor) params['page[cursor]'] = cursor;
+      const body = response.data;
+      pageCount++;
+      totalRefs += (body.data ?? []).length;
 
-        const response = await requestWithRetry(
-          'get',
-          `${TIDAL_OPENAPI}/userCollectionTracks/me/relationships/items`,
-          { headers: { Authorization: `Bearer ${accessToken}` }, params },
-          undefined, 3, 'Tidal'
-        );
+      // meta.total is only present on the first page.
+      if (pageCount === 1) total = body.meta?.total ?? 0;
 
-        const body = response.data;
-        pageCount++;
-        passRefCount += (body.data ?? []).length;
+      allRefs.push(...(body.data ?? []));
+      allIncluded.push(...(body.included ?? []));
 
-        // Read meta.total from page 1 of pass 0 only — it is absent on all other pages.
-        if (pass === 0 && pageCount === 1) {
-          total = body.meta?.total ?? 0;
-        }
+      cursor = body.links?.meta?.nextCursor ?? null;
 
-        allRefs.push(...(body.data ?? []));
-        allIncluded.push(...(body.included ?? []));
+      // Wait between pages to stay within Tidal's rate limit window.
+      if (cursor) await new Promise(resolve => setTimeout(resolve, 300));
 
-        cursor = body.links?.meta?.nextCursor ?? null;
+    } while (cursor);
 
-        // Wait between pages so we don't exhaust Tidal's rate limit window.
-        if (cursor) await new Promise(resolve => setTimeout(resolve, 300));
+    console.log(`[Tidal LikedTracks] ${totalRefs} refs fetched across ${pageCount} pages`);
 
-      } while (cursor);
-
-      console.log(`[Tidal LikedTracks] pass ${pass + 1}/${SORT_ORDERS.length} (${sort}): ${passRefCount} refs fetched`);
-    }
-
-
-    // Deduplicate by track ID. Because cursors are generated from addedAt timestamps,
-    // the same track can appear on two consecutive pages when many tracks share a
-    // timestamp boundary. A Set ensures each ID is counted only once.
+    // Deduplicate by track ID — the same track can appear on two consecutive pages
+    // when many tracks share a cursor boundary value.
     const seenIds = new Set<string>();
     const uniqueRefs = allRefs.filter(ref => {
       if (ref.type !== 'tracks') return false;
