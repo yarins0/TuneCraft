@@ -8,6 +8,7 @@ export const soundcloudConfig: PlatformConfig = {
   cssVar: '--color-platform-soundcloud',
 
   available:              false,
+  requiresAccessRequest:  false,
   ownershipRestricted:    false,
   totalTracksReliable:    true,
   // Independent SoundCloud uploads often lack an ISRC, which means ReccoBeats can't be reached

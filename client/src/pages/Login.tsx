@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { API_BASE_URL } from '../api/config';
 import AppFooter from '../components/AppFooter';
-import SpotifyAccessModal from '../components/SpotifyAccessModal';
+import AccessRequestModal from '../components/AccessRequestModal';
 import { getAllPlatformConfigs, PLATFORM_COLORS } from '../utils/platform';
+import type { AccessRequestConfig } from '../utils/platform/types';
 
 // Redirects the user to the selected platform's OAuth login flow via the Tunecraft backend.
 // The platform query param tells the server which adapter to use.
@@ -13,22 +14,47 @@ const handleLogin = (platform: string) => {
 // Derived from the platform registry — no platform names are hardcoded here.
 // To add a platform to the Login picker, set `available: true` in its config file.
 const PLATFORMS = getAllPlatformConfigs().map(p => ({
-  id:        p.id,
-  label:     p.label,
-  available: p.available,
-  color:     PLATFORM_COLORS[p.id],
+  id:                    p.id,
+  label:                 p.label,
+  available:             p.available,
+  color:                 PLATFORM_COLORS[p.id],
+  requiresAccessRequest: p.requiresAccessRequest,
+  accessRequest:         p.accessRequest,
 }));
 
-export default function Login() {
-  // The OAuth callback redirects back here with ?error=denied when the user cancels
-  // the authorization screen on Spotify or SoundCloud. Show a brief explanatory message
-  // so they're not confused by the page reloading with no feedback.
-  const denied = new URLSearchParams(window.location.search).get('error') === 'denied';
+// Tracks which platform's access-request modal is open, if any.
+interface ActiveModal {
+  platformId:    string;
+  platformLabel: string;
+  platformColor: string;
+  config:        AccessRequestConfig;
+}
 
-  // Controls whether the Spotify access modal is open.
-  // Clicking "Connect Spotify" opens it instead of immediately redirecting,
-  // so the user can confirm they're approved or request access if they're not.
-  const [showSpotifyModal, setShowSpotifyModal] = useState(false);
+export default function Login() {
+  // The OAuth callback redirects back here with an ?error= param on failure.
+  // "denied"     → user cancelled the authorization screen
+  // "auth_failed" → server-side error (e.g. quota exceeded, API misconfiguration)
+  const errorParam = new URLSearchParams(window.location.search).get('error');
+  const denied     = errorParam === 'denied';
+  const authFailed = errorParam === 'auth_failed';
+
+  // Non-null when an access-request gate modal is open for a specific platform.
+  const [activeModal, setActiveModal] = useState<ActiveModal | null>(null);
+
+  // Opens the access-request gate for a platform that requires it,
+  // or goes directly to OAuth for platforms that don't.
+  const handleConnect = (platform: (typeof PLATFORMS)[number]) => {
+    if (platform.requiresAccessRequest && platform.accessRequest) {
+      setActiveModal({
+        platformId:    platform.id,
+        platformLabel: platform.label,
+        platformColor: platform.color,
+        config:        platform.accessRequest,
+      });
+    } else {
+      handleLogin(platform.id);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-bg-primary flex flex-col">
@@ -67,30 +93,33 @@ export default function Login() {
             </p>
           )}
 
+          {/* Server-side auth failure — quota exceeded, API misconfiguration, etc. */}
+          {authFailed && (
+            <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 max-w-xs text-center">
+              Connection failed. Please try again in a few minutes.
+            </p>
+          )}
+
           {/* Platform picker */}
           <div className="flex flex-col gap-3 w-full max-w-xs">
-            {PLATFORMS.map(({ id, label, available, color }) => (
+            {PLATFORMS.map(platform => (
               <button
-                key={id}
-                onClick={available
-                  ? id === 'SPOTIFY'
-                    ? () => setShowSpotifyModal(true)
-                    : () => handleLogin(id)
-                  : undefined}
-                disabled={!available}
-                title={available ? undefined : 'Coming soon'}
+                key={platform.id}
+                onClick={platform.available ? () => handleConnect(platform) : undefined}
+                disabled={!platform.available}
+                title={platform.available ? undefined : 'Coming soon'}
                 // --btn-color exposes the brand colour as a CSS custom property so Tailwind's
                 // arbitrary-value utilities can reference it for border, glow, and hover effects
                 // without hardcoding any hex values in the className string.
-                style={{ '--btn-color': color } as React.CSSProperties}
+                style={{ '--btn-color': platform.color } as React.CSSProperties}
                 className={
-                  available
+                  platform.available
                     ? 'relative text-text-primary font-bold px-10 py-4 rounded-full text-lg border-2 border-[var(--btn-color)] bg-transparent transition-all duration-300 hover:scale-105 active:scale-95 hover:[box-shadow:0_0_24px_color-mix(in_srgb,var(--btn-color)_55%,transparent)]'
                     : 'relative text-text-muted font-bold px-10 py-4 rounded-full text-lg border-2 border-border-color bg-transparent opacity-40 cursor-not-allowed'
                 }
               >
-                Connect {label}
-                {!available && (
+                Connect {platform.label}
+                {!platform.available && (
                   <span className="absolute -top-2 -right-2 text-[10px] font-semibold bg-bg-card border border-border-color text-text-muted px-2 py-0.5 rounded-full">
                     soon
                   </span>
@@ -105,10 +134,14 @@ export default function Login() {
         </div>
       </div>
 
-      {showSpotifyModal && (
-        <SpotifyAccessModal
-          onApproved={() => { setShowSpotifyModal(false); handleLogin('spotify'); }}
-          onClose={() => setShowSpotifyModal(false)}
+      {activeModal && (
+        <AccessRequestModal
+          platformId={activeModal.platformId}
+          platformLabel={activeModal.platformLabel}
+          platformColor={activeModal.platformColor}
+          config={activeModal.config}
+          onApproved={() => { setActiveModal(null); handleLogin(activeModal.platformId); }}
+          onClose={() => setActiveModal(null)}
         />
       )}
 

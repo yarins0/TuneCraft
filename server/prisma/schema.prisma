@@ -24,6 +24,7 @@ enum Platform {
   SOUNDCLOUD
   TIDAL
   APPLE_MUSIC
+  YOUTUBE
 }
 
 model User {
@@ -76,21 +77,26 @@ model TrackCache {
   spotifyId     String?  @unique   // Spotify track ID
   soundcloudId  String?  @unique   // SoundCloud track ID (numeric, stored as string)
   tidalId       String?  @unique   // Tidal track ID (numeric, stored as string)
+  youtubeId     String?  @unique   // YouTube video ID (11-char alphanumeric)
   // Add more platform ID columns here as new adapters are built (e.g. appleMusicId)
 
   audioFeatures Json
   cachedAt      DateTime @default(now())
 }
 
-// Tracks Spotify access requests from users who hit the dev-mode user cap.
+// Tracks platform access requests from users who hit a dev/test-mode user cap.
 // Each row represents one person who submitted the request form on the login page.
-// Status moves from PENDING → APPROVED (once added to Spotify dashboard) or REJECTED.
-model SpotifyAccessRequest {
+// Status moves from PENDING → APPROVED (once added to the platform's allowlist) or REJECTED.
+// @@map keeps the underlying table name unchanged so no data migration is required.
+model AccessRequest {
   id        String   @id @default(cuid())
   fullName  String
   email     String
+  platform  Platform @default(SPOTIFY)   // which platform this request is for
   status    String   @default("PENDING") // PENDING | APPROVED | REJECTED
   createdAt DateTime @default(now())
+
+  @@map("SpotifyAccessRequest")
 }
 
 model ArtistCache {
@@ -107,6 +113,7 @@ model ArtistCache {
   spotifyArtistId     String?  @unique
   tidalArtistId       String?  @unique
   soundcloudArtistId  String?  @unique
+  youtubeArtistId     String?  @unique  // YouTube channel ID (used as artist proxy)
   // Add more platform columns here as new adapters are built (e.g. appleMusicArtistId)
 
   genres     Json

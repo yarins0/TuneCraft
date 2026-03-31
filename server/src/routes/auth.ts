@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import { createHmac } from 'crypto';
 import { Resend } from 'resend';
 import prisma from '../lib/prisma';
@@ -46,7 +47,7 @@ router.get('/spotify/callback', async (req, res) => {
 
   // User denied permission on the Spotify consent screen
   if (error) {
-    res.redirect(`${process.env.FRONTEND_URL}/login?error=denied`);
+    res.redirect(`${process.env.FRONTEND_URL}/?error=denied`);
     return;
   }
 
@@ -98,7 +99,7 @@ router.get('/soundcloud/callback', async (req, res) => {
 
   // User denied permission on the SoundCloud consent screen
   if (error) {
-    res.redirect(`${process.env.FRONTEND_URL}/login?error=denied`);
+    res.redirect(`${process.env.FRONTEND_URL}/?error=denied`);
     return;
   }
 
@@ -148,7 +149,7 @@ router.get('/tidal/callback', async (req, res) => {
 
   // User denied permission on the Tidal consent screen
   if (error) {
-    res.redirect(`${process.env.FRONTEND_URL}/login?error=denied`);
+    res.redirect(`${process.env.FRONTEND_URL}/?error=denied`);
     return;
   }
 
@@ -197,6 +198,56 @@ router.get('/tidal/callback', async (req, res) => {
   }
 });
 
+// GET /auth/youtube/callback
+// Handles the Google OAuth redirect after the user grants permission.
+// Google uses the same authorization-code flow as Spotify and SoundCloud —
+// no PKCE or state parameter required.
+router.get('/youtube/callback', async (req, res) => {
+  const code  = req.query.code  as string | undefined;
+  const error = req.query.error as string | undefined;
+
+  // User denied permission on the Google consent screen
+  if (error) {
+    res.redirect(`${process.env.FRONTEND_URL}/?error=denied`);
+    return;
+  }
+
+  if (!code) {
+    res.status(400).json({ error: 'Authorization code missing' });
+    return;
+  }
+
+  const platform: Platform = 'YOUTUBE';
+
+  try {
+    const { accessToken, refreshToken, expiresAt, platformUserId, displayName, email } =
+      await getAdapter(platform).exchangeCode(code);
+
+    const user = await prisma.user.upsert({
+      where:  { platformUserId_platform: { platformUserId, platform } },
+      update: { accessToken, refreshToken, tokenExpiresAt: expiresAt },
+      create: {
+        platformUserId,
+        displayName,
+        email,
+        accessToken,
+        refreshToken,
+        tokenExpiresAt: expiresAt,
+        platform,
+      },
+    });
+
+    res.redirect(
+      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}&platform=${platform}&displayName=${encodeURIComponent(user.displayName ?? '')}&userToken=${signUserId(user.id)}`
+    );
+  } catch (error: any) {
+    const body = error?.response?.data;
+    const msg  = body?.error?.message ?? body?.error ?? JSON.stringify(body ?? error?.message ?? error);
+    console.error('YouTube auth error:', msg);
+    res.redirect(`${process.env.FRONTEND_URL}/?error=auth_failed`);
+  }
+});
+
 // DELETE /auth/:userId
 // Removes a single platform account from the database.
 // Only deletes the User row matching the given internal cuid — other platform
@@ -227,12 +278,83 @@ router.delete('/:userId', refreshTokenMiddleware, async (req, res) => {
   }
 });
 
-// POST /auth/spotify/request-access
-// Saves a Spotify access request to the DB and emails the admin to add the user
-// to the Spotify Developer Dashboard allowlist.
-// Duplicate requests (same email, status=PENDING) are silently ignored so the
-// user can safely resubmit without flooding the admin's inbox.
-router.post('/spotify/request-access', async (req, res) => {
+// ── Access request helpers ────────────────────────────────────────────────────
+
+// Minimum time between access-request emails from the same email address.
+// Any submission within this window returns 429 without touching the DB or sending email.
+const ACCESS_REQUEST_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+
+// "john" → "John", "DOE" → "Doe"
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
+// Escapes HTML special characters before interpolating user-supplied values into emails.
+// Without this, a name like "<script>..." would be rendered as live HTML — XSS against the admin.
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// Returns true if this email+platform submitted a request within the cooldown window.
+// Checks regardless of status — cooldown applies to all submissions, not just pending ones.
+const isOnCooldown = async (email: string, platform: Platform): Promise<boolean> => {
+  const cutoff = new Date(Date.now() - ACCESS_REQUEST_COOLDOWN_MS);
+  const recent = await prisma.accessRequest.findFirst({
+    where: { email, platform, createdAt: { gte: cutoff } },
+  });
+  return recent !== null;
+};
+
+// Creates an AccessRequest row only if no PENDING row exists for this email + platform.
+// Prevents duplicate DB entries while still allowing re-submission after a request is resolved.
+const upsertAccessRequest = async (
+  email: string,
+  fullName: string,
+  platform: Platform,
+): Promise<void> => {
+  const existing = await prisma.accessRequest.findFirst({
+    where: { email, platform, status: 'PENDING' },
+  });
+  if (!existing) {
+    await prisma.accessRequest.create({ data: { fullName, email, platform } });
+  }
+};
+
+// Sends the admin notification email for an access request.
+const sendAccessRequestEmail = async (
+  name: string,
+  email: string,
+  platformLabel: string,
+  subject: string,
+  dashboardHtml: string,
+): Promise<void> => {
+  await resend.emails.send({
+    from:    'Tunecraft <onboarding@resend.dev>',
+    to:      process.env.ADMIN_EMAIL!,
+    subject,
+    html: `
+      <p>A new user is requesting ${escapeHtml(platformLabel)} access on Tunecraft.</p>
+      <table cellpadding="6">
+        <tr><td><strong>Name</strong></td><td>${escapeHtml(name)}</td></tr>
+        <tr><td><strong>Email</strong></td><td>${escapeHtml(email)}</td></tr>
+      </table>
+      ${dashboardHtml}
+    `,
+  });
+};
+
+// Platform-specific strings passed to the shared handler.
+interface AccessRequestEmailConfig {
+  platformLabel: string;
+  subject:       (name: string) => string;
+  dashboardHtml: string;
+}
+
+// Shared handler for all platform access-request endpoints.
+// Validates input → enforces cooldown → upserts DB row → emails admin.
+const handleAccessRequest = async (
+  req: Request,
+  res: Response,
+  platform: Platform,
+  emailConfig: AccessRequestEmailConfig,
+): Promise<void> => {
   const { firstName, lastName, email } = req.body as {
     firstName?: string;
     lastName?:  string;
@@ -250,55 +372,68 @@ router.post('/spotify/request-access', async (req, res) => {
     return;
   }
 
-  // Capitalize each name part independently, then join — "john doe" → "John Doe".
-  const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-  const normalizedName = `${capitalize(firstName.trim())} ${capitalize(lastName.trim())}`;
-
-  // Escape HTML special characters before interpolating user-supplied values into the
-  // admin notification email. Without this, a name like "<script>..." would be rendered
-  // as live HTML in the email client — a stored XSS risk against the admin.
-  const escapeHtml = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const name           = `${capitalize(firstName.trim())} ${capitalize(lastName.trim())}`;
+  const normalizedEmail = email.trim();
 
   try {
-    // Check for an existing pending request from the same email address.
-    const existing = await prisma.spotifyAccessRequest.findFirst({
-      where: { email: email.trim(), status: 'PENDING' },
-    });
-
-    if (!existing) {
-      await prisma.spotifyAccessRequest.create({
-        data: { fullName: normalizedName, email: email.trim() },
-      });
+    if (await isOnCooldown(normalizedEmail, platform)) {
+      res.status(429).json({ error: 'You already submitted a request recently. Please wait an hour before trying again.' });
+      return;
     }
 
-    // Send the admin notification regardless of whether this is a duplicate —
-    // the email is a prompt to act, not a record of every submission.
-    await resend.emails.send({
-      from:    'Tunecraft <onboarding@resend.dev>',
-      to:      process.env.ADMIN_EMAIL!,
-      subject: `[Tunecraft] Spotify access request — ${normalizedName}`,
-      html: `
-        <p>A new user is requesting Spotify access on Tunecraft.</p>
-        <table cellpadding="6">
-          <tr><td><strong>Name</strong></td><td>${escapeHtml(normalizedName)}</td></tr>
-          <tr><td><strong>Email</strong></td><td>${escapeHtml(email.trim())}</td></tr>
-        </table>
-        <p>
-          Add them at:<br/>
-          <a href="https://developer.spotify.com/dashboard">
-            Spotify Developer Dashboard → Your App → User Management
-          </a>
-        </p>
-      `,
-    });
+    await upsertAccessRequest(normalizedEmail, name, platform);
+    await sendAccessRequestEmail(
+      name,
+      normalizedEmail,
+      emailConfig.platformLabel,
+      emailConfig.subject(name),
+      emailConfig.dashboardHtml,
+    );
 
     res.json({ success: true });
   } catch (error) {
-    console.error('Spotify access request error:', error);
+    console.error(`${platform} access request error:`, error);
     res.status(500).json({ error: 'Failed to submit request. Please try again.' });
   }
-});
+};
+
+// ── Access request routes ─────────────────────────────────────────────────────
+
+// POST /auth/spotify/request-access
+// Saves a Spotify access request and emails the admin to add the user to the
+// Spotify Developer Dashboard allowlist.
+router.post('/spotify/request-access', (req, res) =>
+  handleAccessRequest(req, res, 'SPOTIFY', {
+    platformLabel: 'Spotify',
+    subject:       name => `[Tunecraft] Spotify access request — ${name}`,
+    dashboardHtml: `
+      <p>
+        Add them at:<br/>
+        <a href="https://developer.spotify.com/dashboard">
+          Spotify Developer Dashboard → Your App → User Management
+        </a>
+      </p>
+    `,
+  })
+);
+
+// POST /auth/youtube/request-access
+// Saves a YouTube Music access request and emails the admin to add the user to the
+// Google Cloud Console OAuth consent screen test-user list.
+router.post('/youtube/request-access', (req, res) =>
+  handleAccessRequest(req, res, 'YOUTUBE', {
+    platformLabel: 'YouTube Music',
+    subject:       name => `[Tunecraft] YouTube Music access request — ${name}`,
+    dashboardHtml: `
+      <p>
+        Add them at:<br/>
+        <a href="https://console.cloud.google.com/apis/credentials/consent">
+          Google Cloud Console → OAuth consent screen → Test users
+        </a>
+      </p>
+    `,
+  })
+);
 
 // GET /auth/scopes?token=...
 // Diagnostic endpoint — returns the Spotify profile for a given token to inspect its scopes.

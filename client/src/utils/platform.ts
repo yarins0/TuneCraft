@@ -3,7 +3,7 @@ import type { PlatformConfig } from './platform/types';
 import { spotifyConfig }    from './platform/spotify';
 import { soundcloudConfig } from './platform/soundcloud';
 import { tidalConfig }      from './platform/tidal';
-import { appleMusicConfig } from './platform/appleMusic';
+import { youtubeConfig }    from './platform/youtube';
 
 // Re-export the interface so callers can type-check against it without a deep import.
 export type { PlatformConfig };
@@ -16,8 +16,8 @@ export type { PlatformConfig };
 const PLATFORM_CONFIGS: Record<string, PlatformConfig> = {
   SPOTIFY:     spotifyConfig,
   SOUNDCLOUD:  soundcloudConfig,
+  YOUTUBE:     youtubeConfig,
   TIDAL:       tidalConfig,
-  APPLE_MUSIC: appleMusicConfig,
 };
 
 // Safe fallback used when the platform key is unknown or undefined.
@@ -28,6 +28,7 @@ const defaultConfig: PlatformConfig = {
   icon:                    '?',
   cssVar:                  '--color-platform-spotify',
   available:               false,
+  requiresAccessRequest:   false,
   ownershipRestricted:     false,
   totalTracksReliable:     true,
   audioFeaturesMissingHint: undefined,

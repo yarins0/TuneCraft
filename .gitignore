@@ -9,5 +9,10 @@ Thumbs.db
 # Editor
 .vscode/
 .curser/
+
+# Claude Code / claude-flow
 .claude/
+.claude-flow/
+.mcp.json
 .gstack/
+CLAUDE.md

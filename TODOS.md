@@ -20,7 +20,7 @@ Tasks are divided into independent agents — each agent owns a separate slice o
 | D     | QA / Manual Testing         | _(no code — manual testing only)_                                                                                | D2         | 🔵 Active             |
 | E     | Performance & Enrichment    | `server/src/lib/enrichment.ts`                                                                                   | E2         | 🔵 Active             |
 | F     | Playlist Features / UI      | `client/src/pages/PlaylistDetail.tsx`, `client/src/components/SplitModal.tsx`, `server/src/routes/playlists.ts` | F2         | 🔵 Active             |
-| G     | YouTube Music Platform      | `server/src/lib/platform/youtube.ts`, `server/src/routes/auth.ts`, `client/src/pages/Login.tsx`                 | G1         | 🔵 Active             |
+| G     | YouTube Music Platform      | `server/src/lib/platform/youtube.ts`, `server/src/routes/auth.ts`, `client/src/utils/platform/youtube.ts`       | G1         | 🟡 Testing needed     |
 
 ---
 
@@ -82,35 +82,77 @@ Replaced the two `addedAt`/`-addedAt` passes with a single `title` (alphabetical
 # Agent G — YouTube Music Platform
 > Owns: `server/src/lib/platform/youtube.ts`, `server/src/routes/auth.ts`, `client/src/pages/Login.tsx`
 
-## G1 · Add YouTube Music as a supported platform
+## G1 · Add YouTube Music as a supported platform 🔵 ACTIVE — testing in progress
 
-**What:** Implement a full `YouTubeMusicAdapter` that satisfies `PlatformAdapter`, add OAuth login for YouTube Music, and surface it in the Login page alongside Spotify, SoundCloud, and Tidal.
+**What:** Implement a full `YouTubeAdapter` that satisfies `PlatformAdapter`, add OAuth login, and surface YouTube Music in the Login page alongside Spotify, SoundCloud, and Tidal.
 
 **Why:** YouTube Music has a massive user base. Adding it gives TuneCraft access to the largest music library and the most potential users.
 
-**API situation (from NEW_APIS.MD):**
-- There is **no official public API** for YouTube Music specifically.
-- **Best option — `ytmusic-api` (NPM/TypeScript):** unofficial Node.js wrapper with TypeScript support. Covers search, library management (playlists, songs), and artist data. Uses OAuth cookies to act on behalf of the user.
-- **Fallback — YouTube Data API v3:** official Google API, but only covers general YouTube data (videos, channels). Does not expose YouTube Music library features like playlists, liked songs, or "My Mix".
-- Authentication is cookie/OAuth-header based rather than a standard OAuth 2.0 code flow — this is the biggest architectural difference from the existing platforms and needs careful design before implementation.
+### Decision: YouTube Data API v3 (official)
 
-**What to change:**
-- `server/src/lib/platform/youtube.ts` — new file; implement `YouTubeMusicAdapter` using `ytmusic-api` (or YouTube Data API v3 as fallback). Must satisfy the full `PlatformAdapter` interface: auth, fetchPlaylists, fetchPlaylistTracks, fetchLikedTracks, replacePlaylistTracks, addTracksToPlaylist, etc.
-- `server/src/lib/platform/types.ts` — add `'YOUTUBE_MUSIC'` to the `Platform` union
-- `server/src/lib/platform/registry.ts` — register the new adapter
-- `server/src/routes/auth.ts` — add `/auth/youtube/login` and `/auth/youtube/callback` routes
-- `client/src/pages/Login.tsx` — add YouTube Music connect button
-- `prisma/schema.prisma` — add `YOUTUBE_MUSIC` to the `Platform` enum; add `youtubeId` column to `TrackCache` and `youtubeArtistId` to `ArtistCache`
-- `server/src/lib/enrichment.ts` — no changes expected (platform-agnostic)
+The unofficial `ytmusic-api` wrapper was evaluated and rejected:
+- It uses internal cookie-based auth (not OAuth 2.0) — incompatible with the server-side token model used by all other adapters
+- It would break silently when Google changes internal endpoints
+- Rate limits are undocumented
 
-**Key risks / open questions:**
-- Cookie-based auth is fragile — YouTube Music has no official OAuth 2.0 authorization code flow. Need to decide whether to use `ytmusic-api`'s cookie approach or restrict to YouTube Data API v3 (which loses library access).
-- `ytmusic-api` is unofficial and could break if Google changes internal endpoints — same reliability concern as the Spotify117 scraper.
-- Rate limits on the unofficial API are undocumented.
-- Investigate whether YouTube Data API v3 (official) is sufficient for the core use cases before committing to the unofficial wrapper.
+**YouTube Data API v3 was chosen instead.** YouTube Music playlists are standard YouTube playlists and are fully accessible via the official API. OAuth 2.0 authorization code flow is supported with `access_type=offline` for refresh tokens. This keeps the adapter consistent with every other platform.
 
-**Effort:** L
+**Important scope note:** the adapter targets *music playlists only*, not general YouTube video content. `fetchPlaylists` returns the user's playlists (which in a YouTube Music context are music playlists). `fetchLikedTracks` uses the user's liked-videos playlist ID from `channel.contentDetails.relatedPlaylists.likes` — this is the best available approximation of "Liked Music" via the official API.
+
+### What was shipped
+
+**Platform key:** `YOUTUBE` (not `YOUTUBE_MUSIC` as originally planned — kept shorter for consistency with other single-word keys)
+
+| File | Change |
+|---|---|
+| `server/prisma/schema.prisma` | Added `YOUTUBE` to `Platform` enum; `youtubeId` on `TrackCache`; `youtubeArtistId` on `ArtistCache` |
+| `server/src/lib/platform/types.ts` | Added `'YOUTUBE'` to `Platform` union |
+| `server/src/lib/platform/youtube.ts` | New — full `YouTubeAdapter` (OAuth, read, write, Innertube enrichment) |
+| `server/src/lib/platform/registry.ts` | Registered `YouTubeAdapter` |
+| `server/src/routes/auth.ts` | Added `/auth/youtube/callback` |
+| `client/src/utils/platform/youtube.ts` | New — `youtubeConfig` (label, color, URLs, `extractPlaylistId`) |
+| `client/src/utils/platform.ts` | Registered `youtubeConfig` under key `YOUTUBE` |
+| `client/src/index.css` | Added `--color-platform-youtube: #FF0000` |
+| `server/.env.example` | Added `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` section |
+| `server/prisma/migrations/` | Migration: `add-youtube-platform` applied |
+
+### What was fixed during testing (2026-03-31)
+
+| Fix | File | Detail |
+|---|---|---|
+| Artist names: "Radiohead - Topic" → "Radiohead" | `youtube.ts` | `stripTopicSuffix` + `parseArtistFromTitle` applied in `buildTrack` |
+| Album names from Innertube flex columns | `youtube.ts` | `fetchYtmusicMeta` parses `MUSIC_PAGE_TYPE_ALBUM` runs anonymously for public playlists |
+| Liked songs: filter to music-only | `youtube.ts` | `isMusicVideo` predicate (categoryId === '10') applied in `fetchLikedTracks` |
+| Followed playlists missing from dashboard | `youtube.ts` | `fetchLibraryPlaylists` makes authenticated Innertube call to `FEmusic_library_privately_owned_playlists`; merged with Data API results |
+| Auth failure showed blank JSON page | `auth.ts` | Callback catch now redirects to `/?error=auth_failed` instead of returning `res.status(500).json(...)` |
+| Last.fm queried with "Artist - Topic" names | `youtube.ts` | `resolveArtist` now applied to enrichment input `artistName`, not just `buildTrack` display name |
+| 409 ABORTED on playlist save | `youtube.ts`, `requestWithRetry.ts` | `extraRetryCodes` param added to `requestWithRetry`; insert loop passes `[409]` with 5s wait + 200ms pause between inserts |
+
+### Known limitations
+
+- **Album metadata only for public playlists** — Innertube album enrichment uses anonymous browse; private playlists silently fall back to empty album name.
+- **Audio features sparse** — YouTube does not provide ISRC. Features will only appear for tracks MusicBrainz can cross-reference to a Spotify ID by title + artist.
+- **Playlist write quota** — YouTube's default daily quota is 10,000 units. Replacing a 100-track playlist costs ~10,000 units (each delete + insert = 50 units). Large playlists may exhaust the daily quota in a single save.
+- **`fetchLikedTracks` uses Liked Videos** — YouTube Music's "Liked Music" playlist is not separately exposed by the official API. The liked-videos playlist is used as the best available proxy; non-music liked videos may appear alongside songs.
+
+### Still needed
+
+- [ ] **G1-save-verify** — re-test duplicate removal + save after 409 retry fix (5s wait, 200ms insert pacing). Was blocked by daily quota exhaustion on 2026-03-31.
+- [ ] **G1-followed-verify** — confirm followed playlists now appear in dashboard after `fetchLibraryPlaylists` fix.
+- [ ] **G1-full-checklist** — run the full D2-style end-to-end checklist once quota resets (midnight Pacific):
+  - [ ] OAuth login, deny flow, access request modal
+  - [ ] Dashboard: owned + followed playlists visible
+  - [ ] Liked songs: music-only filter working
+  - [ ] PlaylistDetail: correct artist names (no " - Topic"), album names for public playlists
+  - [ ] Shuffle + Save writes back to YouTube
+  - [ ] Save as Copy creates new playlist
+  - [ ] Split and Merge
+  - [ ] Auto-reshuffle cron
+
+**Effort:** L (core done) → S (remaining testing)
 **Priority:** P2
+
+**NOTE:** YouTube button is currently set to `available: false` in `client/src/utils/platform/youtube.ts` — re-enable when testing resumes.
 
 ---
 

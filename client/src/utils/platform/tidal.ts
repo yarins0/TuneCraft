@@ -8,6 +8,7 @@ export const tidalConfig: PlatformConfig = {
   cssVar: '--color-platform-tidal',
 
   available:              true,
+  requiresAccessRequest:  false,
   ownershipRestricted:    false,
   totalTracksReliable:    false, // Tidal's API often omits meta.total — fall back to dashboard count
   audioFeaturesMissingHint: undefined,

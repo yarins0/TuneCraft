@@ -1,5 +1,9 @@
 import type { PlatformConfig } from './types';
 
+// How many test users Spotify allows in developer mode.
+// Update this value if Spotify changes their policy.
+const SPOTIFY_DEV_USER_LIMIT = 5;
+
 // Client-side config for Spotify.
 // Mirrors the server-side SpotifyAdapter — presentation data and URL logic only, no API calls.
 export const spotifyConfig: PlatformConfig = {
@@ -8,6 +12,15 @@ export const spotifyConfig: PlatformConfig = {
   cssVar: '--color-platform-spotify',
 
   available:              true,
+  requiresAccessRequest:  true,
+  accessRequest: {
+    userLimit:     SPOTIFY_DEV_USER_LIMIT,
+    emailLabel:    'Spotify Email',
+    continueLabel: 'Continue to Spotify',
+    description:
+      `Tunecraft is in developer mode. Spotify limits developer apps to ${SPOTIFY_DEV_USER_LIMIT} approved users — ` +
+      'only people manually added to the allowlist can log in.',
+  },
   ownershipRestricted:    true,  // Spotify API blocks reading playlists owned by other users
   totalTracksReliable:    true,
   audioFeaturesMissingHint: undefined,

@@ -2,6 +2,7 @@ import prisma from '../prisma';
 import { SpotifyAdapter } from './spotify';
 import { SoundCloudAdapter } from './soundcloud';
 import { TidalAdapter } from './tidal';
+import { YouTubeAdapter } from './youtube';
 import type { Platform, PlatformAdapter } from './types';
 
 // Registry maps each platform to its singleton adapter instance.
@@ -11,6 +12,7 @@ const adapters: Partial<Record<Platform, PlatformAdapter>> = {
   SPOTIFY:    new SpotifyAdapter(),
   SOUNDCLOUD: new SoundCloudAdapter(),
   TIDAL:      new TidalAdapter(),
+  YOUTUBE:    new YouTubeAdapter(),
   // APPLE_MUSIC: new AppleMusicAdapter(), ← add when implemented
 };
 
