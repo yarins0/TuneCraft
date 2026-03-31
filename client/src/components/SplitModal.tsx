@@ -3,6 +3,7 @@ import { splitTracks } from '../utils/splitPlaylist';
 import type { SplitStrategy, SplitGroup } from '../utils/splitPlaylist';
 import type { Track } from '../api/tracks';
 import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
+import { MIN_AUDIO_FEATURE_COVERAGE } from '../constants/audioFeatures';
 
 interface Props {
   isOpen: boolean;
@@ -10,8 +11,8 @@ interface Props {
   tracks: Track[];        // The full loaded track list from PlaylistDetail
   isLoading: boolean;
   // Fraction (0–1) of tracks that have at least one non-null audio feature.
-  // When below 0.2 the audio-feature split strategies are disabled — they'd produce
-  // meaningless groups if only a handful of tracks have feature data.
+  // When below MIN_AUDIO_FEATURE_COVERAGE the audio-feature split strategies are disabled —
+  // they'd produce meaningless groups if only a handful of tracks have feature data.
   audioFeatureCoverage?: number;
   onClose: () => void;
   // Called when the user confirms — receives only the checked groups, with final names applied
@@ -258,7 +259,7 @@ export default function SplitModal({
   useEffect(() => {
     if (isOpen) {
       setStrategy(prev =>
-        AUDIO_FEATURE_STRATEGIES.has(prev) && audioFeatureCoverage < 0.2 ? 'genre' : prev
+        AUDIO_FEATURE_STRATEGIES.has(prev) && audioFeatureCoverage < MIN_AUDIO_FEATURE_COVERAGE ? 'genre' : prev
       );
       // groupMeta is intentionally NOT cleared here — effect 1 already resets it whenever
       // isOpen or strategy changes. Clearing it here caused a second render on first open
@@ -488,7 +489,7 @@ export default function SplitModal({
               {STRATEGIES.map(s => {
                 // Audio-feature strategies are disabled when fewer than 20% of tracks
                 // have feature data — the resulting groups would be nearly empty or random.
-                const isDisabled = AUDIO_FEATURE_STRATEGIES.has(s.value) && audioFeatureCoverage < 0.2;
+                const isDisabled = AUDIO_FEATURE_STRATEGIES.has(s.value) && audioFeatureCoverage < MIN_AUDIO_FEATURE_COVERAGE;
                 return (
                   <button
                     key={s.value}

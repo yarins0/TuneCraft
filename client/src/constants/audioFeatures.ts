@@ -10,7 +10,12 @@ export const AUDIO_FEATURES = [
     { key: 'tempo',            label: 'Tempo',            color: '#6c254f', isTempo: true,  description: 'Speed of the track in beats per minute (BPM).' },
   ];
 
-  // Colors used for pie chart slices in the playlist composition charts
+  // Minimum fraction of tracks that must have audio features before feature-dependent
+// UI is enabled (split strategies, Insights tab charts). Below this threshold the
+// data is too sparse to produce meaningful results.
+export const MIN_AUDIO_FEATURE_COVERAGE = 0.2;
+
+// Colors used for pie chart slices in the playlist composition charts
 export const CHART_COLORS = [
   '#a855f7', // purple
   '#ec4899', // pink

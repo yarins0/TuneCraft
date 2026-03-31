@@ -4,7 +4,7 @@ import type { PlaylistAverages } from '../api/tracks';
 import { getPlatformPlaylistUrl, getPlatformLabel, getPlatformBadgeStyle, getPlatformConfig, PLATFORM_LABELS } from '../utils/platform';
 import { getActiveAccount, setSessionAccount } from '../utils/accounts';
 import AudioFeatureChart from '../components/AudioFeatureChart';
-import { AUDIO_FEATURES } from '../constants/audioFeatures';
+import { AUDIO_FEATURES, MIN_AUDIO_FEATURE_COVERAGE } from '../constants/audioFeatures';
 import PlaylistCompositionCharts from '../components/PlaylistCompositionCharts';
 import ShuffleModal from '../components/ShuffleModal';
 import CopyModal from '../components/CopyModal';
@@ -444,8 +444,8 @@ export default function PlaylistDetail() {
 
           {insightsOpen && averages && (
             <div className="px-6 pb-6">
-              {/* Audio feature charts — hidden when <20% of tracks have features */}
-              {audioFeatureCoverage >= 0.2 ? (
+              {/* Audio feature charts — hidden when coverage is below the minimum threshold */}
+              {audioFeatureCoverage >= MIN_AUDIO_FEATURE_COVERAGE ? (
                 <div className="grid grid-cols-4 md:grid-cols-7 gap-6 justify-items-center mb-8">
                   {AUDIO_FEATURES.map(feature => (
                     <AudioFeatureChart
