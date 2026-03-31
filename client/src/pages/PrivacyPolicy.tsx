@@ -42,7 +42,7 @@ const NOT_COLLECTED = [
 
 // Controls the user has over their own data.
 const USER_CONTROLS = [
-  'Revoke TuneCraft\'s access to your Spotify, SoundCloud, or TIDAL account at any time via each platform\'s connected apps settings',
+  'Revoke TuneCraft\'s access to your Spotify, SoundCloud, TIDAL, or YouTube account at any time via each platform\'s connected apps settings',
   'Log out of TuneCraft at any time to clear your session tokens from your browser',
   'Request deletion of any data TuneCraft holds about you by contacting us (see below)',
   'Disable any active reshuffle schedules directly from within the app',
@@ -204,9 +204,10 @@ export default function PrivacyPolicy() {
           {/* Platform tags — styled like the secondary ghost button variant. */}
           <div className="flex flex-wrap gap-2 mb-4">
             {[
-              { label: 'Spotify',    comingSoon: false },
-              { label: 'SoundCloud', comingSoon: false },
-              { label: 'TIDAL',      comingSoon: false },
+              { label: 'Spotify',       comingSoon: false },
+              { label: 'SoundCloud',    comingSoon: true },
+              { label: 'TIDAL',         comingSoon: false },
+              { label: 'YouTube Music', comingSoon: true },
             ].map(({ label, comingSoon }) => (
               <span
                 key={label}

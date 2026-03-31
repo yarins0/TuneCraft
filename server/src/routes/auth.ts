@@ -5,7 +5,7 @@ import { Resend } from 'resend';
 import prisma from '../lib/prisma';
 import { getAdapter } from '../lib/platform/registry';
 import { TidalAdapter } from '../lib/platform/tidal';
-import type { Platform } from '../lib/platform/types';
+import type { Platform, AuthResult } from '../lib/platform/types';
 import { refreshTokenMiddleware } from '../middleware/refreshToken';
 
 // Signs a userId with the server's HMAC secret, producing a token the client stores and
@@ -45,116 +45,85 @@ router.get('/login', (req, res) => {
   }
 });
 
-// GET /auth/spotify/callback
-// Handles the Spotify OAuth redirect after the user grants permission.
-// Registered as the redirect URI in the Spotify Developer Dashboard.
-router.get('/spotify/callback', async (req, res) => {
-  const code = req.query.code as string;
-  const error = req.query.error as string | undefined;
+// ── OAuth callback helpers ────────────────────────────────────────────────────
 
-  // User denied permission on the Spotify consent screen
-  if (error) {
-    res.redirect(`${process.env.FRONTEND_URL}/?error=denied`);
-    return;
-  }
+// Upserts a user row from the result of an adapter's exchangeCode call.
+// "upsert" means update if the row exists, create if not — handles returning users
+// and first-time logins in one operation.
+// The unique key is (platformUserId + platform) — separate ID namespaces per platform
+// mean the same numeric ID can exist on both Spotify and SoundCloud.
+const upsertUser = (platform: Platform, data: AuthResult) =>
+  prisma.user.upsert({
+    where:  { platformUserId_platform: { platformUserId: data.platformUserId, platform } },
+    update: { accessToken: data.accessToken, refreshToken: data.refreshToken, tokenExpiresAt: data.expiresAt },
+    create: {
+      platformUserId: data.platformUserId,
+      displayName:    data.displayName,
+      email:          data.email,
+      accessToken:    data.accessToken,
+      refreshToken:   data.refreshToken,
+      tokenExpiresAt: data.expiresAt,
+      platform,
+    },
+  });
 
-  if (!code) {
-    res.status(400).json({ error: 'Authorization code missing' });
-    return;
-  }
+// Builds the client-side redirect URL that the browser lands on after a successful login.
+// The client reads these query params to hydrate the session in localStorage.
+const buildCallbackRedirect = (
+  user: { id: string; platformUserId: string; displayName: string | null },
+  platform: Platform,
+): string =>
+  `${process.env.FRONTEND_URL}/callback` +
+  `?userId=${user.id}` +
+  `&platformUserId=${user.platformUserId}` +
+  `&platform=${platform}` +
+  `&displayName=${encodeURIComponent(user.displayName ?? '')}` +
+  `&userToken=${signUserId(user.id)}`;
 
-  const platform: Platform = 'SPOTIFY';
+// Returns a route handler for platforms using the standard authorization-code flow
+// (no PKCE, no extra state parameter). Spotify, SoundCloud, and YouTube all follow
+// this path — each platform just passes a different adapter via the platform key.
+const handleStandardCallback = (platform: Platform) =>
+  async (req: Request, res: Response): Promise<void> => {
+    const code  = req.query.code  as string | undefined;
+    const error = req.query.error as string | undefined;
 
-  try {
-    const { accessToken, refreshToken, expiresAt, platformUserId, displayName, email } =
-      await getAdapter(platform).exchangeCode(code);
+    if (error) {
+      res.redirect(`${process.env.FRONTEND_URL}/?error=denied`);
+      return;
+    }
 
-    // upsert means "update if the user exists, create if not" — handles returning users and
-    // first-time logins in one operation.
-    // The unique key is (platformUserId + platform) together — Spotify and SoundCloud have
-    // separate ID namespaces, so the same numeric ID could exist on both platforms.
-    const user = await prisma.user.upsert({
-      where: { platformUserId_platform: { platformUserId, platform } },
-      update: { accessToken, refreshToken, tokenExpiresAt: expiresAt },
-      create: {
-        platformUserId,
-        displayName,
-        email,
-        accessToken,
-        refreshToken,
-        tokenExpiresAt: expiresAt,
-        platform,
-      },
-    });
+    if (!code) {
+      res.status(400).json({ error: 'Authorization code missing' });
+      return;
+    }
 
-    res.redirect(
-      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}&platform=${platform}&displayName=${encodeURIComponent(user.displayName ?? '')}&userToken=${signUserId(user.id)}`
-    );
-  } catch (error) {
-    console.error('Spotify auth error:', error);
-    res.status(500).json({ error: 'Authentication failed' });
-  }
-});
+    try {
+      const tokenData = await getAdapter(platform).exchangeCode(code);
+      const user      = await upsertUser(platform, tokenData);
+      res.redirect(buildCallbackRedirect(user, platform));
+    } catch (err) {
+      console.error(`${platform} auth error:`, err);
+      res.redirect(`${process.env.FRONTEND_URL}/?error=auth_failed`);
+    }
+  };
 
-// GET /auth/soundcloud/callback
-// Handles the SoundCloud OAuth redirect after the user grants permission.
-// SoundCloud requires a separate redirect URI registered in the developer app —
-// that's why this is a different endpoint rather than reusing /auth/callback.
-router.get('/soundcloud/callback', async (req, res) => {
-  const code = req.query.code as string;
-  const error = req.query.error as string | undefined;
-
-  // User denied permission on the SoundCloud consent screen
-  if (error) {
-    res.redirect(`${process.env.FRONTEND_URL}/?error=denied`);
-    return;
-  }
-
-  if (!code) {
-    res.status(400).json({ error: 'Authorization code missing' });
-    return;
-  }
-
-  const platform: Platform = 'SOUNDCLOUD';
-
-  try {
-    const { accessToken, refreshToken, expiresAt, platformUserId, displayName, email } =
-      await getAdapter(platform).exchangeCode(code);
-
-    const user = await prisma.user.upsert({
-      where: { platformUserId_platform: { platformUserId, platform } },
-      update: { accessToken, refreshToken, tokenExpiresAt: expiresAt },
-      create: {
-        platformUserId,
-        displayName,
-        email,
-        accessToken,
-        refreshToken,
-        tokenExpiresAt: expiresAt,
-        platform,
-      },
-    });
-
-    res.redirect(
-      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}&platform=${platform}&displayName=${encodeURIComponent(user.displayName ?? '')}&userToken=${signUserId(user.id)}`
-    );
-  } catch (error) {
-    console.error('SoundCloud auth error:', error);
-    res.status(500).json({ error: 'Authentication failed' });
-  }
-});
+// GET /auth/spotify/callback    — registered redirect URI in the Spotify Developer Dashboard
+// GET /auth/soundcloud/callback — registered redirect URI in the SoundCloud developer app
+// GET /auth/youtube/callback    — registered redirect URI in Google Cloud Console
+router.get('/spotify/callback',    handleStandardCallback('SPOTIFY'));
+router.get('/soundcloud/callback', handleStandardCallback('SOUNDCLOUD'));
+router.get('/youtube/callback',    handleStandardCallback('YOUTUBE'));
 
 // GET /auth/tidal/callback
-// Handles the Tidal OAuth PKCE redirect after the user grants permission.
-// Unlike Spotify/SoundCloud, Tidal uses PKCE — the callback receives a `state` parameter
-// that we use to retrieve the code_verifier we stashed before redirecting the user.
-// The verifier must be sent to the token endpoint to complete the exchange.
+// Tidal uses PKCE — the callback receives a `state` param that maps back to the
+// code_verifier generated at login time. The verifier must be sent to the token
+// endpoint to complete the exchange; without it Tidal rejects the request.
 router.get('/tidal/callback', async (req, res) => {
   const code  = req.query.code  as string | undefined;
   const state = req.query.state as string | undefined;
   const error = req.query.error as string | undefined;
 
-  // User denied permission on the Tidal consent screen
   if (error) {
     res.redirect(`${process.env.FRONTEND_URL}/?error=denied`);
     return;
@@ -165,10 +134,10 @@ router.get('/tidal/callback', async (req, res) => {
     return;
   }
 
-  // The TidalAdapter stores PKCE verifiers keyed by state. Cast to access the method
+  // TidalAdapter stores PKCE verifiers keyed by state. Cast to access the method
   // since the PlatformAdapter interface does not expose it (it's Tidal-specific).
   const tidalAdapter = getAdapter('TIDAL') as TidalAdapter;
-  const verifier = tidalAdapter.consumeVerifier(state);
+  const verifier     = tidalAdapter.consumeVerifier(state);
 
   if (!verifier) {
     // State unknown or expired — likely a replay attack or the server restarted mid-flow
@@ -176,81 +145,12 @@ router.get('/tidal/callback', async (req, res) => {
     return;
   }
 
-  const platform: Platform = 'TIDAL';
-
   try {
-    const { accessToken, refreshToken, expiresAt, platformUserId, displayName, email } =
-      await tidalAdapter.exchangeCode(code, verifier);
-
-    const user = await prisma.user.upsert({
-      where: { platformUserId_platform: { platformUserId, platform } },
-      update: { accessToken, refreshToken, tokenExpiresAt: expiresAt },
-      create: {
-        platformUserId,
-        displayName,
-        email,
-        accessToken,
-        refreshToken,
-        tokenExpiresAt: expiresAt,
-        platform,
-      },
-    });
-
-    res.redirect(
-      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}&platform=${platform}&displayName=${encodeURIComponent(user.displayName ?? '')}&userToken=${signUserId(user.id)}`
-    );
-  } catch (error) {
-    console.error('Tidal auth error:', error);
-    res.status(500).json({ error: 'Authentication failed' });
-  }
-});
-
-// GET /auth/youtube/callback
-// Handles the Google OAuth redirect after the user grants permission.
-// Google uses the same authorization-code flow as Spotify and SoundCloud —
-// no PKCE or state parameter required.
-router.get('/youtube/callback', async (req, res) => {
-  const code  = req.query.code  as string | undefined;
-  const error = req.query.error as string | undefined;
-
-  // User denied permission on the Google consent screen
-  if (error) {
-    res.redirect(`${process.env.FRONTEND_URL}/?error=denied`);
-    return;
-  }
-
-  if (!code) {
-    res.status(400).json({ error: 'Authorization code missing' });
-    return;
-  }
-
-  const platform: Platform = 'YOUTUBE';
-
-  try {
-    const { accessToken, refreshToken, expiresAt, platformUserId, displayName, email } =
-      await getAdapter(platform).exchangeCode(code);
-
-    const user = await prisma.user.upsert({
-      where:  { platformUserId_platform: { platformUserId, platform } },
-      update: { accessToken, refreshToken, tokenExpiresAt: expiresAt },
-      create: {
-        platformUserId,
-        displayName,
-        email,
-        accessToken,
-        refreshToken,
-        tokenExpiresAt: expiresAt,
-        platform,
-      },
-    });
-
-    res.redirect(
-      `${process.env.FRONTEND_URL}/callback?userId=${user.id}&platformUserId=${user.platformUserId}&platform=${platform}&displayName=${encodeURIComponent(user.displayName ?? '')}&userToken=${signUserId(user.id)}`
-    );
-  } catch (error: any) {
-    const body = error?.response?.data;
-    const msg  = body?.error?.message ?? body?.error ?? JSON.stringify(body ?? error?.message ?? error);
-    console.error('YouTube auth error:', msg);
+    const tokenData = await tidalAdapter.exchangeCode(code, verifier);
+    const user      = await upsertUser('TIDAL', tokenData);
+    res.redirect(buildCallbackRedirect(user, 'TIDAL'));
+  } catch (err) {
+    console.error('TIDAL auth error:', err);
     res.redirect(`${process.env.FRONTEND_URL}/?error=auth_failed`);
   }
 });

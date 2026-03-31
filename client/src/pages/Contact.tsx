@@ -88,6 +88,20 @@ export default function Contact() {
 
             <div className="flex items-center gap-4">
               <span className="font-mono text-xs uppercase tracking-widest text-accent opacity-80 w-20 shrink-0">
+                PORTFOLIO
+              </span>
+              <a
+                href="https://yarin-lab.vercel.app/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-text-primary hover:text-accent transition-colors duration-200"
+              >
+                yarin-lab.vercel.app
+              </a>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <span className="font-mono text-xs uppercase tracking-widest text-accent opacity-80 w-20 shrink-0">
                 LINKEDIN
               </span>
               <a
