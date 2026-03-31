@@ -93,6 +93,7 @@ The backend is fully platform-agnostic. Adding a new platform means implementing
 - [x] `SpotifyAdapter` (`server/src/lib/platform/spotify.ts`) — full Spotify implementation
 - [x] `SoundCloudAdapter` (`server/src/lib/platform/soundcloud.ts`) — full SoundCloud implementation (awaiting API credentials)
 - [x] `TidalAdapter` (`server/src/lib/platform/tidal.ts`) — full Tidal implementation (PKCE OAuth 2.0)
+- [x] `YouTubeAdapter` (`server/src/lib/platform/youtube.ts`) — YouTube Music via YouTube Data API v3 (testing in progress)
 - [x] Registry (`server/src/lib/platform/registry.ts`) — singleton adapters, `getAdapter(platform)` lookup
 - [x] All DB fields are platform-agnostic (`platformUserId`, `platformPlaylistId`)
 - [x] All server routes use `getAdapter()` — no platform-specific code in routes

@@ -55,7 +55,7 @@ Browser → Vite (5173) → React Router → Page component
                          └──────────┬──────────────┬──────────┘
                                     │              │
                          PlatformAdapter         Prisma ORM
-                   (Spotify / SoundCloud / Tidal)   │
+             (Spotify / SoundCloud / Tidal / YouTube)   │
                                     │         PostgreSQL
                                Platform API
                                Last.fm API
@@ -355,6 +355,7 @@ The 1s floor prevents APIs that send `Retry-After: 0` from burning all retry att
 │ spotifyId     String?  (unique)         │
 │ soundcloudId  String?  (unique)         │
 │ tidalId       String?  (unique)         │
+│ youtubeId     String?  (unique)         │
 │ audioFeatures Json                      │
 │ cachedAt      DateTime                  │
 └─────────────────────────────────────────┘
@@ -369,6 +370,7 @@ The 1s floor prevents APIs that send `Retry-After: 0` from burning all retry att
 │ spotifyArtistId     String? (unique)    │
 │ tidalArtistId       String? (unique)    │
 │ soundcloudArtistId  String? (unique)    │
+│ youtubeArtistId     String? (unique)    │
 │ genres              Json    (string[])  │
 │ platform            Platform (enum)     │
 │ cachedAt            DateTime            │
@@ -389,7 +391,7 @@ The 1s floor prevents APIs that send `Retry-After: 0` from burning all retry att
 | Backend         | Node.js, Express, TypeScript                                                 |
 | Database        | PostgreSQL via Prisma ORM                                                    |
 | Auth            | Spotify OAuth 2.0 with automatic token refresh                               |
-| External APIs   | Spotify Web API, SoundCloud API, Tidal API (OpenAPI v2), Last.fm, ReccoBeats |
+| External APIs   | Spotify Web API, SoundCloud API, Tidal API (OpenAPI v2), YouTube Data API v3, Last.fm, ReccoBeats |
 | Background jobs | node-cron                                                                    |
 
 ---
@@ -400,6 +402,7 @@ The 1s floor prevents APIs that send `Retry-After: 0` from burning all retry att
 - **PostgreSQL** — local or hosted instance
 - **Spotify Developer App** — create one at [developer.spotify.com](https://developer.spotify.com/dashboard). You will need a Client ID, Client Secret, and a configured redirect URI
 - **Tidal Developer App** — register at [developer.tidal.com](https://developer.tidal.com). Uses PKCE OAuth 2.0; requires `user.read`, `collection.read`, `collection.write`, `playlists.read`, `playlists.write` scopes
+- **YouTube Developer App** — create a project in [Google Cloud Console](https://console.cloud.google.com), enable the YouTube Data API v3, and create OAuth 2.0 credentials. Requires `youtube.readonly` and `youtube.force-ssl` scopes
 - **Last.fm API key** — register at [last.fm/api](https://www.last.fm/api/account/create)
 - **ReccoBeats API key** — for audio features (replaces Spotify's deprecated audio features endpoint)
 
@@ -438,6 +441,9 @@ SOUNDCLOUD_CLIENT_SECRET=your_soundcloud_client_secret
 
 TIDAL_CLIENT_ID=your_tidal_client_id
 TIDAL_CLIENT_SECRET=your_tidal_client_secret
+
+YOUTUBE_CLIENT_ID=your_youtube_client_id
+YOUTUBE_CLIENT_SECRET=your_youtube_client_secret
 
 LASTFM_API_KEY=your_lastfm_api_key
 LASTFM_SECRET=your_lastfm_secret
@@ -495,12 +501,14 @@ tunecraft/
 │       └── utils/                 # shuffleAlgorithms, splitPlaylist, mergePlaylists, platform helpers
 └── server/                        # Express backend (Node.js + TypeScript)
     └── src/
+        ├── controllers/           # Route handlers by domain: library, discover, tracks, operations
         ├── lib/
         │   ├── crons/             # Auto-reshuffle cron job
-        │   ├── platform/          # PlatformAdapter interface, SpotifyAdapter, TidalAdapter, SoundCloudAdapter, registry
+        │   ├── platform/          # PlatformAdapter interface, SpotifyAdapter, TidalAdapter, SoundCloudAdapter, YouTubeAdapter, registry
+        │   ├── playlistHelpers.ts # Shared enqueueWrite (write queue) and calculateAverages
         │   └── shuffleAlgorithms.ts
         ├── middleware/            # refreshToken.ts — transparent token refresh
-        └── routes/                # auth.ts, playlists.ts, reshuffle.ts, tracks.ts
+        └── routes/                # auth.ts, playlists.ts (route registration only), reshuffle.ts
 ```
 
 ---
@@ -543,10 +551,11 @@ All routes are prefixed with the Express base path. The `userId` segment is the 
 ### Auth
 | Method | Path                                              | Description                                                          |
 | ------ | ------------------------------------------------- | -------------------------------------------------------------------- |
-| `GET`  | `/auth/login?platform=SPOTIFY\|TIDAL\|SOUNDCLOUD` | Redirects to the appropriate platform OAuth / PKCE flow              |
+| `GET`  | `/auth/login?platform=SPOTIFY\|TIDAL\|SOUNDCLOUD\|YOUTUBE` | Redirects to the appropriate platform OAuth / PKCE flow              |
 | `GET`  | `/auth/spotify/callback`                          | Handles Spotify OAuth redirect, upserts user, redirects to frontend  |
 | `GET`  | `/auth/tidal/callback`                            | Handles Tidal PKCE callback, exchanges code + verifier, upserts user |
 | `GET`  | `/auth/soundcloud/callback`                       | Handles SoundCloud OAuth redirect, upserts user, redirects to frontend |
+| `GET`  | `/auth/youtube/callback`                          | Handles Google OAuth redirect, upserts user, redirects to frontend   |
 
 ### Playlists
 | Method | Path                                       | Description                                       |
