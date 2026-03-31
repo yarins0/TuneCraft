@@ -143,7 +143,7 @@ export default function PlaylistCompositionCharts({ tracks, isLoading }: Props) 
                   <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip content={<CustomTooltip />} isAnimationActive={false} />
               <Legend
                 iconType="circle"
                 iconSize={8}
@@ -184,7 +184,7 @@ export default function PlaylistCompositionCharts({ tracks, isLoading }: Props) 
                   <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip content={<CustomTooltip />} isAnimationActive={false} />
               <Legend content={renderDecadeLegend} />
             </PieChart>
           </ResponsiveContainer>
