@@ -63,7 +63,7 @@ to remove internal duplication. No behavior changes; tsc --noEmit clean.
 
 ---
 
-## C5 · Investigate Spotify117 API for followed playlist track access — ⛔ BLOCKED
+## ~~C5 · Investigate Spotify117 API for followed playlist track access ~~— ⛔ BLOCKED
 
 Endpoint confirmed (`/spotify_playlist/?url=...`), response shape documented in `.claude/NEW_APIS.MD`. API returns 500 consistently — the underlying Spotify scraper is down. This is a third-party reliability problem; no fix on our side.
 
@@ -140,13 +140,13 @@ The unofficial `ytmusic-api` wrapper was evaluated and rejected:
 - [ ] **G1-save-verify** — re-test duplicate removal + save after 409 retry fix (5s wait, 200ms insert pacing). Was blocked by daily quota exhaustion on 2026-03-31.
 - [ ] **G1-followed-verify** — confirm followed playlists now appear in dashboard after `fetchLibraryPlaylists` fix.
 - [ ] **G1-full-checklist** — run the full D2-style end-to-end checklist once quota resets (midnight Pacific):
-  - [ ] OAuth login, deny flow, access request modal
+  - [X] OAuth login, deny flow, access request modal
   - [ ] Dashboard: owned + followed playlists visible
   - [ ] Liked songs: music-only filter working
-  - [ ] PlaylistDetail: correct artist names (no " - Topic"), album names for public playlists
-  - [ ] Shuffle + Save writes back to YouTube
-  - [ ] Save as Copy creates new playlist
-  - [ ] Split and Merge
+  - [X] PlaylistDetail: correct artist names (no " - Topic"), album names for public playlists
+  - [X] Shuffle + Save writes back to YouTube
+  - [X] Save as Copy creates new playlist
+  - [X] Split and Merge
   - [ ] Auto-reshuffle cron
 
 **Effort:** L (core done) → S (remaining testing)
@@ -203,7 +203,7 @@ Already implemented as a fixed 100ms delay (reduced from 300ms). Adaptive timing
 
 ---
 
-## D2 · Tidal end-to-end testing ✅ COMPLETE
+## ~~D2 · Tidal end-to-end testing~~ ✅ COMPLETE
 
 **What:** Manually test every Tidal flow once `TIDAL_CLIENT_ID` and `TIDAL_CLIENT_SECRET` are added to `server/.env` and a redirect URI is registered in the Tidal developer dashboard.
 
