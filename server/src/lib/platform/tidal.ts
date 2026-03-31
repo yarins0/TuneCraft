@@ -352,7 +352,7 @@ export class TidalAdapter implements PlatformAdapter {
       for (const [uid, entry] of this.likedTracksCache) {
         if (entry.expiresAt < now) this.likedTracksCache.delete(uid);
       }
-    }, 10 * 60 * 1000);
+    }, 10 * 60 * 1000).unref();
   }
 
   // Generates the Tidal OAuth authorization URL and stashes the PKCE code verifier.
@@ -362,6 +362,13 @@ export class TidalAdapter implements PlatformAdapter {
     const verifier  = generateCodeVerifier();
     const challenge = computeCodeChallenge(verifier);
     const state     = crypto.randomBytes(16).toString('hex');
+
+    // Evict the oldest entry when the cap is reached to prevent unbounded memory growth
+    // under rapid unauthenticated requests to /auth/login?platform=TIDAL.
+    if (this.pendingVerifiers.size >= 1000) {
+      const oldestKey = this.pendingVerifiers.keys().next().value;
+      if (oldestKey) this.pendingVerifiers.delete(oldestKey);
+    }
 
     this.pendingVerifiers.set(state, {
       verifier,

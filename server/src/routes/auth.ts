@@ -27,14 +27,21 @@ const router = Router();
 // GET /auth/login?platform=SPOTIFY
 // Redirects the user to the platform's OAuth authorization page.
 // The platform query param defaults to SPOTIFY — future platforms can pass a different value.
+const SUPPORTED_PLATFORMS: readonly string[] = ['SPOTIFY', 'SOUNDCLOUD', 'TIDAL', 'YOUTUBE'];
+
 router.get('/login', (req, res) => {
-  const platform = ((req.query.platform as string) || 'SPOTIFY').toUpperCase() as Platform;
+  const platform = ((req.query.platform as string) || 'SPOTIFY').toUpperCase();
+
+  if (!SUPPORTED_PLATFORMS.includes(platform)) {
+    res.status(400).json({ error: 'Unsupported platform' });
+    return;
+  }
 
   try {
-    const authUrl = getAdapter(platform).getAuthUrl();
+    const authUrl = getAdapter(platform as Platform).getAuthUrl();
     res.redirect(authUrl);
   } catch {
-    res.status(400).json({ error: `Unsupported platform: ${platform}` });
+    res.status(400).json({ error: 'Unsupported platform' });
   }
 });
 
@@ -366,6 +373,19 @@ const handleAccessRequest = async (
     return;
   }
 
+  // Basic length limits to prevent DB pollution
+  if (firstName.trim().length > 100 || lastName.trim().length > 100) {
+    res.status(400).json({ error: 'Name fields must be 100 characters or fewer.' });
+    return;
+  }
+
+  // RFC 5321 max email length is 254 characters; reject obviously malformed addresses early
+  const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (email.trim().length > 254 || !EMAIL_PATTERN.test(email.trim())) {
+    res.status(400).json({ error: 'A valid email address is required.' });
+    return;
+  }
+
   if (!process.env.ADMIN_EMAIL) {
     console.error('ADMIN_EMAIL env var is not set — cannot send access request notification');
     res.status(500).json({ error: 'Server configuration error. Please try again later.' });
@@ -434,17 +454,5 @@ router.post('/youtube/request-access', (req, res) =>
     `,
   })
 );
-
-// GET /auth/scopes?token=...
-// Diagnostic endpoint — returns the Spotify profile for a given token to inspect its scopes.
-// Remains Spotify-specific for now since it's a dev/debug tool.
-router.get('/scopes', async (req, res) => {
-  const { default: axios } = await import('axios');
-  const token = req.query.token as string;
-  const response = await axios.get('https://api.spotify.com/v1/me', {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  res.json(response.data);
-});
 
 export default router;

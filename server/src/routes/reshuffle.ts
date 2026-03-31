@@ -13,9 +13,13 @@ router.post('/:userId/:playlistId', refreshTokenMiddleware, async (req, res) => 
   const userId = req.params.userId as string;
   const playlistId = req.params.playlistId as string;
   const { intervalDays, algorithms, playlistName, platform } = req.body;
-  // Validate that intervalDays is a positive number
-  if (!intervalDays || intervalDays < 1) {
-    return res.status(400).json({ error: 'intervalDays must be at least 1' });
+
+  if (!Number.isInteger(intervalDays) || intervalDays < 1 || intervalDays > 365) {
+    return res.status(400).json({ error: 'intervalDays must be a whole number between 1 and 365' });
+  }
+
+  if (typeof playlistName === 'string' && playlistName.length > 200) {
+    return res.status(400).json({ error: 'playlistName must be 200 characters or fewer' });
   }
 
   try {

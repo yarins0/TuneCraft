@@ -119,7 +119,7 @@ router.get('/:userId/discover', refreshTokenMiddleware, async (req, res) => {
       res.status(403).json({ error: 'This playlist is private' });
       return;
     }
-    res.status(500).json({ error: error.message || 'Failed to resolve playlist URL' });
+    res.status(500).json({ error: 'Failed to resolve playlist URL' });
   }
 });
 
@@ -257,7 +257,7 @@ router.get('/:userId/liked', refreshTokenMiddleware, async (req, res) => {
 router.get('/:userId/liked/tracks', refreshTokenMiddleware, async (req, res) => {
   const accessToken = req.accessToken;
   const adapter = getAdapter(req.userPlatform as Platform);
-  const page = parseInt(req.query.page as string) || 0;
+  const page = Math.max(0, Math.min(parseInt(req.query.page as string) || 0, 1000));
   const limit = 50;
 
   try {
@@ -288,7 +288,7 @@ router.get('/:userId/:playlistId/tracks', refreshTokenMiddleware, async (req, re
   const playlistId = req.params.playlistId as string;
   const accessToken = req.accessToken;
   const adapter = getAdapter(req.userPlatform as Platform);
-  const page = parseInt(req.query.page as string) || 0;
+  const page = Math.max(0, Math.min(parseInt(req.query.page as string) || 0, 1000));
   const limit = 50;
 
   // Create an AbortController tied to the lifetime of this HTTP request.
@@ -340,6 +340,11 @@ router.post('/:userId/:playlistId/shuffle', refreshTokenMiddleware, async (req, 
   const { tracks } = req.body;
   const accessToken = req.accessToken;
   const adapter = getAdapter(req.userPlatform as Platform);
+
+  if (!Array.isArray(tracks)) {
+    res.status(400).json({ error: 'tracks must be an array' });
+    return;
+  }
 
   try {
     const trackIds = tracks.map((t: { id: string }) => t.id);
@@ -393,6 +398,16 @@ router.post('/:userId/copy', refreshTokenMiddleware, async (req, res) => {
   const accessToken = req.accessToken;
   const adapter = getAdapter(req.userPlatform as Platform);
 
+  if (!Array.isArray(tracks)) {
+    res.status(400).json({ error: 'tracks must be an array' });
+    return;
+  }
+
+  if (typeof name === 'string' && name.length > 200) {
+    res.status(400).json({ error: 'Playlist name must be 200 characters or fewer' });
+    return;
+  }
+
   try {
     const trackIds = tracks.map((t: { id: string }) => t.id);
 
@@ -420,6 +435,16 @@ router.post('/:userId/merge', refreshTokenMiddleware, async (req, res) => {
   const userId = req.params.userId as string;
   const accessToken = req.accessToken;
   const adapter = getAdapter(req.userPlatform as Platform);
+
+  if (!Array.isArray(tracks)) {
+    res.status(400).json({ error: 'tracks must be an array' });
+    return;
+  }
+
+  if (typeof name === 'string' && name.length > 200) {
+    res.status(400).json({ error: 'Playlist name must be 200 characters or fewer' });
+    return;
+  }
 
   try {
     const trackIds = tracks.map((t: { id: string }) => t.id);
@@ -450,6 +475,16 @@ router.post('/:userId/split', refreshTokenMiddleware, async (req, res) => {
   const userId = req.params.userId as string;
   const accessToken = req.accessToken;
   const adapter = getAdapter(req.userPlatform as Platform);
+
+  if (!Array.isArray(groups) || groups.length === 0) {
+    res.status(400).json({ error: 'groups must be a non-empty array' });
+    return;
+  }
+
+  if (groups.some(g => typeof g.name === 'string' && g.name.length > 200)) {
+    res.status(400).json({ error: 'Playlist name must be 200 characters or fewer' });
+    return;
+  }
 
   try {
     const created = await enqueueWrite(userId, async () => {
@@ -486,6 +521,11 @@ router.put('/:userId/:playlistId/save', refreshTokenMiddleware, async (req, res)
   const { tracks } = req.body;
   const accessToken = req.accessToken;
   const adapter = getAdapter(req.userPlatform as Platform);
+
+  if (!Array.isArray(tracks)) {
+    res.status(400).json({ error: 'tracks must be an array' });
+    return;
+  }
 
   try {
     const trackIds = tracks.map((t: { id: string }) => t.id);
