@@ -7,7 +7,7 @@ import PrivacyPolicy from './pages/PrivacyPolicy';
 import Contact from './pages/Contact';
 import { getActiveAccount } from './utils/accounts';
 import { SpeedInsights } from '@vercel/speed-insights/react';
-import { Analytics } from "@vercel/analytics/next"
+import { Analytics } from "@vercel/analytics/react"
 
 // Returns true if at least one account is stored and active.
 // Used to protect routes that require authentication.
