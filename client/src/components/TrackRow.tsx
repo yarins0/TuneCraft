@@ -26,6 +26,10 @@ interface Props {
   onDragEnd: () => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
+  // Touch drag — fires on each touchmove with the finger's client coordinates
+  onTouchDragMove: (clientX: number, clientY: number) => void;
+  // Called on touchend — parent reads current drag state and applies the reorder
+  onTouchDrop: () => void;
   // Whether this row's position input is in edit mode
   isJumping: boolean;
   // Current value of the position input while in edit mode
@@ -55,6 +59,8 @@ export default function TrackRow({
   onDragEnd,
   onDragOver,
   onDrop,
+  onTouchDragMove,
+  onTouchDrop,
   isJumping,
   jumpInputValue,
   jumpStepper,
@@ -68,6 +74,7 @@ export default function TrackRow({
 
   return (
     <div
+      data-track-index={String(index)}
       className={[
         'group rounded-xl transition-colors duration-200',
         isDuplicate ? 'ring-1 ring-red-500/30 bg-red-500/5' : '',
@@ -81,7 +88,7 @@ export default function TrackRow({
         onDragOver={onDragOver}
         onDrop={onDrop}
         className={[
-          'flex items-center gap-4 px-4 py-3',
+          'flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-2 sm:py-3',
           draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default',
         ].filter(Boolean).join(' ')}
       >
@@ -134,16 +141,23 @@ export default function TrackRow({
           </span>
         )}
 
-        <span
-          className={[
-            'text-text-muted w-6 text-center shrink-0 select-none',
-            draggable ? 'opacity-60 group-hover:opacity-100' : 'opacity-30',
-          ].join(' ')}
-          title="Drag to reorder"
-          aria-hidden="true"
-        >
-          ⋮⋮
-        </span>
+        {/* touch-none prevents the browser from scrolling when the user drags from this handle.
+            Visible on all screen sizes so mobile users can reorder by touch. */}
+        {draggable && (
+          <span
+            className="inline-block text-text-muted w-6 text-center shrink-0 select-none touch-none opacity-60 group-hover:opacity-100"
+            title="Drag to reorder"
+            aria-hidden="true"
+            onTouchStart={() => onDragStart()}
+            onTouchMove={(e) => {
+              const t = e.touches[0];
+              if (t) onTouchDragMove(t.clientX, t.clientY);
+            }}
+            onTouchEnd={() => onTouchDrop()}
+          >
+            ⋮⋮
+          </span>
+        )}
 
         {/* Double-clicking anywhere from the album art rightward toggles audio features */}
         <div
@@ -164,17 +178,33 @@ export default function TrackRow({
             )}
           </div>
 
-          {/* Three-column grid: Track Name | Artist | Album
-              2fr gives the track name column twice the space of artist/album.
-              items-start aligns all three columns to the top of the row. */}
-          <div className="grid grid-cols-[2fr_1fr_1fr] gap-x-4 flex-1 min-w-0 items-start">
+          {/* Mobile layout: track name + artist on a single line */}
+          <div className="sm:hidden flex flex-col min-w-0 flex-1">
+            <a
+              href={getPlatformTrackUrl(track.platform, track.id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onDoubleClick={e => e.stopPropagation()}
+              className="text-sm font-medium truncate block text-text-primary hover:text-accent hover:underline cursor-pointer"
+              title={getPlatformLabel(track.platform)}
+            >
+              {track.name}
+              <span className="text-text-muted font-normal"> — {track.artist}</span>
+            </a>
+            {track.genres.length > 0 && (
+              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                {track.genres.slice(0, 2).map(genre => (
+                  <span key={genre} className="text-accent text-xs bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0">
+                    {genre}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
 
-            {/* Column 1 — track name + genre pills below */}
+          {/* Desktop layout: three-column grid — Track | Artist | Album */}
+          <div className="hidden sm:grid sm:grid-cols-[2fr_1fr_1fr] gap-x-4 flex-1 min-w-0 items-start">
             <div className="min-w-0">
-              {/* Real <a> tag so the browser recognises it as a link —
-                  enables middle-click, Ctrl+click, and right-click "Open in new tab".
-                  onDoubleClick stopPropagation prevents a double-click on the title
-                  from bubbling up to the parent div and toggling audio features. */}
               <a
                 href={getPlatformTrackUrl(track.platform, track.id)}
                 target="_blank"
@@ -185,29 +215,21 @@ export default function TrackRow({
               >
                 {track.name}
               </a>
-              {/* Genre pills sit under the track name in the same column */}
               {track.genres.length > 0 && (
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                   {track.genres.slice(0, 4).map(genre => (
-                    <span
-                      key={genre}
-                      className="text-accent text-xs bg-accent/10 px-2 py-0.5 rounded-full shrink-0"
-                    >
+                    <span key={genre} className="text-accent text-xs bg-accent/10 px-2 py-0.5 rounded-full shrink-0">
                       {genre}
                     </span>
                   ))}
                 </div>
               )}
             </div>
-
-            {/* Column 2 — artist name */}
             <p className="text-text-muted text-xs truncate pt-0.5">{track.artist}</p>
-
-            {/* Column 3 — album name; falls back to an em-dash when absent */}
             <p className="text-text-muted text-xs truncate pt-0.5">{track.albumName || '—'}</p>
           </div>
 
-          <span className="text-text-muted text-sm w-10 text-right shrink-0">
+          <span className="hidden sm:inline-block text-text-muted text-sm w-10 text-right shrink-0">
             {formatDuration(track.durationMs)}
           </span>
 
@@ -234,7 +256,7 @@ export default function TrackRow({
       </div>
 
       {isOpen && (
-        <div className="pl-24 pr-4 pb-3 pt-0">
+        <div className="pl-9 sm:pl-24 pr-4 pb-3 pt-0">
           <TrackAudioFeaturesCollapse track={track} />
         </div>
       )}

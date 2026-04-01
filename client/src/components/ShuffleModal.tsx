@@ -143,7 +143,7 @@ export default function ShuffleModal({
     >
       {/* Modal panel — stop click from bubbling to backdrop */}
       <div
-        className="bg-bg-card border border-border-color rounded-2xl p-6 w-full max-w-3xl"
+        className="bg-bg-card border border-border-color rounded-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-6">
@@ -221,7 +221,7 @@ export default function ShuffleModal({
           </div>
 
           {/* Right: auto-reshuffle scheduler */}
-          <div className="min-w-0 md:border-l md:border-border-color md:pl-6 flex flex-col h-full">
+          <div className="min-w-0 border-t border-border-color pt-4 md:border-t-0 md:pt-0 md:border-l md:pl-6 flex flex-col h-full">
             <div className="flex items-center justify-between mb-4">
               <span className="flex items-center gap-3 text-sm font-semibold uppercase tracking-widest text-text-muted">
                 ⏰ Auto-Reshuffle

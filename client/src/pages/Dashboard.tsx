@@ -319,7 +319,7 @@ export default function Dashboard() {
       <div className="min-h-screen pb-28">
 
       {/* Header */}
-      <div className="sticky top-0 z-20 border-b border-border-color px-8 py-6 bg-bg-secondary">
+      <div className="sticky top-0 z-20 border-b border-border-color px-4 sm:px-8 py-4 sm:py-6 bg-bg-secondary">
         <div className="flex items-center justify-between">
           {/* ?switchTo encodes the active userId so middle-click / Ctrl+click opens a new
               tab on the correct platform instead of falling back to localStorage. */}
@@ -366,7 +366,7 @@ export default function Dashboard() {
         onSwitch={handleAccountSwitch}
       />
 
-      <div className="px-8 py-10">
+      <div className="px-4 sm:px-8 py-6 sm:py-10">
 
         {/* Error state — shown in place of the library when the load fails */}
         {error && (
@@ -465,7 +465,7 @@ export default function Dashboard() {
                   isLikedSelected
                     ? 'bg-accent border-accent opacity-100'
                     : 'bg-black/40 border-white/60',
-                  selectMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                  selectMode ? 'opacity-100' : 'sm:opacity-0 sm:group-hover:opacity-100',
                 ].join(' ')}
               >
                 {isLikedSelected && <span className="text-white text-xs font-bold leading-none">✓</span>}
@@ -509,7 +509,7 @@ export default function Dashboard() {
                       isSelected
                         ? 'bg-accent border-accent opacity-100'
                         : 'bg-black/40 border-white/60',
-                      selectMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                      selectMode ? 'opacity-100' : 'sm:opacity-0 sm:group-hover:opacity-100',
                     ].join(' ')}
                   >
                     {isSelected && <span className="text-white text-xs font-bold leading-none">✓</span>}
@@ -605,7 +605,7 @@ export default function Dashboard() {
                           isSelected
                             ? 'bg-accent border-accent opacity-100'
                             : 'bg-black/40 border-white/60',
-                          selectMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                          selectMode ? 'opacity-100' : 'sm:opacity-0 sm:group-hover:opacity-100',
                         ].join(' ')}
                       >
                         {isSelected && <span className="text-white text-xs font-bold leading-none">✓</span>}
@@ -641,12 +641,12 @@ export default function Dashboard() {
           Fixed to the bottom — appears once 2+ items are selected (owned playlists and/or Liked Songs).
           Cancel clears everything and exits select mode. */}
       {selectMode && selectedIds.size >= 2 && (
-        <div className="fixed bottom-0 left-0 right-0 bg-bg-card border-t border-border-color px-8 py-5 flex items-center justify-between z-40 shadow-2xl">
+        <div className="fixed bottom-0 left-0 right-0 bg-bg-card border-t border-border-color px-4 sm:px-8 py-3 sm:py-5 flex items-center justify-between gap-3 z-40 shadow-2xl">
           <div>
             <p className="text-text-primary font-semibold">
               {selectedIds.size} playlists selected
             </p>
-            <p className="text-text-muted text-xs mt-0.5 truncate max-w-xs">
+            <p className="hidden sm:block text-text-muted text-xs mt-0.5 truncate max-w-xs">
               {selectedNames}
             </p>
           </div>

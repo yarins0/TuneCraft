@@ -27,10 +27,10 @@ function FeatureBar({
   const pct = normalized === null ? 0 : Math.round(normalized * 100);
 
   return (
-    <div className="flex flex-col gap-1 min-w-0">
-      <div className="text-[11px] text-text-muted truncate">{label}</div>
+    <div className="flex items-center gap-1 min-w-0">
+      <div className="text-[11px] text-text-muted shrink-0 w-[5.5rem] truncate">{label}</div>
       <div
-        className="h-2.5 rounded-full bg-bg-secondary border border-border-color flex-1 overflow-hidden"
+        className="h-1.5 rounded-full bg-bg-secondary border border-border-color overflow-hidden flex-1"
         title={title}
         aria-label={title}
       >
@@ -55,7 +55,7 @@ export default function TrackAudioFeaturesCollapse({ track }: Props) {
       {!hasAny ? (
         <div className="text-text-muted text-xs">No audio features available for this track.</div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-7 gap-x-4 gap-y-3">
+        <div className="grid grid-cols-2 sm:grid-cols-7 gap-y-2 sm:gap-y-3 sm:gap-x-4">
           {AUDIO_FEATURES.map(f => {
             const raw = track.audioFeatures[f.key as keyof Track['audioFeatures']];
             if (f.key === 'tempo') {
@@ -63,8 +63,8 @@ export default function TrackAudioFeaturesCollapse({ track }: Props) {
                 ? `${f.label}\n${f.description}\n\nNo tempo data for this track.`
                 : `${f.label} · ${Math.round(raw)} BPM\n${f.description}`;
               return (
-                <div key={f.key} className="flex flex-col gap-1 min-w-0" title={tooltip} aria-label={tooltip}>
-                  <div className="text-[11px] text-text-muted truncate">{f.label}</div>
+                <div key={f.key} className="flex items-center gap-1 min-w-0" title={tooltip} aria-label={tooltip}>
+                  <div className="text-[11px] text-text-muted shrink-0 w-[5.5rem] truncate">{f.label}</div>
                   <div className="text-[11px] text-text-primary truncate">
                     {raw === null ? '—' : `${Math.round(raw)} bpm`}
                   </div>

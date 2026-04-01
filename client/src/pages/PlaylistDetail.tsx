@@ -155,6 +155,25 @@ export default function PlaylistDetail() {
     onError: showError,
   });
 
+  // Finds which track row the finger is currently over and updates the drop-target highlight.
+  // Each row carries a data-track-index attribute so we can identify it from a touch point.
+  const handleTouchDragMove = (clientX: number, clientY: number) => {
+    const el = document.elementFromPoint(clientX, clientY);
+    const row = el?.closest('[data-track-index]') as HTMLElement | null;
+    if (!row) return;
+    const idx = parseInt(row.getAttribute('data-track-index') ?? '', 10);
+    if (!isNaN(idx) && dragOverIndex !== idx) setDragOverIndex(idx);
+  };
+
+  // Completes a touch drag — applies the reorder then clears all drag state.
+  const handleTouchDrop = () => {
+    if (dragFromIndexRef.current !== null && dragOverIndex !== null) {
+      reorderTracks(dragFromIndexRef.current, dragOverIndex);
+    }
+    dragFromIndexRef.current = null;
+    setDragOverIndex(null);
+  };
+
   // ─── Derived state ────────────────────────────────────────────────────────────
 
   // Fraction of loaded tracks that have at least one non-null audio feature.
@@ -289,20 +308,21 @@ export default function PlaylistDetail() {
       <div className="min-h-screen">
 
       {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-border-color px-8 py-6 flex items-center justify-between bg-bg-secondary">
-        <div className="flex items-center gap-4">
+      <div className="sticky top-0 z-10 border-b border-border-color px-4 sm:px-8 py-3 sm:py-6 bg-bg-secondary">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-0">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
 
           {/* Logo — clicking navigates back to dashboard.
               ?switchTo encodes the active userId so middle-click / Ctrl+click opens a new
               tab on the correct platform instead of falling back to localStorage. */}
           <Link to={`/dashboard?switchTo=${getUserId()}`} className="flex items-center gap-2 cursor-pointer shrink-0">
             <img src="/favicon.svg" alt="TuneCraft icon" className="h-7 w-7" />
-            <h1 className="text-2xl font-bold tracking-tight">
+            <h1 className="hidden sm:block text-2xl font-bold tracking-tight">
               Tune<span className="text-accent">Craft</span>
             </h1>
           </Link>
 
-          <div className="h-8 w-px bg-border-color shrink-0" />
+          <div className="hidden sm:block h-8 w-px bg-border-color shrink-0" />
 
           {/* Playlist name + live track count */}
           <div className="min-w-0">
@@ -353,14 +373,14 @@ export default function PlaylistDetail() {
         </div>
 
         {/* Action buttons */}
-        <div className="flex items-center gap-3">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-3">
           <button
             onClick={() => setShuffleModalOpen(true)}
             disabled={loadingMore}
             className={`bg-accent hover:bg-bg-secondary
-            disabled:opacity-50 text-white font-semibold px-5 rounded-full
+            disabled:opacity-50 text-white font-semibold px-3 sm:px-5 rounded-full text-sm
             transition-all duration-200 hover:scale-105 active:scale-95
-            flex flex-col items-center ${reshuffleSchedule ? 'py-0.5' : 'py-2'}`}
+            flex flex-col items-center ${reshuffleSchedule ? 'py-0.5' : 'py-1.5 sm:py-2'}`}
           >
             <span>🔀 Shuffle</span>
             {reshuffleSchedule && (
@@ -371,7 +391,7 @@ export default function PlaylistDetail() {
             onClick={() => setSplitModalOpen(true)}
             disabled={loadingMore}
             className="bg-accent hover:bg-bg-secondary
-            disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full
+            disabled:opacity-50 text-text-primary font-semibold px-3 py-1.5 sm:px-5 sm:py-2 rounded-full text-sm
             border border-border-color transition-all duration-200 hover:border-accent/50"
           >
             ✂️ Split
@@ -381,10 +401,10 @@ export default function PlaylistDetail() {
                   onClick={handleSave}
                   disabled={saveLoading || loadingMore}
                   className="bg-bg-card hover:bg-bg-secondary
-                  disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full
+                  disabled:opacity-50 text-text-primary font-semibold px-3 py-1.5 sm:px-5 sm:py-2 rounded-full text-sm
                   border border-border-color transition-all duration-200 hover:border-accent/50"
                 >
-                  <span className="inline-block w-[90px] text-center">
+                  <span className="inline-block sm:w-[90px] text-center">
                     {saveLoading ? saveLabel : '💾 Save'}
                   </span>
                 </button>
@@ -393,19 +413,20 @@ export default function PlaylistDetail() {
             onClick={() => setCopyModalOpen(true)}
             disabled={saveLoading || loadingMore}
             className="bg-bg-card hover:bg-bg-secondary
-                      disabled:opacity-50 text-text-primary font-semibold px-5 py-2 rounded-full
+                      disabled:opacity-50 text-text-primary font-semibold px-3 py-1.5 sm:px-5 sm:py-2 rounded-full text-sm
                       border border-border-color transition-all duration-200 hover:border-accent/50"
           >
-            <span className="inline-block w-[150px] text-center">
+            <span className="inline-block sm:w-[150px] text-center">
               {saveLoading ? copyLabel : '💾 Save as copy'}
             </span>
           </button>
+        </div>
         </div>
       </div>
 
       {/* Unsaved changes banner */}
       {hasUnsavedChanges && (
-        <div className="bg-accent/10 px-8 py-3 flex items-center justify-between">
+        <div className="bg-accent/10 px-4 sm:px-8 py-3 flex items-center justify-between">
           <p className="text-accent text-sm font-medium">
             ✨ Playlist order updated — save to apply changes
           </p>
@@ -418,7 +439,7 @@ export default function PlaylistDetail() {
         </div>
       )}
 
-      <div className="px-8 py-2">
+      <div className="px-4 sm:px-8 py-2">
 
         {/* Collapsible Insights Section */}
         <div className="mb-8 bg-bg-card rounded-2xl border border-border-color overflow-hidden">
@@ -446,7 +467,7 @@ export default function PlaylistDetail() {
             <div className="px-6 pb-6">
               {/* Audio feature charts — hidden when coverage is below the minimum threshold */}
               {audioFeatureCoverage >= MIN_AUDIO_FEATURE_COVERAGE ? (
-                <div className="grid grid-cols-4 md:grid-cols-7 gap-6 justify-items-center mb-8">
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-6 justify-items-center mb-8">
                   {AUDIO_FEATURES.map(feature => (
                     <AudioFeatureChart
                       key={feature.key}
@@ -535,7 +556,7 @@ export default function PlaylistDetail() {
         {/* Column headers — mirror the 3-column grid layout in TrackRow.
             The leading padding accounts for: position number (w-6) + drag handle (w-6) + album art (w-10) + gaps */}
         {tracks.length > 0 && (
-          <div className="grid grid-cols-[2fr_1fr_1fr] gap-x-4 px-4 pb-1 pl-[7.5rem] text-text-muted text-xs uppercase tracking-wider">
+          <div className="hidden sm:grid sm:grid-cols-[2fr_1fr_1fr] gap-x-4 px-4 pb-1 pl-[7.5rem] text-text-muted text-xs uppercase tracking-wider">
             <span>Track</span>
             <span>Artist</span>
             <span>Album</span>
@@ -588,6 +609,8 @@ export default function PlaylistDetail() {
                 dragFromIndexRef.current = null;
                 setDragOverIndex(null);
               }}
+              onTouchDragMove={handleTouchDragMove}
+              onTouchDrop={handleTouchDrop}
               isJumping={jumpingTrackIndex === index}
               jumpInputValue={jumpInputValue}
               jumpStepper={jumpStepper}

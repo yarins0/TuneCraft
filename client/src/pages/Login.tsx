@@ -61,7 +61,7 @@ export default function Login() {
       {/* Centered main content fills available space above the footer */}
       <div className="relative flex-1 flex items-center justify-center">
         {/* Glowing background orb */}
-        <div className="absolute w-[500px] h-[500px] bg-accent/20 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute w-[min(500px,90vw)] h-[min(500px,90vw)] bg-accent/20 rounded-full blur-[120px] pointer-events-none" />
 
         <div className="relative z-10 flex flex-col items-center gap-8 text-center px-8">
           {/* Logo */}
@@ -69,7 +69,7 @@ export default function Login() {
             <div className="flex items-center justify-center gap-4">
               <img src="/favicon.svg" alt="TuneCraft icon" className="h-16 w-16" />
               <div className="text-left">
-                <h1 className="text-6xl font-black tracking-tighter text-text-primary">
+                <h1 className="text-4xl sm:text-6xl font-black tracking-tighter text-text-primary">
                   Tune<span className="text-accent">craft</span>
                 </h1>
                 <p className="text-text-muted text-lg mt-1 font-light tracking-wide">

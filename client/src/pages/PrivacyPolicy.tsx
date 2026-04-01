@@ -168,7 +168,7 @@ export default function PrivacyPolicy() {
             </span>
           </div>
 
-          <h1 className="text-5xl font-black tracking-tight leading-none mb-4">
+          <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-none mb-4">
             Privacy Policy
           </h1>
           <p className="font-mono text-xs text-text-muted">

@@ -478,14 +478,14 @@ export default function SplitModal({
         </div>
 
         {/* Two-column body */}
-        <div className="flex gap-6 flex-1 min-h-0">
+        <div className="flex flex-col sm:flex-row gap-6 flex-1 min-h-0">
 
           {/* Left column — strategy picker (~24%) */}
-          <div className="w-[24%] shrink-0 flex flex-col min-h-0">
+          <div className="w-full sm:w-[24%] sm:shrink-0 flex flex-col min-h-0">
             <p className="text-text-muted text-xs uppercase tracking-widest font-semibold mb-3 shrink-0">
               Split by
             </p>
-            <div className="flex flex-col gap-0.5 overflow-y-auto custom-scrollbar">
+            <div className="flex flex-row sm:flex-col gap-0.5 overflow-x-auto sm:overflow-y-auto custom-scrollbar pb-1 sm:pb-0">
               {STRATEGIES.map(s => {
                 // Audio-feature strategies are disabled when fewer than 20% of tracks
                 // have feature data — the resulting groups would be nearly empty or random.
@@ -498,7 +498,7 @@ export default function SplitModal({
                     onClick={() => !isDisabled && setStrategy(s.value)}
                     title={isDisabled ? 'Audio features unavailable for most tracks in this playlist' : undefined}
                     className={[
-                      'flex items-center gap-3 px-3 py-1 rounded-xl border text-left transition-all duration-150',
+                      'flex items-center gap-3 px-3 py-1 rounded-xl border text-left transition-all duration-150 shrink-0',
                       isDisabled
                         ? 'border-border-color bg-bg-secondary text-text-muted opacity-35 cursor-not-allowed'
                         : strategy === s.value
@@ -509,7 +509,7 @@ export default function SplitModal({
                     <span className="text-xl shrink-0">{s.emoji}</span>
                     <div>
                       <p className="text-sm font-semibold leading-tight">{s.label}</p>
-                      <p className="text-xs text-text-muted leading-tight mt-0.5">{s.description}</p>
+                      <p className="hidden sm:block text-xs text-text-muted leading-tight mt-0.5">{s.description}</p>
                     </div>
                   </button>
                 );
@@ -521,7 +521,7 @@ export default function SplitModal({
           {/* w-0 flex-1 overflow-hidden: starts at zero width so flex-grow has a baseline,
               and overflow-hidden hard-clips content so child elements can never push
               the column wider than its flex allocation. */}
-          <div className="w-0 flex-1 overflow-hidden flex flex-col min-h-0">
+          <div className="w-full sm:w-0 flex-1 overflow-hidden flex flex-col min-h-0">
 
             {/* Preview header row with select-all toggle */}
             <div className="flex items-center justify-between mb-2 shrink-0">
@@ -659,7 +659,7 @@ export default function SplitModal({
                       <button
                         type="button"
                         onClick={() => setMergeTarget(group.name)}
-                        className="text-xs text-text-muted hover:text-accent px-2 py-1 rounded-lg border border-border-color hover:border-accent/40 transition-colors shrink-0"
+                        className="hidden sm:block text-xs text-text-muted hover:text-accent px-2 py-1 rounded-lg border border-border-color hover:border-accent/40 transition-colors shrink-0"
                         title="Merge another split into this one"
                       >
                         ⊕ Merge
@@ -685,7 +685,7 @@ export default function SplitModal({
                       <button
                         type="button"
                         onClick={() => mergeGroups(mergeTarget, group.name)}
-                        className="text-xs bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 px-2 py-1 rounded-lg transition-colors shrink-0"
+                        className="hidden sm:block text-xs bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 px-2 py-1 rounded-lg transition-colors shrink-0"
                       >
                         Absorb into {resolvedName(mergeTarget).split('—')[1]?.trim() || resolvedName(mergeTarget)}
                       </button>
@@ -723,7 +723,7 @@ export default function SplitModal({
                           return (
                             <div
                               key={track.id}
-                              className="flex items-center gap-3 px-10 py-2 hover:bg-bg-card/50 transition-colors border-b border-border-color last:border-b-0"
+                              className="flex items-center gap-3 px-4 sm:px-10 py-2 hover:bg-bg-card/50 transition-colors border-b border-border-color last:border-b-0"
                             >
                               {/* Album art thumbnail */}
                               <div className="w-7 h-7 rounded overflow-hidden bg-bg-secondary shrink-0">

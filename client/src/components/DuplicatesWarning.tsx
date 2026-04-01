@@ -65,9 +65,15 @@ export default function DuplicatesWarning({
 
             {/* Track info */}
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-red-300 truncate">{track.name}</p>
+              <p className="text-sm font-medium text-red-300 truncate">
+                {track.name}
+                <span className="text-red-400/60 font-normal"> — {track.artist}</span>
+              </p>
               <p className="text-xs text-red-400/70 truncate">
-                {track.artist} · duplicate of track #{originalIndex + 1} · appears at #{index + 1}
+                #{originalIndex + 1}
+                <span className="hidden sm:inline"> · also at </span>
+                <span className="sm:hidden"> · </span>
+                #{index + 1}
               </p>
             </div>
 
