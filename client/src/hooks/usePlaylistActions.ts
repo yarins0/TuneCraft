@@ -124,7 +124,7 @@ export const usePlaylistActions = ({
   // If auto-reshuffle is active, mirrors the timestamp update the server makes so the
   // ShuffleModal shows the correct next-reshuffle date without requiring a page reload.
   const handleSave = async () => {
-    if (!playlistId) return;
+    if (!playlistId || !hasUnsavedChanges) return;
     setSaveLoading(true);
 
     try {
