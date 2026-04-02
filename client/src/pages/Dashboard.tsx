@@ -4,7 +4,7 @@ import { fetchPlaylists, fetchLikedSongs } from '../api/playlists';
 import type { Playlist } from '../api/playlists';
 import { extractPlaylistId } from '../utils/platform';
 import { discoverPlaylist, discoverPlaylistByUrl } from '../api/playlists';
-import MergeModal from '../components/MergeModal';
+import MergeModal from '../components/modals/MergeModal';
 import { mergePlaylist } from '../api/playlists';
 import { buildMergedTrackList } from '../utils/mergePlaylists';
 import { getActiveAccount, getAccounts, setSessionAccount, type StoredAccount } from '../utils/accounts';

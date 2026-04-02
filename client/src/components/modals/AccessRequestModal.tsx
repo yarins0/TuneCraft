@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
-import { API_BASE_URL } from '../api/config';
-import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
-import type { AccessRequestConfig } from '../utils/platform/types';
+import { useState } from 'react';
+import ModalShell from './ModalShell';
+import { API_BASE_URL } from '../../api/config';
+import { useAnimatedLabel } from '../../hooks/useAnimatedLabel';
+import type { AccessRequestConfig } from '../../utils/platform/types';
 
 // The modal has three screens that the user moves through in order:
 //   choice  — explains the platform's dev-mode limit and asks which situation applies
@@ -41,10 +42,6 @@ export default function AccessRequestModal({
   const [isLoading, setisLoading]     = useState(false);
   const sendLabel = useAnimatedLabel(isLoading, 'Sending');
 
-  // Tracks whether the mousedown originated on the backdrop.
-  // Prevents closing the modal when the user drags from inside the card and releases outside.
-  const mouseDownOnBackdrop = useRef(false);
-
   // Submits the access request to the server, which saves it to the DB and emails the admin.
   // Routes to /auth/{platform}/request-access using the lowercased platform ID.
   const handleSubmit = async (e: React.FormEvent) => {
@@ -77,17 +74,7 @@ export default function AccessRequestModal({
   };
 
   return (
-    // Backdrop — clicking outside the card dismisses the modal
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
-      onMouseDown={e => { mouseDownOnBackdrop.current = e.target === e.currentTarget; }}
-      onClick={() => { if (mouseDownOnBackdrop.current) onClose(); }}
-    >
-      {/* Card — stop click from bubbling to backdrop */}
-      <div
-        className="relative bg-bg-card border border-border-color rounded-2xl p-8 w-full max-w-md shadow-2xl"
-        onClick={e => e.stopPropagation()}
-      >
+    <ModalShell isOpen={true} onClose={onClose} labelId="access-modal-title" panelClassName="relative p-8 w-full max-w-md shadow-2xl">
         {/* Close button */}
         <button
           onClick={onClose}
@@ -100,7 +87,7 @@ export default function AccessRequestModal({
         {screen === 'choice' && (
           <div className="flex flex-col gap-6">
             <div>
-              <h2 className="text-xl font-bold text-text-primary mb-2">
+              <h2 id="access-modal-title" className="text-xl font-bold text-text-primary mb-2">
                 {platformLabel} Access Required
               </h2>
               <p className="text-text-muted text-sm leading-relaxed">
@@ -133,7 +120,7 @@ export default function AccessRequestModal({
         {screen === 'form' && (
           <form onSubmit={handleSubmit} className="flex flex-col gap-5">
             <div>
-              <h2 className="text-xl font-bold text-text-primary mb-2">
+              <h2 id="access-modal-title" className="text-xl font-bold text-text-primary mb-2">
                 Request Access
               </h2>
               <p className="text-text-muted text-sm leading-relaxed">
@@ -218,7 +205,7 @@ export default function AccessRequestModal({
           <div className="flex flex-col gap-6 text-center">
             <div>
               <div className="text-4xl mb-3">✉️</div>
-              <h2 className="text-xl font-bold text-text-primary mb-2">
+              <h2 id="access-modal-title" className="text-xl font-bold text-text-primary mb-2">
                 Request Sent
               </h2>
               <p className="text-text-muted text-sm leading-relaxed">
@@ -235,7 +222,6 @@ export default function AccessRequestModal({
             </button>
           </div>
         )}
-      </div>
-    </div>
+    </ModalShell>
   );
 }

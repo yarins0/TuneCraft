@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { splitTracks } from '../utils/splitPlaylist';
-import type { SplitStrategy, SplitGroup } from '../utils/splitPlaylist';
-import type { Track } from '../api/tracks';
-import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
-import { MIN_AUDIO_FEATURE_COVERAGE } from '../constants/audioFeatures';
+import ModalShell from './ModalShell';
+import { splitTracks } from '../../utils/splitPlaylist';
+import type { SplitStrategy, SplitGroup } from '../../utils/splitPlaylist';
+import type { Track } from '../../api/tracks';
+import { useAnimatedLabel } from '../../hooks/useAnimatedLabel';
+import { MIN_AUDIO_FEATURE_COVERAGE } from '../../constants/audioFeatures';
 
 interface Props {
   isOpen: boolean;
@@ -223,38 +224,6 @@ export default function SplitModal({
   // Animates the confirm button label while the API call is in flight
   const splitLabel = useAnimatedLabel(isLoading, 'Splitting');
 
-  // Tracks whether the most recent mousedown originated on the backdrop itself.
-  // Prevents closing the modal when the user drags text that starts inside and
-  // releases outside (which would otherwise fire a click on the backdrop).
-  const mouseDownOnBackdrop = useRef(false);
-  const modalRef = useRef<HTMLDivElement>(null);
-
-  // Traps keyboard focus within the modal while open.
-  // Cycles Tab/Shift+Tab through focusable elements; Escape closes.
-  useEffect(() => {
-    if (!isOpen || !modalRef.current) return;
-    const getFocusable = () => Array.from(
-      modalRef.current!.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      )
-    );
-    getFocusable()[0]?.focus();
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onClose(); return; }
-      if (e.key !== 'Tab') return;
-      const focusable = getFocusable();
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
-      } else {
-        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
 
   // Recompute groups (and reset all interaction state) when the strategy changes or the modal opens
   useEffect(() => {
@@ -480,23 +449,7 @@ export default function SplitModal({
   const checkedCount = realGroups.filter(g => enabledGroups.has(g.name)).length;
 
   return (
-    // Backdrop — only close when the mousedown also originated on the backdrop,
-    // so dragging text that starts inside and ends outside doesn't dismiss the modal.
-    <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 px-4"
-      onMouseDown={e => { mouseDownOnBackdrop.current = e.target === e.currentTarget; }}
-      onClick={() => { if (mouseDownOnBackdrop.current) onClose(); }}
-      onTouchEnd={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      {/* Modal panel */}
-      <div
-        ref={modalRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="split-modal-title"
-        className="bg-bg-card border border-border-color rounded-2xl p-6 w-full max-w-5xl h-[95vh] flex flex-col"
-        onClick={e => e.stopPropagation()}
-      >
+    <ModalShell isOpen={isOpen} onClose={onClose} labelId="split-modal-title" panelClassName="p-6 w-full max-w-5xl h-[95vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between mb-5 shrink-0">
           <div className="min-w-0 mr-4">
@@ -842,7 +795,6 @@ export default function SplitModal({
             </div>
           </div> {/* end right column */}
         </div> {/* end two-column body */}
-      </div>
-    </div>
+    </ModalShell>
   );
 }

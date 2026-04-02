@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { API_BASE_URL } from '../api/config';
 import AppFooter from '../components/AppFooter';
-import AccessRequestModal from '../components/AccessRequestModal';
+import AccessRequestModal from '../components/modals/AccessRequestModal';
 import { getAllPlatformConfigs, PLATFORM_COLORS } from '../utils/platform';
 import type { AccessRequestConfig } from '../utils/platform/types';
 

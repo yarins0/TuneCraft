@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
+import ModalShell from './ModalShell';
+import { useAnimatedLabel } from '../../hooks/useAnimatedLabel';
 
 interface Props {
   isOpen: boolean;
@@ -12,38 +13,6 @@ interface Props {
 export default function CopyModal({ isOpen, defaultName, isLoading, onClose, onConfirm }: Props) {
   const [name, setName] = useState(defaultName);
   const inputRef = useRef<HTMLInputElement>(null);
-  const modalRef = useRef<HTMLDivElement>(null);
-
-  // Traps keyboard focus within the modal while open.
-  // Cycles Tab/Shift+Tab through focusable elements; Escape closes.
-  useEffect(() => {
-    if (!isOpen || !modalRef.current) return;
-    const getFocusable = () => Array.from(
-      modalRef.current!.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      )
-    );
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onClose(); return; }
-      if (e.key !== 'Tab') return;
-      const focusable = getFocusable();
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
-      } else {
-        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  // Tracks whether the most recent mousedown originated on the backdrop itself.
-  // Prevents closing the modal when the user drags text that starts inside and
-  // releases outside (which would otherwise fire a click on the backdrop).
-  const mouseDownOnBackdrop = useRef(false);
 
   // Animates the confirm button label while the copy request is in flight
   const saveLabel = useAnimatedLabel(isLoading, 'Saving');
@@ -66,23 +35,7 @@ export default function CopyModal({ isOpen, defaultName, isLoading, onClose, onC
   };
 
   return (
-    // Backdrop — only close when the mousedown also originated on the backdrop,
-    // so dragging text that starts inside and ends outside doesn't dismiss the modal.
-    <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 px-4"
-      onMouseDown={e => { mouseDownOnBackdrop.current = e.target === e.currentTarget; }}
-      onClick={() => { if (mouseDownOnBackdrop.current) onClose(); }}
-      onTouchEnd={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      {/* Modal panel — stop click from bubbling to backdrop */}
-      <div
-        ref={modalRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="copy-modal-title"
-        className="bg-bg-card border border-border-color rounded-2xl p-6 w-full max-w-md"
-        onClick={e => e.stopPropagation()}
-      >
+    <ModalShell isOpen={isOpen} onClose={onClose} labelId="copy-modal-title" panelClassName="p-6 w-full max-w-md">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 id="copy-modal-title" className="text-lg font-bold text-text-primary">💾 Save as Copy</h2>
@@ -124,7 +77,6 @@ export default function CopyModal({ isOpen, defaultName, isLoading, onClose, onC
             {isLoading ? saveLabel : 'Save'}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }
