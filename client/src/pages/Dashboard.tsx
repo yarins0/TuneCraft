@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
+import AppLogo from '../components/AppLogo';
 import { fetchPlaylists, fetchLikedSongs } from '../api/playlists';
 import type { Playlist } from '../api/playlists';
 import { extractPlaylistId } from '../utils/platform';
@@ -12,6 +13,8 @@ import PlatformSwitcherSidebar from '../components/PlatformSwitcherSidebar';
 import AppFooter from '../components/AppFooter';
 import { PLATFORM_COLORS, PLATFORM_LABELS, getPlatformConfig } from '../utils/platform';
 import { useAnimatedLabel } from '../hooks/useAnimatedLabel';
+import { Toast } from '../components/ui';
+import { PlaylistCard, LikedSongsCard } from '../components/PlaylistCards';
 
 const getUserId = () => getActiveAccount()?.userId || '';
 const getPlatformUserId = () => getActiveAccount()?.platformUserId ?? null;
@@ -40,6 +43,43 @@ function buildPlaylistUrl(platformId: string, opts: {
   });
   if (opts.trackCount != null) q.set('trackCount', String(opts.trackCount));
   return `/playlist/${platformId}?${q}`;
+}
+
+// Fixed bottom bar — appears once 2+ playlists are selected.
+// Shows a count, the selected playlist names, and Cancel / Merge actions.
+function SelectionActionBar({
+  count,
+  names,
+  onCancel,
+  onMerge,
+}: {
+  count: number;
+  names: string;
+  onCancel: () => void;
+  onMerge: () => void;
+}) {
+  return (
+    <div className="fixed bottom-0 left-0 right-0 bg-bg-card border-t border-border-color px-4 sm:px-8 py-3 sm:py-5 flex items-center justify-between gap-3 z-40 shadow-2xl">
+      <div>
+        <p className="text-text-primary font-semibold">{count} playlists selected</p>
+        <p className="hidden sm:block text-text-muted text-xs mt-0.5 truncate max-w-xs">{names}</p>
+      </div>
+      <div className="flex gap-3">
+        <button
+          onClick={onCancel}
+          className="bg-bg-secondary hover:bg-bg-primary text-text-muted font-semibold px-5 py-2.5 rounded-full border border-border-color transition-all duration-200 text-sm"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={onMerge}
+          className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-2.5 rounded-full transition-all duration-200 hover:scale-105 active:scale-95 text-sm"
+        >
+          🔀 Merge {count} Playlists
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function Dashboard() {
@@ -276,23 +316,13 @@ export default function Dashboard() {
     toggleSelection(id);
   };
 
-  // Called when the card body itself is clicked
-  // In select mode: block the Link navigation and toggle selection instead
-  // In normal mode: let the Link navigate (supports Ctrl+click / middle-click to open in new tab)
-  const handleCardClick = (e: React.MouseEvent, playlist: Playlist) => {
+  // Called when any playlist card body is clicked (owned, following, or Liked Songs).
+  // In select mode: block the Link navigation and toggle selection instead.
+  // In normal mode: let the Link navigate (supports Ctrl+click / middle-click to open in new tab).
+  const handleCardClick = (e: React.MouseEvent, id: string) => {
     if (selectMode) {
       e.preventDefault();
-      toggleSelection(playlist.platformId);
-    }
-  };
-
-  // Called when the Liked Songs card body is clicked
-  // In select mode: block the Link navigation and toggle selection instead
-  // In normal mode: let the Link navigate (supports Ctrl+click / middle-click to open in new tab)
-  const handleLikedCardClick = (e: React.MouseEvent) => {
-    if (selectMode) {
-      e.preventDefault();
-      toggleSelection(LIKED_SONGS_ID);
+      toggleSelection(id);
     }
   };
 
@@ -311,8 +341,6 @@ export default function Dashboard() {
     ...selectedPlaylists.map(p => p.name),
   ].join(', ');
 
-  const isLikedSelected = selectedIds.has(LIKED_SONGS_ID);
-
   return (
     <div className="bg-bg-primary text-text-primary">
       {/* pb-28 reserves space so the last card row is never hidden behind the fixed action bar */}
@@ -321,17 +349,7 @@ export default function Dashboard() {
       {/* Header */}
       <div className="sticky top-0 z-20 border-b border-border-color px-4 sm:px-8 py-4 sm:py-6 bg-bg-secondary">
         <div className="flex items-center justify-between">
-          {/* ?switchTo encodes the active userId so middle-click / Ctrl+click opens a new
-              tab on the correct platform instead of falling back to localStorage. */}
-          <Link to={`/dashboard?switchTo=${getUserId()}`} className="flex items-center gap-3 cursor-pointer w-fit">
-            <img src="/favicon.svg" alt="TuneCraft icon" className="h-12 w-12" />
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">
-                Tune<span className="text-accent">Craft</span>
-              </h1>
-              <p className="text-text-muted text-sm mt-0.5">Your music, engineered.</p>
-            </div>
-          </Link>
+          <AppLogo variant="header" />
 
           {/* Account switcher button — shows the active platform and opens the sidebar */}
           <button
@@ -440,101 +458,29 @@ export default function Dashboard() {
           </p>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
 
-            {/* Liked Songs card — selectable like owned playlists, handled with LIKED_SONGS_ID */}
-            <Link
+            <LikedSongsCard
               to={buildPlaylistUrl('liked', { userId: getUserId(), ownerId: getPlatformUserId() ?? '', name: 'Liked Songs', platform: activeAccount?.platform ?? '', trackCount: likedCount })}
               state={{ ownerId: getPlatformUserId(), name: 'Liked Songs', platform: activeAccount?.platform }}
-              onClick={handleLikedCardClick}
-              className={[
-                'group relative bg-bg-card rounded-2xl overflow-hidden border transition-all duration-200 cursor-pointer block',
-                isLikedSelected
-                  ? 'border-accent ring-2 ring-accent/40 bg-accent/5'
-                  : 'border-border-color hover:border-accent/50 hover:bg-bg-secondary',
-              ].join(' ')}
-            >
-              {/* Checkbox — hover-reveal in normal mode, always visible in select mode */}
-              <div
-                role="checkbox"
-                aria-checked={isLikedSelected}
-                aria-label="Select Liked Songs for merge"
-                tabIndex={0}
-                onClick={e => handleCheckboxClick(e, LIKED_SONGS_ID)}
-                onKeyDown={e => e.key === ' ' && handleCheckboxClick(e as any, LIKED_SONGS_ID)}
-                className={[
-                  'absolute top-2 right-2 z-10 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-150',
-                  isLikedSelected
-                    ? 'bg-accent border-accent opacity-100'
-                    : 'bg-black/40 border-white/60',
-                  selectMode ? 'opacity-100' : 'sm:opacity-0 sm:group-hover:opacity-100',
-                ].join(' ')}
-              >
-                {isLikedSelected && <span className="text-white text-xs font-bold leading-none">✓</span>}
-              </div>
-
-              <div className="aspect-square w-full bg-gradient-to-br from-purple-900 to-accent/30 flex items-center justify-center">
-                <span className="text-8xl">💜</span>
-              </div>
-              <div className="p-4">
-                <p className="font-semibold text-sm">Liked Songs</p>
-                <p className="text-text-muted text-xs mt-1">{likedCount ?? '...'} tracks</p>
-              </div>
-            </Link>
+              likedCount={likedCount}
+              isSelected={likedSongsSelected}
+              selectMode={selectMode}
+              onCardClick={e => handleCardClick(e, LIKED_SONGS_ID)}
+              onCheckboxClick={e => handleCheckboxClick(e, LIKED_SONGS_ID)}
+            />
 
             {/* Owned playlists — hover-reveal checkbox, fully selectable */}
-            {ownedPlaylists.map(playlist => {
-              const isSelected = selectedIds.has(playlist.platformId);
-              return (
-                <Link
-                  key={playlist.platformId}
-                  to={buildPlaylistUrl(playlist.platformId, { userId: getUserId(), ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform ?? '', trackCount: playlist.trackCount })}
-                  state={{ ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform, trackCount: playlist.trackCount }}
-                  onClick={(e) => handleCardClick(e, playlist)}
-                  className={[
-                    'group relative bg-bg-card rounded-2xl overflow-hidden border transition-all duration-200 cursor-pointer block',
-                    isSelected
-                      ? 'border-accent ring-2 ring-accent/40 bg-accent/5'
-                      : 'border-border-color hover:border-accent/50 hover:bg-bg-secondary',
-                  ].join(' ')}
-                >
-                  {/* Checkbox — hover-reveal in normal mode, always visible in select mode */}
-                  <div
-                    role="checkbox"
-                    aria-checked={isSelected}
-                    aria-label={`Select ${playlist.name} for merge`}
-                    tabIndex={0}
-                    onClick={e => handleCheckboxClick(e, playlist.platformId)}
-                    onKeyDown={e => e.key === ' ' && handleCheckboxClick(e as any, playlist.platformId)}
-                    className={[
-                      'absolute top-2 right-2 z-10 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-150',
-                      isSelected
-                        ? 'bg-accent border-accent opacity-100'
-                        : 'bg-black/40 border-white/60',
-                      selectMode ? 'opacity-100' : 'sm:opacity-0 sm:group-hover:opacity-100',
-                    ].join(' ')}
-                  >
-                    {isSelected && <span className="text-white text-xs font-bold leading-none">✓</span>}
-                  </div>
-
-                  <div className="aspect-square w-full bg-bg-secondary overflow-hidden">
-                    {playlist.imageUrl ? (
-                      <img
-                        src={playlist.imageUrl}
-                        alt={playlist.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-4xl">
-                        🎵
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-4">
-                    <p className="font-semibold text-sm truncate">{playlist.name}</p>
-                    <p className="text-text-muted text-xs mt-1">{playlist.trackCount} tracks</p>
-                  </div>
-                </Link>
-              );
-            })}
+            {ownedPlaylists.map(playlist => (
+              <PlaylistCard
+                key={playlist.platformId}
+                playlist={playlist}
+                to={buildPlaylistUrl(playlist.platformId, { userId: getUserId(), ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform ?? '', trackCount: playlist.trackCount })}
+                state={{ ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform, trackCount: playlist.trackCount }}
+                isSelected={selectedIds.has(playlist.platformId)}
+                selectMode={selectMode}
+                onClick={(e) => handleCardClick(e, playlist.platformId)}
+                onCheckboxClick={handleCheckboxClick}
+              />
+            ))}
           </div>
         </div>
 
@@ -570,84 +516,31 @@ export default function Dashboard() {
             </p>
             {selectMode && platformConfig.ownershipRestricted && (
               <p className="text-text-muted text-xs mb-3 -mt-2">
-                Followed playlists can't be merged — you don't own them.
+                Followed playlists can't be merged — { platformConfig.label } restricts read access to playlists you don't own.
               </p>
             )}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               {followingPlaylists.map(playlist => {
-                const isSelected = selectedIds.has(playlist.platformId);
                 const selectable = !platformConfig.ownershipRestricted;
                 return (
-                <Link
-                  key={playlist.platformId}
-                  to={buildPlaylistUrl(playlist.platformId, { userId: getUserId(), ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform ?? '', trackCount: playlist.trackCount })}
-                  state={{ ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform, trackCount: playlist.trackCount }}
-                  onClick={(e) => {
-                    if (selectable) {
-                      handleCardClick(e, playlist);
-                    } else if (selectMode) {
-                      e.preventDefault();
-                    }
-                  }}
-                  className={[
-                    'group bg-bg-card rounded-2xl overflow-hidden border transition-all duration-200 block',
-                    selectable
-                      ? [
-                          'relative cursor-pointer',
-                          isSelected
-                            ? 'border-accent ring-2 ring-accent/40 bg-accent/5'
-                            : 'border-border-color hover:border-accent/50 hover:bg-bg-secondary',
-                        ].join(' ')
-                      : [
-                          'border-border-color opacity-75',
-                          selectMode ? 'opacity-30 cursor-not-allowed' : 'hover:border-accent/50 hover:bg-bg-secondary cursor-pointer',
-                        ].join(' '),
-                  ].join(' ')}
-                >
-                  <div className="aspect-square w-full bg-bg-secondary overflow-hidden relative">
-                    {/* "Following" badge — left side to mirror owned card's checkbox position */}
-                    <div className="absolute left-2 top-2 z-10 pointer-events-none">
-                      <div className="bg-bg-card text-accent text-[11px] font-semibold px-2.5 py-1 rounded-md shadow-lg">
-                        Following
-                      </div>
-                    </div>
-                    {/* Checkbox — right side, matching owned card layout */}
-                    {selectable && (
-                      <div
-                        role="checkbox"
-                        aria-checked={isSelected}
-                        aria-label={`Select ${playlist.name} for merge`}
-                        tabIndex={0}
-                        onClick={e => handleCheckboxClick(e, playlist.platformId)}
-                        onKeyDown={e => e.key === ' ' && handleCheckboxClick(e as any, playlist.platformId)}
-                        className={[
-                          'absolute top-2 right-2 z-10 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-150',
-                          isSelected
-                            ? 'bg-accent border-accent opacity-100'
-                            : 'bg-black/40 border-white/60',
-                          selectMode ? 'opacity-100' : 'sm:opacity-0 sm:group-hover:opacity-100',
-                        ].join(' ')}
-                      >
-                        {isSelected && <span className="text-white text-xs font-bold leading-none">✓</span>}
-                      </div>
-                    )}
-                    {playlist.imageUrl ? (
-                      <img
-                        src={playlist.imageUrl}
-                        alt={playlist.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-4xl">
-                        🎵
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-4">
-                    <p className="font-semibold text-sm truncate">{playlist.name}</p>
-                    <p className="text-text-muted text-xs mt-1">{playlist.trackCount} tracks</p>
-                  </div>
-                </Link>
+                  <PlaylistCard
+                    key={playlist.platformId}
+                    playlist={playlist}
+                    to={buildPlaylistUrl(playlist.platformId, { userId: getUserId(), ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform ?? '', trackCount: playlist.trackCount })}
+                    state={{ ownerId: playlist.ownerId, name: playlist.name, platform: playlist.platform, trackCount: playlist.trackCount }}
+                    isSelected={selectedIds.has(playlist.platformId)}
+                    selectMode={selectMode}
+                    selectable={selectable}
+                    showFollowingBadge
+                    onClick={(e) => {
+                      if (selectable) {
+                        handleCardClick(e, playlist.platformId);
+                      } else if (selectMode) {
+                        e.preventDefault();
+                      }
+                    }}
+                    onCheckboxClick={handleCheckboxClick}
+                  />
                 );
               })}
             </div>
@@ -657,35 +550,14 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Bottom Action Bar
-          Fixed to the bottom — appears once 2+ items are selected (owned playlists and/or Liked Songs).
-          Cancel clears everything and exits select mode. */}
+      {/* Bottom action bar — appears once 2+ items are selected */}
       {selectMode && selectedIds.size >= 2 && (
-        <div className="fixed bottom-0 left-0 right-0 bg-bg-card border-t border-border-color px-4 sm:px-8 py-3 sm:py-5 flex items-center justify-between gap-3 z-40 shadow-2xl">
-          <div>
-            <p className="text-text-primary font-semibold">
-              {selectedIds.size} playlists selected
-            </p>
-            <p className="hidden sm:block text-text-muted text-xs mt-0.5 truncate max-w-xs">
-              {selectedNames}
-            </p>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={exitSelectMode}
-              className="bg-bg-secondary hover:bg-bg-primary text-text-muted font-semibold px-5 py-2.5 rounded-full border border-border-color transition-all duration-200 text-sm"
-            >
-              Cancel
-            </button>
-            {/* Merge button — will open MergeModal in Step 2 */}
-            <button
-              onClick={() => setMergeModalOpen(true)}
-              className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-2.5 rounded-full transition-all duration-200 hover:scale-105 active:scale-95 text-sm"
-            >
-              🔀 Merge {selectedIds.size} Playlists
-            </button>
-          </div>
-        </div>
+        <SelectionActionBar
+          count={selectedIds.size}
+          names={selectedNames}
+          onCancel={exitSelectMode}
+          onMerge={() => setMergeModalOpen(true)}
+        />
       )}
       {/* Merge modal — opened from the bottom action bar once 2+ playlists are selected */}
       <MergeModal
@@ -698,19 +570,8 @@ export default function Dashboard() {
         onConfirm={handleMerge}
       />
 
-      {/* Success toast */}
-      {mergeSuccess && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-accent text-white px-6 py-3 rounded-full shadow-lg z-50">
-          ✅ {mergeSuccess}
-        </div>
-      )}
-
-      {/* Error toast */}
-      {mergeError && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-6 py-3 rounded-full shadow-lg z-50 text-center max-w-md">
-          ⚠️ {mergeError}
-        </div>
-      )}
+      <Toast variant="success" message={mergeSuccess} />
+      <Toast variant="error"   message={mergeError} />
 
       </div>
 

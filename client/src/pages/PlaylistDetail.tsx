@@ -18,10 +18,94 @@ import { usePlaylistActions } from '../hooks/usePlaylistActions';
 import { useReshuffleSchedule } from '../hooks/useReshuffleSchedule';
 import { findDuplicates } from '../utils/findDuplicates';
 import AppFooter from '../components/AppFooter';
-import ChevronDown from '../components/ui';
+import AppLogo from '../components/AppLogo';
+import ChevronDown, { Badge, Toast } from '../components/ui';
 
-const getUserId = () => getActiveAccount()?.userId || '';
 const getPlatformUserId = () => getActiveAccount()?.platformUserId || '';
+
+function PlatformMismatchScreen({
+  playlistPlatform,
+  activeAccountPlatform,
+}: {
+  playlistPlatform: string;
+  activeAccountPlatform: string;
+}) {
+  return (
+    <div className="min-h-screen bg-bg-primary flex items-center justify-center px-8">
+      <div className="text-center max-w-md">
+        <p className="text-4xl mb-4">🔄</p>
+        <p className="text-text-primary text-lg font-semibold mb-2">Wrong Platform</p>
+        <p className="text-text-muted text-sm mb-6">
+          This playlist is from{' '}
+          <span className="text-text-primary font-medium">
+            {PLATFORM_LABELS[playlistPlatform] ?? playlistPlatform}
+          </span>
+          , but you're currently logged in with{' '}
+          <span className="text-text-primary font-medium">
+            {PLATFORM_LABELS[activeAccountPlatform] ?? activeAccountPlatform}
+          </span>
+          . Switch accounts on the dashboard to view this playlist.
+        </p>
+        <Link
+          to="/dashboard"
+          className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-3 rounded-full transition-all duration-200 inline-block"
+        >
+          Back to Dashboard
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function LoadingScreen() {
+  return (
+    <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+      <div className="text-accent text-xl animate-pulse">Loading playlist...</div>
+    </div>
+  );
+}
+
+function ErrorScreen({
+  isOwner,
+  platformConfig,
+  error,
+}: {
+  isOwner: boolean;
+  platformConfig: ReturnType<typeof getPlatformConfig>;
+  error: string;
+}) {
+  const ownershipBlocked = !isOwner && platformConfig.ownershipRestricted;
+  return (
+    <div className="min-h-screen bg-bg-primary flex items-center justify-center px-8">
+      <div className="text-center max-w-md">
+        {/* ownershipRestricted is declared per-platform in the platform config — no string comparison needed */}
+        <p className="text-4xl mb-4">{ownershipBlocked ? '🔒' : '⚠️'}</p>
+        <p className="text-text-primary text-lg font-semibold mb-2">
+          {ownershipBlocked ? 'Playlist Unavailable' : 'Something went wrong'}
+        </p>
+        <p className="text-text-muted text-sm mb-2">{error}</p>
+        {ownershipBlocked && (
+          <p className="text-text-muted text-sm mb-4">
+            {platformConfig.label} restricts access to playlists owned by other users.
+          </p>
+        )}
+        {/* Cross-platform hint — shown whenever the error is not an ownership restriction. */}
+        {!ownershipBlocked && (
+          <p className="text-text-muted text-sm mb-6">
+            If this playlist belongs to a different platform than the one you're currently logged into,
+            try switching accounts on the dashboard.
+          </p>
+        )}
+        <Link
+          to="/dashboard"
+          className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-3 rounded-full transition-all duration-200 inline-block"
+        >
+          Back to Dashboard
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 export default function PlaylistDetail() {
   const { playlistId } = useParams<{ playlistId: string }>();
@@ -245,66 +329,16 @@ export default function PlaylistDetail() {
   // ─── Render ───────────────────────────────────────────────────────────────────
 
   if (platformMismatch) return (
-    <div className="min-h-screen bg-bg-primary flex items-center justify-center px-8">
-      <div className="text-center max-w-md">
-        <p className="text-4xl mb-4">🔄</p>
-        <p className="text-text-primary text-lg font-semibold mb-2">Wrong Platform</p>
-        <p className="text-text-muted text-sm mb-6">
-          This playlist is from{' '}
-          <span className="text-text-primary font-medium">
-            {PLATFORM_LABELS[playlistPlatform!] ?? playlistPlatform}
-          </span>
-          , but you're currently logged in with{' '}
-          <span className="text-text-primary font-medium">
-            {PLATFORM_LABELS[activeAccount!.platform.toUpperCase()] ?? activeAccount!.platform}
-          </span>
-          . Switch accounts on the dashboard to view this playlist.
-        </p>
-        <Link
-          to="/dashboard"
-          className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-3 rounded-full transition-all duration-200 inline-block"
-        >
-          Back to Dashboard
-        </Link>
-      </div>
-    </div>
+    <PlatformMismatchScreen
+      playlistPlatform={playlistPlatform!}
+      activeAccountPlatform={activeAccount!.platform.toUpperCase()}
+    />
   );
 
-  if (loading) return (
-    <div className="min-h-screen bg-bg-primary flex items-center justify-center">
-      <div className="text-accent text-xl animate-pulse">Loading playlist...</div>
-    </div>
-  );
+  if (loading) return <LoadingScreen />;
 
   if (error) return (
-    <div className="min-h-screen bg-bg-primary flex items-center justify-center px-8">
-      <div className="text-center max-w-md">
-        {/* ownershipRestricted is declared per-platform in the platform config — no string comparison needed */}
-        <p className="text-4xl mb-4">{!isOwner && platformConfig.ownershipRestricted ? '🔒' : '⚠️'}</p>
-        <p className="text-text-primary text-lg font-semibold mb-2">
-          {!isOwner && platformConfig.ownershipRestricted ? 'Playlist Unavailable' : 'Something went wrong'}
-        </p>
-        <p className="text-text-muted text-sm mb-2">{error}</p>
-        {!isOwner && platformConfig.ownershipRestricted && (
-          <p className="text-text-muted text-sm mb-4">
-            {platformConfig.label} restricts access to playlists owned by other users.
-          </p>
-        )}
-        {/* Cross-platform hint — shown whenever the error is not an ownership restriction. */}
-        {(isOwner || !platformConfig.ownershipRestricted) && (
-          <p className="text-text-muted text-sm mb-6">
-            If this playlist belongs to a different platform than the one you're currently logged into,
-            try switching accounts on the dashboard.
-          </p>
-        )}
-        <Link
-          to="/dashboard"
-          className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-3 rounded-full transition-all duration-200 inline-block"
-        >
-          Back to Dashboard
-        </Link>
-      </div>
-    </div>
+    <ErrorScreen isOwner={isOwner} platformConfig={platformConfig} error={error} />
   );
 
   return (
@@ -316,15 +350,7 @@ export default function PlaylistDetail() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-0">
         <div className="flex items-center gap-2 sm:gap-4 min-w-0">
 
-          {/* Logo — clicking navigates back to dashboard.
-              ?switchTo encodes the active userId so middle-click / Ctrl+click opens a new
-              tab on the correct platform instead of falling back to localStorage. */}
-          <Link to={`/dashboard?switchTo=${getUserId()}`} className="flex items-center gap-2 cursor-pointer shrink-0">
-            <img src="/favicon.svg" alt="TuneCraft icon" className="h-7 w-7" />
-            <h1 className="hidden sm:block text-2xl font-bold tracking-tight">
-              Tune<span className="text-accent">Craft</span>
-            </h1>
-          </Link>
+          <AppLogo variant="compact" />
 
           <div className="hidden sm:block h-8 w-px bg-border-color shrink-0" />
 
@@ -365,12 +391,9 @@ export default function PlaylistDetail() {
               }
               {/* Platform badge — shown for every platform, coloured with the platform's brand colour */}
               {tracks.length > 0 && tracks[0]?.platform && (
-                <span
-                  className="text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full"
-                  style={getPlatformBadgeStyle(tracks[0].platform)}
-                >
+                <Badge variant="platform" style={getPlatformBadgeStyle(tracks[0].platform)}>
                   {tracks[0].platform}
-                </span>
+                </Badge>
               )}
             </p>
           </div>
@@ -638,19 +661,8 @@ export default function PlaylistDetail() {
         )}
       </div>
 
-      {/* Success toast */}
-      {saveSuccess && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-accent text-white px-6 py-3 rounded-full shadow-lg z-50">
-          ✅ {saveSuccess}
-        </div>
-      )}
-
-      {/* Error toast */}
-      {saveError && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[color-mix(in_srgb,var(--color-warning)_90%,transparent)] text-white px-6 py-3 rounded-full shadow-[0_0_16px_var(--color-warning-glow)] z-50 text-center max-w-md">
-          ⚠️ {saveError}
-        </div>
-      )}
+      <Toast variant="success" message={saveSuccess} />
+      <Toast variant="error"   message={saveError} />
 
       <ShuffleModal
         isOpen={shuffleModalOpen}

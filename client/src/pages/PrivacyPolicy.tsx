@@ -1,5 +1,15 @@
 import { useNavigate, Link } from 'react-router-dom';
-import AppFooter from '../components/AppFooter';
+import AppLogo from '../components/AppLogo';
+import PageShell from '../components/PageShell';
+import { Badge, SectionLabel, Divider, Card, BulletItem, AccentCard } from '../components/ui';
+import { getAllPlatformConfigs } from '../utils/platform';
+
+
+// Derived from the platform registry — stays in sync automatically when platforms are added.
+const AVAILABLE_PLATFORMS = getAllPlatformConfigs().map(p => ({
+  label:     p.label,
+  comingSoon: !p.available,
+}));
 
 // Metadata for each data type TuneCraft stores.
 // Rendered as a table so users can scan what's collected, where, and why at a glance.
@@ -42,7 +52,7 @@ const NOT_COLLECTED = [
 
 // Controls the user has over their own data.
 const USER_CONTROLS = [
-  'Revoke TuneCraft\'s access to your Spotify, SoundCloud, TIDAL, or YouTube account at any time via each platform\'s connected apps settings',
+  'Revoke TuneCraft\'s access to your Spotify, SoundCloud, Tidal, or YouTube account at any time via each platform\'s connected apps settings',
   'Log out of TuneCraft at any time to clear your session tokens from your browser',
   'Request deletion of any data TuneCraft holds about you by contacting us (see below)',
   'Disable any active reshuffle schedules directly from within the app',
@@ -70,51 +80,6 @@ const SECTIONS = [
   { id: 'contact', label: '10 / Contact' },
 ];
 
-// Small monospaced section counter displayed above each h2.
-// Matches the "section label" typography token from DESIGN.md.
-function SectionLabel({ text }: { text: string }) {
-  return (
-    <p className="font-mono text-xs uppercase tracking-widest text-accent opacity-80 mb-3">
-      {text}
-    </p>
-  );
-}
-
-// Thin accent-coloured divider used between major page sections.
-function Divider() {
-  return (
-    <div
-      className="my-12"
-      style={{
-        height: 1,
-        background: 'linear-gradient(90deg, var(--color-accent) 0%, transparent 60%)',
-        opacity: 0.4,
-      }}
-    />
-  );
-}
-
-// Card container — matches the card pattern from DESIGN.md:
-// bg-bg-card, rounded-2xl, border border-border-color.
-function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="bg-bg-card border border-border-color rounded-2xl p-6 mt-5">
-      {children}
-    </div>
-  );
-}
-
-// Bulleted list item used inside Card components.
-// The em-dash bullet is styled with the accent colour to match the original design.
-function BulletItem({ text }: { text: string }) {
-  return (
-    <li className="relative pl-5 text-text-muted text-sm leading-relaxed">
-      <span className="absolute left-0 text-accent opacity-60">—</span>
-      {text}
-    </li>
-  );
-}
-
 export default function PrivacyPolicy() {
   // navigate(-1) sends the user back to wherever they came from (Login or Dashboard).
   // Falls back to "/" if the user landed directly on this page with no prior history.
@@ -122,50 +87,17 @@ export default function PrivacyPolicy() {
   const handleBack = () => (window.history.length > 1 ? navigate(-1) : navigate('/'));
 
   return (
-    // Full-page dark background matching the rest of the app.
-    <div className="min-h-screen bg-bg-primary text-text-primary relative flex flex-col">
-
-      {/* Subtle purple grid texture — same pattern used on the login page */}
-      <div
-        className="fixed inset-0 pointer-events-none z-0"
-        style={{
-          backgroundImage:
-            'linear-gradient(rgba(168,85,247,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(168,85,247,0.03) 1px, transparent 1px)',
-          backgroundSize: '40px 40px',
-        }}
-      />
-
-      {/* Top-centre glow blob */}
-      <div
-        className="fixed pointer-events-none z-0"
-        style={{
-          top: -200,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: 800,
-          height: 500,
-          background: 'radial-gradient(ellipse, rgba(168,85,247,0.08) 0%, transparent 70%)',
-        }}
-      />
-
+    <PageShell>
       {/* Page content — constrained to readable width */}
       <div className="relative z-10 max-w-[760px] mx-auto px-6 py-16 pb-24">
 
         {/* ── Header ── */}
         <header className="mb-16">
-          {/* Logo — navigates back to wherever the user came from */}
-          <button
-            onClick={handleBack}
-            className="inline-block text-2xl font-black tracking-tight mb-12 transition-all duration-200 hover:scale-105 active:scale-95"
-          >
-            Tune<span className="text-accent">Craft</span>
-          </button>
+          <AppLogo variant="back" onClick={handleBack} />
 
           {/* "Legal" badge — matches accent pill pattern */}
-          <div className="inline-flex mb-5">
-            <span className="font-mono text-xs uppercase tracking-widest text-accent bg-accent/10 border border-border-color rounded-full px-3 py-1">
-              Legal
-            </span>
+          <div className="inline-flex mb-5 ml-3">
+            <Badge>Legal</Badge>
           </div>
 
           <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-none mb-4">
@@ -203,12 +135,7 @@ export default function PrivacyPolicy() {
 
           {/* Platform tags — styled like the secondary ghost button variant. */}
           <div className="flex flex-wrap gap-2 mb-4">
-            {[
-              { label: 'Spotify',       comingSoon: false },
-              { label: 'SoundCloud',    comingSoon: true },
-              { label: 'TIDAL',         comingSoon: false },
-              { label: 'YouTube Music', comingSoon: true },
-            ].map(({ label, comingSoon }) => (
+            {AVAILABLE_PLATFORMS.map(({ label, comingSoon }) => (
               <span
                 key={label}
                 className="relative font-mono text-sm px-4 py-1.5 rounded-lg bg-bg-secondary border border-border-color text-text-primary"
@@ -374,13 +301,7 @@ export default function PrivacyPolicy() {
           <SectionLabel text={SECTIONS[9].label} />
           <h2 className="text-xl font-bold tracking-tight mb-4">Questions?</h2>
 
-          {/* Contact block — subtle accent gradient, matching the original design intent */}
-          <div
-            className="border border-border-color rounded-2xl p-7 mt-5"
-            style={{
-              background: 'linear-gradient(135deg, rgba(168,85,247,0.08), rgba(168,85,247,0.02))',
-            }}
-          >
+          <AccentCard className="p-7 mt-5">
             <p className="text-text-muted text-sm leading-relaxed mb-2">
               TuneCraft is built and maintained by{' '}
               <span className="text-text-primary font-semibold">Yarin Solomon</span>.
@@ -393,16 +314,12 @@ export default function PrivacyPolicy() {
               </Link>
               .
             </p>
-          </div>
+          </AccentCard>
         </section>
 
         <Divider />
 
       </div>
-
-      <div className="relative z-10">
-        <AppFooter />
-      </div>
-    </div>
+    </PageShell>
   );
 }

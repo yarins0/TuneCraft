@@ -27,10 +27,10 @@ function FeatureBar({
   const pct = normalized === null ? 0 : Math.round(normalized * 100);
 
   return (
-    <div className="flex items-center gap-1 min-w-0">
-      <div className="text-[11px] text-text-muted shrink-0 w-[5.5rem] truncate">{label}</div>
+    <div className="flex items-center gap-1 min-w-0 sm:flex-col sm:items-start sm:gap-1">
+      <div className="text-[11px] text-text-muted shrink-0 w-[5.5rem] sm:w-full truncate">{label}</div>
       <div
-        className="h-1.5 rounded-full bg-bg-secondary border border-border-color overflow-hidden flex-1"
+        className="h-1.5 rounded-full bg-bg-secondary border border-border-color overflow-hidden flex-1 sm:flex-none sm:w-full"
         title={title}
         aria-label={title}
       >
@@ -63,8 +63,8 @@ export default function TrackAudioFeaturesCollapse({ track }: Props) {
                 ? `${f.label}\n${f.description}\n\nNo tempo data for this track.`
                 : `${f.label} · ${Math.round(raw)} BPM\n${f.description}`;
               return (
-                <div key={f.key} className="flex items-center gap-1 min-w-0" title={tooltip} aria-label={tooltip}>
-                  <div className="text-[11px] text-text-muted shrink-0 w-[5.5rem] truncate">{f.label}</div>
+                <div key={f.key} className="flex items-center gap-1 min-w-0 sm:flex-col sm:items-start sm:gap-1" title={tooltip} aria-label={tooltip}>
+                  <div className="text-[11px] text-text-muted shrink-0 w-[5.5rem] sm:w-full truncate">{f.label}</div>
                   <div className="text-[11px] text-text-primary truncate">
                     {raw === null ? '—' : `${Math.round(raw)} bpm`}
                   </div>
