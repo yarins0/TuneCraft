@@ -142,7 +142,7 @@ The unofficial `ytmusic-api` wrapper was evaluated and rejected:
 - [ ] **G1-full-checklist** — run the full D2-style end-to-end checklist once quota resets (midnight Pacific):
   - [X] OAuth login, deny flow, access request modal
   - [ ] Dashboard: owned + followed playlists visible
-  - [ ] Liked songs: music-only filter working - works but maybe needs some inprovement- doesnt exacly match the youtube music filtering
+  - [X] Liked songs: music-only filter — ⛔ CONFIRMED LIMITATION. Innertube `FEmusic_liked_videos` (the true YTM library songs endpoint) returns 400 with OAuth Bearer tokens, same as all other library browse endpoints. Current filter (liked-videos playlist + `categoryId === '10'`) is the best achievable via the official API.
   - [X] PlaylistDetail: correct artist names (no " - Topic"), album names for public playlists
   - [X] Shuffle + Save writes back to YouTube
   - [X] Save as Copy creates new playlist

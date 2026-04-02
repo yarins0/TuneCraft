@@ -772,6 +772,11 @@ export class YouTubeAdapter implements PlatformAdapter {
     return { tracks, total, hasMore: !!nextPageToken };
   }
 
+  // Fetches every video ID in the user's YouTube Music library via Innertube.
+  // Uses the FEmusic_liked_videos browse ID, which returns music-only library songs
+  // (not the liked-videos playlist — despite the name, it excludes non-music content).
+  // All pages are fetched upfront and the result is cached for 5 minutes so that
+  // subsequent page requests (fetchLikedTracks page 1, 2, …) are served from cache.
   // Returns the total number of tracks in the user's liked-videos playlist.
   async fetchLikedCount(accessToken: string): Promise<number> {
     const likedId = await this.fetchLikedPlaylistId(accessToken);
@@ -793,18 +798,19 @@ export class YouTubeAdapter implements PlatformAdapter {
   }
 
   // Fetches one page of enriched tracks from the user's liked-videos playlist.
+  // The liked-videos playlist includes all video types (gaming, vlogs, etc.) — filtering
+  // to categoryId 10 keeps only videos YouTube has categorised as Music.
+  // Note: `total` reflects the full liked-videos count, not the music-only count,
+  // since the playlist total is known before video details (and categoryId) are fetched.
+  //
+  // A cleaner approach via Innertube FEmusic_liked_videos was investigated but confirmed
+  // to require cookie-based session auth — it returns 400 with OAuth Bearer tokens.
   async fetchLikedTracks(
     accessToken: string,
     page: number
   ): Promise<{ tracks: PlatformTrack[]; total: number; hasMore?: boolean }> {
     const likedId = await this.fetchLikedPlaylistId(accessToken);
     if (!likedId) return { tracks: [], total: 0, hasMore: false };
-
-    // Delegate to fetchPlaylistTracks with the music-only filter.
-    // The liked-videos playlist includes all video types (gaming, vlogs, etc.) — filtering
-    // to categoryId 10 keeps only videos YouTube has categorised as Music.
-    // Note: the returned `total` reflects the full liked count, not the music-only count,
-    // since the playlist total is known before video details (and thus categoryId) are fetched.
     return this.fetchPlaylistTracks(accessToken, likedId, page, undefined, isMusicVideo);
   }
 
