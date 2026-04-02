@@ -13,7 +13,7 @@ Thumbs.db
 
 # Editor
 .vscode/
-.curser/
+.cursor/
 
 # Claude Code / claude-flow
 .claude/
