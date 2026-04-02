@@ -12,7 +12,7 @@ export const youtubeConfig: PlatformConfig = {
   icon:   '▶',
   cssVar: '--color-platform-youtube',
 
-  available:             false,
+  available:             true,
   requiresAccessRequest: true,
   accessRequest: {
     userLimit:     YOUTUBE_TEST_USER_LIMIT,

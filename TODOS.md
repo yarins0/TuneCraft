@@ -20,7 +20,7 @@ Tasks are divided into independent agents — each agent owns a separate slice o
 | D     | QA / Manual Testing         | _(no code — manual testing only)_                                                                                | D2         | 🔵 Active             |
 | E     | Performance & Enrichment    | `server/src/lib/enrichment.ts`                                                                                   | E2         | 🔵 Active             |
 | F     | Playlist Features / UI      | `client/src/pages/PlaylistDetail.tsx`, `client/src/components/SplitModal.tsx`, `server/src/routes/playlists.ts` | F2         | 🔵 Active             |
-| G     | YouTube Music Platform      | `server/src/lib/platform/youtube.ts`, `server/src/routes/auth.ts`, `client/src/utils/platform/youtube.ts`       | G1         | 🟡 Testing needed     |
+| G     | YouTube Music Platform      | `server/src/lib/platform/youtube.ts`, `server/src/routes/auth.ts`, `client/src/utils/platform/youtube.ts`       | G1         | ✅ All tasks complete |
 
 ---
 
@@ -82,7 +82,7 @@ Replaced the two `addedAt`/`-addedAt` passes with a single `title` (alphabetical
 # Agent G — YouTube Music Platform
 > Owns: `server/src/lib/platform/youtube.ts`, `server/src/routes/auth.ts`, `client/src/pages/Login.tsx`
 
-## G1 · Add YouTube Music as a supported platform 🔵 ACTIVE — testing in progress
+## G1 · Add YouTube Music as a supported platform ✅ COMPLETE
 
 **What:** Implement a full `YouTubeAdapter` that satisfies `PlatformAdapter`, add OAuth login, and surface YouTube Music in the Login page alongside Spotify, SoundCloud, and Tidal.
 
@@ -152,7 +152,7 @@ The unofficial `ytmusic-api` wrapper was evaluated and rejected:
 **Effort:** L (core done) → S (remaining testing)
 **Priority:** P2
 
-**NOTE:** YouTube button is currently set to `available: false` in `client/src/utils/platform/youtube.ts` — re-enable when testing resumes.
+**NOTE:** YouTube button is enabled (`available: true`). G1 is complete.
 
 ---
 
