@@ -138,16 +138,16 @@ The unofficial `ytmusic-api` wrapper was evaluated and rejected:
 ### Still needed
 
 - [X] **G1-save-verify** — re-test duplicate removal + save after 409 retry fix (5s wait, 200ms insert pacing). Was blocked by daily quota exhaustion on 2026-03-31.
-- [ ] **G1-followed-verify** — confirm followed playlists now appear in dashboard after `fetchLibraryPlaylists` fix.
+- [ ] **G1-followed-verify** — confirm followed playlists now appear in dashboard after `fetchLibraryPlaylists` fix. - They do not appear.
 - [ ] **G1-full-checklist** — run the full D2-style end-to-end checklist once quota resets (midnight Pacific):
   - [X] OAuth login, deny flow, access request modal
   - [ ] Dashboard: owned + followed playlists visible
-  - [ ] Liked songs: music-only filter working
+  - [ ] Liked songs: music-only filter working - works but maybe needs some inprovement- doesnt exacly match the youtube music filtering
   - [X] PlaylistDetail: correct artist names (no " - Topic"), album names for public playlists
   - [X] Shuffle + Save writes back to YouTube
   - [X] Save as Copy creates new playlist
   - [X] Split and Merge
-  - [ ] Auto-reshuffle cron
+  - [X] Auto-reshuffle + Clean-up cron
 
 **Effort:** L (core done) → S (remaining testing)
 **Priority:** P2
