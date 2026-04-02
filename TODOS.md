@@ -138,7 +138,7 @@ The unofficial `ytmusic-api` wrapper was evaluated and rejected:
 ### Still needed
 
 - [X] **G1-save-verify** — re-test duplicate removal + save after 409 retry fix (5s wait, 200ms insert pacing). Was blocked by daily quota exhaustion on 2026-03-31.
-- [ ] **G1-followed-verify** — confirm followed playlists now appear in dashboard after `fetchLibraryPlaylists` fix. - They do not appear.
+- [X] **G1-followed-verify** — ⛔ CONFIRMED LIMITATION. The YouTube Data API v3 has no endpoint for playlists saved from other channels. Innertube browse endpoints that expose the full library (`FEmusic_library_privately_owned_playlists`, `FEmusic_liked_playlists`) require cookie-based session auth (SAPISID) and return 400 with OAuth Bearer tokens. Only user-owned playlists are returned. `fetchLibraryPlaylists` is now a no-op stub pending a future official API.
 - [ ] **G1-full-checklist** — run the full D2-style end-to-end checklist once quota resets (midnight Pacific):
   - [X] OAuth login, deny flow, access request modal
   - [ ] Dashboard: owned + followed playlists visible

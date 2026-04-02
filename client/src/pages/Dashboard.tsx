@@ -538,8 +538,28 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Banner — shown when the platform can't list followed playlists at all.
+            If the platform allows accessing non-owned playlists by URL (ownershipRestricted
+            false), we point the user toward the Discovery bar as a workaround. */}
+        {!platformConfig.followedPlaylistsSupported && (
+          <div className="mb-10 rounded-2xl border border-border-color bg-bg-card px-5 py-4 flex items-start gap-3">
+            <span className="text-xl shrink-0 mt-0.5">ℹ️</span>
+            <div>
+              <p className="text-sm text-text-primary font-semibold">
+                Followed playlists aren't shown
+              </p>
+              <p className="text-xs text-text-muted mt-1">
+                {platformConfig.label}'s official API only returns playlists you own.
+                {!platformConfig.ownershipRestricted && (
+                  <> You can still access any public playlist by pasting its URL into the search bar above.</>
+                )}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Group 2 — Following
-            On platforms where ownershipRestricted is true (e.g. Tidal), followed playlists
+            On platforms where ownershipRestricted is true (e.g. Spotify), followed playlists
             can't be written to, so in select mode they are dimmed and clicks are blocked.
             On platforms where ownershipRestricted is false the restriction doesn't apply
             and followed playlists behave the same as owned ones in select mode. */}

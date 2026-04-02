@@ -284,7 +284,9 @@ export class YouTubeAdapter implements PlatformAdapter {
   }
 
   // Returns the WEB_REMIX client context block required by every Innertube request.
-  private innertubeContext(clientVersion: string, visitorData: string): object {
+  // visitorData is omitted deliberately: it comes from an anonymous page scrape and
+  // including it in authenticated requests causes Google to reject them with 400.
+  private innertubeContext(clientVersion: string, _visitorData: string): object {
     return {
       client: { clientName: 'WEB_REMIX', clientVersion, hl: 'en', gl: 'US' },
       user:   { lockedSafetyMode: false },
@@ -574,52 +576,15 @@ export class YouTubeAdapter implements PlatformAdapter {
     return { id, name, imageUrl, ownerId: '', trackCount };
   }
 
-  // Fetches playlists the user has saved to their YouTube Music library via Innertube.
-  // The YouTube Data API only returns playlists the user created (mine=true); the
-  // Innertube browse endpoint returns the full library including followed playlists.
-  // Returns an empty array silently on any error so the Data API results still show.
-  private async fetchLibraryPlaylists(accessToken: string): Promise<PlatformPlaylist[]> {
-    const playlists: PlatformPlaylist[] = [];
-
-    let cfg: { apiKey: string; clientVersion: string; visitorData: string };
-    try {
-      cfg = await this.ensureInnertubeConfig();
-    } catch {
-      return playlists;
-    }
-
-    const url     = `${MUSIC_URL}/youtubei/v1/browse?key=${cfg.apiKey}&prettyPrint=false`;
-    const headers = {
-      'Content-Type':  'application/json',
-      'Origin':        MUSIC_URL,
-      'Authorization': `Bearer ${accessToken}`,
-    };
-    const ctx = this.innertubeContext(cfg.clientVersion, cfg.visitorData);
-
-    let body: object = { context: ctx, browseId: 'FEmusic_library_privately_owned_playlists' };
-    const MAX_PAGES = 10;
-
-    for (let page = 0; page < MAX_PAGES; page++) {
-      let data: any;
-      try {
-        const res = await axios.post(url, body, { headers });
-        data = res.data;
-      } catch {
-        break;
-      }
-
-      for (const renderer of this.collectTwoRowRenderers(data)) {
-        const playlist = this.parseTwoRowPlaylist(renderer);
-        if (playlist) playlists.push(playlist);
-      }
-
-      const continuation = this.findContinuation(data);
-      if (!continuation) break;
-
-      body = { context: ctx, continuation };
-    }
-
-    return playlists;
+  // Stub — returns empty. The Innertube browse endpoints that expose the full YTM
+  // library (including saved/followed playlists) require cookie-based session auth
+  // (SAPISID), which is incompatible with our OAuth Bearer token model. The YouTube
+  // Data API v3 (mine=true) exposes only user-owned playlists and has no endpoint
+  // for playlists saved from other channels. This is a confirmed YouTube API limitation.
+  // If Google ever exposes this via the official API, implement it here.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private async fetchLibraryPlaylists(_accessToken: string): Promise<PlatformPlaylist[]> {
+    return [];
   }
 
   // Fetches playlists the user owns via the Data API (authoritative track counts).

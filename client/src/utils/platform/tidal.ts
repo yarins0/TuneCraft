@@ -9,7 +9,8 @@ export const tidalConfig: PlatformConfig = {
 
   available:              true,
   requiresAccessRequest:  false,
-  ownershipRestricted:    false,
+  ownershipRestricted:        false,
+  followedPlaylistsSupported: true,  // Tidal API returns both owned and followed playlists
   totalTracksReliable:    false, // Tidal's API often omits meta.total — fall back to dashboard count
   audioFeaturesMissingHint: undefined,
 

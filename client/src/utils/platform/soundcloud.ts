@@ -9,7 +9,8 @@ export const soundcloudConfig: PlatformConfig = {
 
   available:              false,
   requiresAccessRequest:  false,
-  ownershipRestricted:    false,
+  ownershipRestricted:        false,
+  followedPlaylistsSupported: true,  // SoundCloud API returns both owned and followed playlists
   totalTracksReliable:    true,
   // Independent SoundCloud uploads often lack an ISRC, which means ReccoBeats can't be reached
   // for them — audio features will be missing for a large share of indie-heavy playlists.

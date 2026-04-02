@@ -37,6 +37,10 @@ export interface PlatformConfig {
   // True when the platform restricts reading playlists owned by other users.
   // PlaylistDetail reads this to show an ownership-specific error instead of a generic one.
   ownershipRestricted: boolean;
+  // True when the platform API returns playlists the user has followed/saved from other channels
+  // alongside their own playlists. False when only user-owned playlists are accessible.
+  // Dashboard uses this to show a contextual notice when followed playlists can't be listed.
+  followedPlaylistsSupported: boolean;
   // False when the platform's API does not reliably return a total track count during pagination.
   // PlaylistDetail falls back to the dashboard's known count when this is false.
   totalTracksReliable: boolean;

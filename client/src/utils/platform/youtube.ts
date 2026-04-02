@@ -22,7 +22,10 @@ export const youtubeConfig: PlatformConfig = {
       `Tunecraft is in test mode on Google. YouTube limits test apps to ${YOUTUBE_TEST_USER_LIMIT} approved users — ` +
       'only people manually added to the allowlist can log in.',
   },
-  ownershipRestricted: false,
+  ownershipRestricted:        false,
+  // YouTube Data API v3 only returns user-owned playlists (mine=true). Followed/saved
+  // playlists from other channels are not exposed by any official OAuth-accessible endpoint.
+  followedPlaylistsSupported: false,
   totalTracksReliable: true,
 
   // YouTube doesn't include ISRC in API responses, so audio features can only be

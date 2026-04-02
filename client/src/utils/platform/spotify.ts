@@ -21,7 +21,8 @@ export const spotifyConfig: PlatformConfig = {
       `Tunecraft is in developer mode. Spotify limits developer apps to ${SPOTIFY_DEV_USER_LIMIT} approved users — ` +
       'only people manually added to the allowlist can log in.',
   },
-  ownershipRestricted:    true,  // Spotify API blocks reading playlists owned by other users
+  ownershipRestricted:        true,  // Spotify API blocks reading playlists owned by other users
+  followedPlaylistsSupported: true,  // me/playlists returns both owned and followed playlists
   totalTracksReliable:    true,
   audioFeaturesMissingHint: undefined,
 
