@@ -2,6 +2,7 @@ import type { Track } from '../api/tracks';
 import { formatDuration } from '../api/tracks';
 import { getPlatformTrackUrl, getPlatformLabel } from '../utils/platform';
 import TrackAudioFeaturesCollapse from './TrackAudioFeaturesCollapse';
+import ChevronDown from './ui';
 
 // The shape returned by useNumberStepper — used for the position jump input's stepper buttons
 interface NumberStepper {
@@ -20,6 +21,8 @@ interface Props {
   isOpen: boolean;
   // Whether this track is flagged as a duplicate — triggers red tint styling
   isDuplicate: boolean;
+  // Whether this row is the active drag source — triggers dim/scale visual feedback
+  isDragging: boolean;
   // Index currently being hovered over during a drag — drives drop target highlight
   dragOverIndex: number | null;
   onDragStart: () => void;
@@ -54,6 +57,7 @@ export default function TrackRow({
   totalTracks,
   isOpen,
   isDuplicate,
+  isDragging,
   dragOverIndex,
   onDragStart,
   onDragEnd,
@@ -76,88 +80,98 @@ export default function TrackRow({
     <div
       data-track-index={String(index)}
       className={[
-        'group rounded-xl transition-colors duration-200',
+        'group rounded-xl transition-all duration-200',
         isDuplicate ? 'ring-1 ring-red-500/30 bg-red-500/5' : '',
         dragOverIndex === index ? 'bg-bg-card ring-1 ring-accent/30' : 'hover:bg-bg-card',
+        isDragging ? 'opacity-50 scale-95' : '',
       ].filter(Boolean).join(' ')}
     >
       <div
-        draggable={draggable}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
         onDragOver={onDragOver}
         onDrop={onDrop}
-        className={[
-          'flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-2 sm:py-3',
-          draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default',
-        ].filter(Boolean).join(' ')}
+        className="flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-2 sm:py-3"
       >
-        {isJumping ? (
-          // Edit mode — shown after a double-click on the position number.
-          // onBlur and Enter both confirm the jump so the user can use either.
-          <div className="flex items-center gap-0.5 shrink-0">
-            <input
-              type="text"
-              inputMode="numeric"
-              value={jumpInputValue}
-              onChange={e => onJumpInputChange(e.target.value)}
-              onBlur={onJumpConfirm}
-              onKeyDown={e => {
-                if (e.key === 'Enter') e.currentTarget.blur();
-                if (e.key === 'Escape') onJumpCancel();
-                jumpStepper.handleKeyDown(e);
-              }}
-              className="w-8 text-center text-sm bg-transparent border-b border-accent text-accent focus:outline-none"
-              autoFocus
-            />
-            {/* Custom ▲▼ stepper — ▲ moves earlier (smaller number), ▼ moves later */}
-            <div className="flex flex-col">
-              <button
-                type="button"
-                onMouseDown={e => e.preventDefault()}
-                onClick={jumpStepper.decrement}
-                className="text-accent leading-none text-[10px] hover:text-accent-hover"
-              >▲</button>
-              <button
-                type="button"
-                onMouseDown={e => e.preventDefault()}
-                onClick={jumpStepper.increment}
-                className="text-accent leading-none text-[10px] hover:text-accent-hover"
-              >▼</button>
-            </div>
-          </div>
-        ) : (
-          // Static mode — double-click to enter edit mode.
-          // title gives a hint on hover so the interaction is discoverable.
-          <span
-            className="text-text-muted text-sm w-6 text-right shrink-0 cursor-pointer select-none"
-            title="Double-click to jump to position"
-            onDoubleClick={e => {
-              e.stopPropagation();
-              onJumpStart();
-            }}
-          >
-            {index + 1}
-          </span>
-        )}
+        {/* Combined drag handle + position number.
+            Both desktop drag and mobile touch drag originate here, so grabbing either
+            the ⋮⋮ icon or the number initiates a reorder.
+            touch-none prevents page scroll when a drag starts from this area. */}
+        <div
+          draggable={draggable}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onTouchStart={() => { if (draggable) onDragStart(); }}
+          onTouchMove={draggable ? (e) => {
+            const t = e.touches[0];
+            if (t) onTouchDragMove(t.clientX, t.clientY);
+          } : undefined}
+          onTouchEnd={draggable ? () => onTouchDrop() : undefined}
+          className={[
+            'flex items-center gap-0 shrink-0',
+            draggable ? 'cursor-grab active:cursor-grabbing touch-none select-none' : '',
+          ].filter(Boolean).join(' ')}
+        >
+          {draggable && (
+            <span
+              className="text-text-muted text-xs opacity-60 group-hover:opacity-100"
+              aria-hidden="true"
+            >⋮⋮</span>
+          )}
 
-        {/* touch-none prevents the browser from scrolling when the user drags from this handle.
-            Visible on all screen sizes so mobile users can reorder by touch. */}
-        {draggable && (
-          <span
-            className="inline-block text-text-muted w-6 text-center shrink-0 select-none touch-none opacity-60 group-hover:opacity-100"
-            title="Drag to reorder"
-            aria-hidden="true"
-            onTouchStart={() => onDragStart()}
-            onTouchMove={(e) => {
-              const t = e.touches[0];
-              if (t) onTouchDragMove(t.clientX, t.clientY);
-            }}
-            onTouchEnd={() => onTouchDrop()}
-          >
-            ⋮⋮
-          </span>
-        )}
+          {isJumping ? (
+            // Edit mode — shown after tapping/double-clicking the position number.
+            // onBlur and Enter both confirm the jump so the user can use either.
+            <div className="flex items-center gap-0.5">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={jumpInputValue}
+                onChange={e => onJumpInputChange(e.target.value)}
+                onBlur={onJumpConfirm}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                  if (e.key === 'Escape') onJumpCancel();
+                  jumpStepper.handleKeyDown(e);
+                }}
+                className="w-8 text-center text-sm bg-transparent border-b border-accent text-accent focus:outline-none"
+                autoFocus
+              />
+              {/* Custom ▲▼ stepper — ▲ moves earlier (smaller number), ▼ moves later */}
+              <div className="flex flex-col">
+                <button
+                  type="button"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={jumpStepper.decrement}
+                  className="text-accent leading-none text-[10px] hover:text-accent-hover"
+                >▲</button>
+                <button
+                  type="button"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={jumpStepper.increment}
+                  className="text-accent leading-none text-[10px] hover:text-accent-hover"
+                >▼</button>
+              </div>
+            </div>
+          ) : (
+            // Static mode — tap (mobile) or double-click (desktop) to enter edit mode.
+            // Pointer type check distinguishes touch from mouse so each gets its natural interaction.
+            <span
+              className="text-text-muted text-sm w-6 text-right cursor-pointer -ml-2"
+              title="Tap or double-click to jump to position"
+              onClick={e => {
+                if (!window.matchMedia('(pointer: coarse)').matches) return;
+                e.stopPropagation();
+                onJumpStart();
+              }}
+              onDoubleClick={e => {
+                if (window.matchMedia('(pointer: coarse)').matches) return;
+                e.stopPropagation();
+                onJumpStart();
+              }}
+            >
+              {index + 1}
+            </span>
+          )}
+        </div>
 
         {/* Double-clicking anywhere from the album art rightward toggles audio features */}
         <div
@@ -240,17 +254,11 @@ export default function TrackRow({
               e.stopPropagation();
               onToggleOpen();
             }}
-            className="text-text-muted hover:text-text-primary transition-colors duration-200 shrink-0 w-10 text-right"
+            className="text-text-muted hover:text-text-primary transition-colors duration-200 shrink-0 w-11 text-right"
             aria-label={isOpen ? 'Hide audio features' : 'Show audio features'}
             title={isOpen ? 'Hide audio features' : 'Show audio features'}
           >
-            <span
-              className="inline-block transition-transform duration-300"
-              style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
-              aria-hidden="true"
-            >
-              ▼
-            </span>
+            <ChevronDown isOpen={isOpen} />
           </button>
         </div>
       </div>

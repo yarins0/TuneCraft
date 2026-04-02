@@ -13,7 +13,6 @@ const adapters: Partial<Record<Platform, PlatformAdapter>> = {
   SOUNDCLOUD: new SoundCloudAdapter(),
   TIDAL:      new TidalAdapter(),
   YOUTUBE:    new YouTubeAdapter(),
-  // APPLE_MUSIC: new AppleMusicAdapter(), ← add when implemented
 };
 
 // Returns all registered adapter instances.

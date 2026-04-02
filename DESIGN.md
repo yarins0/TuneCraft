@@ -144,7 +144,18 @@ w-full px-6 py-4 flex items-center justify-between
 hover:bg-bg-secondary transition-colors duration-200
 ```
 Label: `text-sm font-semibold uppercase tracking-widest text-text-muted`
-Chevron: `▼` rotated 180° when open — `transition-transform duration-300`
+
+**Chevron rule — use `<ChevronDown>` for every toggle arrow without exception.**
+File: `client/src/components/ui.tsx` (shared UI primitives — `ChevronDown` and future small stateless components live here)
+
+```tsx
+<ChevronDown isOpen={boolean} className="optional-colour-class" />
+```
+
+- `isOpen={false}` → ▼ (points down); `isOpen={true}` → ▲ (rotated 180°)
+- `transition-transform duration-300` is built in — do not add it to the parent
+- **Never put `w-*` or `text-right` on the ChevronDown itself** — those classes offset the transform origin and cause the chevron to arc instead of spin in place. Put layout sizing on the parent button/container instead.
+- Color is inherited from the parent; add `className="text-text-muted"` etc. only when the parent doesn't already set color.
 
 ---
 

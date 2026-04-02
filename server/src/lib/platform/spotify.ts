@@ -1,4 +1,3 @@
-import prisma from '../prisma';
 import { requestWithRetry } from '../requestWithRetry';
 import {
   fetchEnrichmentMaps,

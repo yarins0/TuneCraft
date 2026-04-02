@@ -18,6 +18,7 @@ import { usePlaylistActions } from '../hooks/usePlaylistActions';
 import { useReshuffleSchedule } from '../hooks/useReshuffleSchedule';
 import { findDuplicates } from '../utils/findDuplicates';
 import AppFooter from '../components/AppFooter';
+import ChevronDown from '../components/ui';
 
 const getUserId = () => getActiveAccount()?.userId || '';
 const getPlatformUserId = () => getActiveAccount()?.platformUserId || '';
@@ -90,6 +91,8 @@ export default function PlaylistDetail() {
   const [splitModalOpen, setSplitModalOpen] = useState(false);
 
   const dragFromIndexRef = useRef<number | null>(null);
+  // Mirrors dragFromIndexRef as state so rows can react to it visually (dim/scale effect).
+  const [dragFromIndex, setDragFromIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   // jumpingTrackIndex — the index of the track whose position number is currently being edited.
@@ -171,6 +174,7 @@ export default function PlaylistDetail() {
       reorderTracks(dragFromIndexRef.current, dragOverIndex);
     }
     dragFromIndexRef.current = null;
+    setDragFromIndex(null);
     setDragOverIndex(null);
   };
 
@@ -455,12 +459,7 @@ export default function PlaylistDetail() {
                 </span>
               )}
             </span>
-            <span
-              className="text-text-muted transition-transform duration-300 w-10 text-right"
-              style={{ transform: insightsOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
-            >
-              ▼
-            </span>
+            <ChevronDown isOpen={insightsOpen} className="text-text-muted" />
           </button>
 
           {insightsOpen && averages && (
@@ -547,9 +546,7 @@ export default function PlaylistDetail() {
             aria-label={openTrackIds.size === 0 ? 'Expand all tracks' : 'Collapse all tracks'}
           >
             <span>{openTrackIds.size === 0 ? 'Expand all' : 'Collapse all'}</span>
-            <span className="inline-block w-10 text-right" aria-hidden="true">
-              {openTrackIds.size === 0 ? '▼' : '▲'}
-            </span>
+            <ChevronDown isOpen={openTrackIds.size > 0} />
           </button>
         </div>
 
@@ -594,9 +591,10 @@ export default function PlaylistDetail() {
               totalTracks={tracks.length}
               isOpen={openTrackIds.has(track.id)}
               isDuplicate={duplicateIndexSet.has(index)}
+              isDragging={dragFromIndex === index}
               dragOverIndex={dragOverIndex}
-              onDragStart={() => { dragFromIndexRef.current = index; }}
-              onDragEnd={() => { dragFromIndexRef.current = null; setDragOverIndex(null); }}
+              onDragStart={() => { dragFromIndexRef.current = index; setDragFromIndex(index); }}
+              onDragEnd={() => { dragFromIndexRef.current = null; setDragFromIndex(null); setDragOverIndex(null); }}
               onDragOver={(e) => {
                 if (dragFromIndexRef.current === null) return;
                 e.preventDefault();

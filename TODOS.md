@@ -137,7 +137,7 @@ The unofficial `ytmusic-api` wrapper was evaluated and rejected:
 
 ### Still needed
 
-- [ ] **G1-save-verify** — re-test duplicate removal + save after 409 retry fix (5s wait, 200ms insert pacing). Was blocked by daily quota exhaustion on 2026-03-31.
+- [X] **G1-save-verify** — re-test duplicate removal + save after 409 retry fix (5s wait, 200ms insert pacing). Was blocked by daily quota exhaustion on 2026-03-31.
 - [ ] **G1-followed-verify** — confirm followed playlists now appear in dashboard after `fetchLibraryPlaylists` fix.
 - [ ] **G1-full-checklist** — run the full D2-style end-to-end checklist once quota resets (midnight Pacific):
   - [X] OAuth login, deny flow, access request modal
