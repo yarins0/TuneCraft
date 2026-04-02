@@ -95,6 +95,21 @@ const parseArtistFromTitle = (title: string): string | null => {
 const isMusicVideo = (video: any): boolean =>
   video.snippet?.categoryId === '10';
 
+// Extracts a cleaned song title from a YouTube video title for Spotify search.
+//
+// Two transformations:
+//   1. Strips the "Artist - " prefix when the "Artist - Song" convention is used —
+//      the artist is submitted separately in the search query, so including it in
+//      the title field would return worse results.
+//   2. Strips noise patterns (Official Video, feat., HD, etc.) via TITLE_NOISE.
+//
+// Returns the cleaned title, or the original string if no transformation applies.
+const extractSongTitle = (videoTitle: string): string => {
+  const sepIdx = videoTitle.indexOf(' - ');
+  const base   = sepIdx !== -1 ? videoTitle.slice(sepIdx + 3) : videoTitle;
+  return base.replace(TITLE_NOISE, '').trim() || videoTitle;
+};
+
 // Resolves the best available artist name for a YouTube video.
 //
 // Priority:
@@ -747,8 +762,9 @@ export class YouTubeAdapter implements PlatformAdapter {
       : videoIds;
 
     // Build enrichment input — YouTube doesn't provide ISRC, so spotifyId starts as null.
-    // Audio features will only be populated if MusicBrainz can resolve a Spotify ID from
-    // the title + artist name via the isrcLookup pipeline.
+    // `title` carries the cleaned song title so Phase 0b in backgroundEnrichTracks can try
+    // a `track:{title} artist:{artist}` Spotify search to resolve a spotifyId and unlock
+    // audio feature enrichment for tracks that would otherwise be permanently skipped.
     const enrichmentInput: EnrichmentTrack[] = filteredVideoIds
       .map(id => videoMap.get(id))
       .filter(Boolean)
@@ -759,6 +775,7 @@ export class YouTubeAdapter implements PlatformAdapter {
         artistId:   video.snippet?.channelId ?? video.id,
         artistName: resolveArtist(video.snippet?.channelTitle ?? '', video.snippet?.title ?? ''),
         isrc:       undefined,
+        title:      extractSongTitle(video.snippet?.title ?? ''),
         platform:   'YOUTUBE' as const,
       }));
 

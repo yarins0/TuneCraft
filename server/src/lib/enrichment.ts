@@ -1,5 +1,5 @@
 import prisma from './prisma';
-import { isrcLookup } from './isrcLookup';
+import { isrcLookup, titleAndArtistLookup } from './isrcLookup';
 import { requestWithRetry } from './requestWithRetry';
 import { getAdapter, getAllAdapters } from './platform/registry';
 import type { Platform } from './platform/types';
@@ -67,6 +67,11 @@ export interface EnrichmentTrack {
   artistId:    string;
   artistName:  string;
   isrc?:       string;
+  // Cleaned track title — optional, used as a Spotify search fallback for platforms
+  // (like YouTube) that provide no ISRC. When present and ISRC lookup yields nothing,
+  // Phase 0b tries a `track:{title} artist:{artistName}` Spotify search to resolve a
+  // spotifyId and unlock audio feature enrichment.
+  title?:      string;
   // The TrackCache column that holds this platform's native ID (e.g. 'spotifyId', 'tidalId').
   // Copied from the adapter's trackCacheIdField so the enrichment pipeline never needs
   // to inspect `platform` directly — any new platform just sets a different idField.
@@ -287,7 +292,7 @@ export const readEnrichmentCache = async (
 
 // ─── backgroundEnrichTracks: Phase helpers ─────────────────────────────────────
 
-// Phase 0: Resolves ISRC → Spotify ID for non-Spotify tracks that need it.
+// Phase 0a: Resolves ISRC → Spotify ID for non-Spotify tracks that need it.
 // Mutates spotifyId in place on each track object. Spotify tracks and tracks without
 // ISRC are skipped — they already have a spotifyId or will never get one.
 const resolveIsrcToSpotifyIds = async (tracks: EnrichmentTrack[]): Promise<void> => {
@@ -298,6 +303,21 @@ const resolveIsrcToSpotifyIds = async (tracks: EnrichmentTrack[]): Promise<void>
     const track = needsLookup[i];
     track.spotifyId = await isrcLookup(track.isrc!);
     if (i < needsLookup.length - 1) await sleep(ISRC_DELAY);
+  }
+};
+
+// Phase 0b: Title + artist → Spotify ID for tracks with no ISRC and no resolved spotifyId.
+// Runs after Phase 0a so ISRC lookups get first priority — this is a best-effort fallback
+// for platforms (like YouTube) whose API returns no ISRC at all.
+// Mutates spotifyId in place on each track object.
+const resolveTitleToSpotifyIds = async (tracks: EnrichmentTrack[]): Promise<void> => {
+  const TITLE_DELAY = 1000; // ms between requests — same budget as ISRC lookups
+  const needsLookup = tracks.filter(t => t.spotifyId === null && !t.isrc && t.title);
+
+  for (let i = 0; i < needsLookup.length; i++) {
+    const track = needsLookup[i];
+    track.spotifyId = await titleAndArtistLookup(track.artistName, track.title!);
+    if (i < needsLookup.length - 1) await sleep(TITLE_DELAY);
   }
 };
 
@@ -314,6 +334,7 @@ const fetchReccoBeatsIds = async (
 
   const idMap: Record<string, string> = {};
   const chunks = chunkArray(spotifyIds, 40);
+  console.log(`[ReccoBeats] ID lookup: ${spotifyIds.length} IDs in ${chunks.length} batch(es)`);
 
   for (const chunk of chunks) {
     let result: { href: string; id: string }[] = [];
@@ -329,6 +350,7 @@ const fetchReccoBeatsIds = async (
         'ReccoBeats'
       );
       result = r.data.content || [];
+      console.log(`[ReccoBeats] Batch of ${chunk.length}: got ${result.length} IDs back`);
     } catch (err: any) {
       console.error('ReccoBeats ID batch failed:', err.response?.status);
       // On failure, skip this chunk — remaining chunks still run
@@ -488,11 +510,21 @@ const persistAudioFeatures = (
         console.error('[Enrichment] TrackCache upsert failed (isrc):', e.message);
       });
   } else {
+    // No ISRC — upsert by Spotify ID.
+    // For Spotify tracks, platformId === spotifyId.
+    // For non-Spotify platforms resolved via Phase 0b (e.g. YouTube), spotifyId is the
+    // resolved Spotify track ID and platformId is the platform-native ID (e.g. the YouTube
+    // video ID). Both must be stored: spotifyId as the cache key for ReccoBeats lookups, and
+    // the native ID column (e.g. youtubeId) so the /features poller can find the row.
+    const nativeIdData = track.idField !== 'spotifyId'
+      ? { [track.idField]: track.platformId }
+      : {};
+
     prisma.trackCache
       .upsert({
-        where: { spotifyId: track.platformId },
-        create: { spotifyId: track.platformId, audioFeatures: features as object },
-        update: { audioFeatures: features as object, cachedAt: new Date() },
+        where:  { spotifyId: track.spotifyId! },
+        create: { spotifyId: track.spotifyId!, ...nativeIdData, audioFeatures: features as object },
+        update: { audioFeatures: features as object, cachedAt: new Date(), ...nativeIdData },
       })
       .catch(e => console.error('[Enrichment] TrackCache upsert failed (spotifyId):', e.message));
   }
@@ -568,11 +600,12 @@ const persistArtistGenres = async (
 //
 // Data flow:
 //   ┌──────────────────────────────────────────────────────────────────────────┐
-//   │  Phase 0: ISRC → Spotify ID (sequential, 1s gap, non-Spotify only)      │
+//   │  Phase 0a: ISRC → Spotify ID (sequential, 1s gap, non-Spotify only)     │
+//   │  Phase 0b: title+artist → Spotify ID (sequential, 1s gap, no-ISRC only) │
 //   │  Phase 1: ReccoBeats batch ID lookup ─┐ (parallel)                      │
 //   │           Last.fm genre lookup        ─┘                                │
 //   │  Phase 2: Persist genres to ArtistCache  ← immediately after Phase 1   │
-//   │  Phase 3: Per-track audio features (sequential, 300ms gap, rate limit)  │
+//   │  Phase 3: Per-track audio features (sequential, 100ms gap, rate limit)  │
 //   └──────────────────────────────────────────────────────────────────────────┘
 //
 // Genres (Phase 2) are persisted BEFORE the sequential audio-feature loop (Phase 3)
@@ -596,9 +629,17 @@ export const backgroundEnrichTracks = async (
   if (tracks.length === 0 && uniqueMissedArtists.length === 0) return;
   tracks.forEach(t => enrichingIds.add(t.platformId));
 
+  const platform = tracks[0]?.platform ?? 'UNKNOWN';
+  console.log(`[Enrichment][${platform}] Starting: ${tracks.length} tracks, ${uniqueMissedArtists.length} artists`);
+
   try {
-    // Phase 0: Resolve ISRC → Spotify ID for non-Spotify tracks.
+    // Phase 0a: Resolve ISRC → Spotify ID for non-Spotify tracks.
     await resolveIsrcToSpotifyIds(tracks);
+
+    // Phase 0b: Title + artist → Spotify ID for tracks with no ISRC (e.g. YouTube).
+    // Only runs for tracks that Phase 0a left unresolved — if Phase 0a found a spotifyId
+    // this is skipped. Fuzzy by nature; the first Spotify search result is used.
+    await resolveTitleToSpotifyIds(tracks);
 
     // Only tracks with a resolved Spotify ID can be submitted to ReccoBeats.
     // Tracks with no ISRC (or failed lookups) skip audio feature enrichment — displayed gracefully.
@@ -642,6 +683,8 @@ export const backgroundEnrichTracks = async (
     // Only send to ReccoBeats the tracks whose spotifyId was not already in the DB.
     const tracksForRecco = tracksWithSpotifyId.filter(t => !alreadyCachedSpotifyIds.has(t.spotifyId!));
     const spotifyIds     = tracksForRecco.map(t => t.spotifyId as string);
+
+    console.log(`[Enrichment][${platform}] Phase 1: ${spotifyIds.length} tracks → ReccoBeats (${alreadyCachedSpotifyIds.size} already cached, ${tracks.length - tracksWithSpotifyId.length} no spotifyId)`);
 
     // Reverse map: spotifyId → track object (for Phase 3 to look up the full track).
     const spotifyIdToTrack: Record<string, EnrichmentTrack> = {};

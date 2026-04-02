@@ -24,17 +24,18 @@ const PLATFORM_CONFIGS: Record<string, PlatformConfig> = {
 // All behavioral flags default to the least-surprising value so no platform-specific
 // error messages or restrictions are shown for an unrecognised platform.
 const defaultConfig: PlatformConfig = {
-  label:                   'Unknown',
-  icon:                    '?',
-  cssVar:                  '--color-platform-spotify',
-  available:               false,
-  requiresAccessRequest:   false,
-  ownershipRestricted:     false,
-  totalTracksReliable:     true,
-  audioFeaturesMissingHint: undefined,
-  trackUrl:                () => '#',
-  playlistUrl:             () => '#',
-  extractPlaylistId:       () => null,
+  label:                      'Unknown',
+  icon:                       '?',
+  cssVar:                     '--color-accent',
+  available:                  false,
+  requiresAccessRequest:      false,
+  ownershipRestricted:        false,
+  followedPlaylistsSupported: false,
+  totalTracksReliable:        true,
+  audioFeaturesMissingHint:   undefined,
+  trackUrl:                   () => '#',
+  playlistUrl:                () => '#',
+  extractPlaylistId:          () => null,
 };
 
 // Resolves the config for a platform key.

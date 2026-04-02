@@ -133,3 +133,45 @@ export const isrcLookup = async (isrc: string | undefined | null): Promise<strin
   // and niche tracks that have never been added to MusicBrainz.
   return lookupViaSpotify(trimmed);
 };
+
+// ─── titleAndArtistLookup ─────────────────────────────────────────────────────
+//
+// Resolves a Spotify track ID from a song title + artist name using Spotify's
+// `track:X artist:Y` search syntax. Intended as a Phase 0b fallback for platforms
+// (like YouTube) that provide no ISRC in their API responses.
+//
+// Unlike isrcLookup this is inherently fuzzy — the first result may not be the
+// exact recording. It is still a significant improvement over no enrichment at all:
+// most well-known tracks will match correctly and unlock audio features.
+//
+// Uses the same client-credentials token as the ISRC Spotify fallback.
+// Returns null on any error or when no result is returned — always treated as a soft miss.
+export const titleAndArtistLookup = async (
+  artist: string,
+  title:  string
+): Promise<string | null> => {
+  if (!artist || !title) return null;
+  try {
+    const token = await getClientCredentialsToken();
+    const response = await requestWithRetry(
+      'get',
+      'https://api.spotify.com/v1/search',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        params:  { q: `track:${title} artist:${artist}`, type: 'track', limit: 1 },
+      },
+      undefined,
+      3,
+      'Spotify title+artist search'
+    );
+    const tracks = response.data?.tracks?.items;
+    if (!tracks || tracks.length === 0) return null;
+    return tracks[0].id as string;
+  } catch (error: any) {
+    console.warn(
+      `Spotify title+artist search failed for "${title}" by "${artist}":`,
+      error.response?.status ?? error.message
+    );
+    return null;
+  }
+};
