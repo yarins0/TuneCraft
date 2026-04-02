@@ -52,7 +52,7 @@ const NOT_COLLECTED = [
 
 // Controls the user has over their own data.
 const USER_CONTROLS = [
-  'Revoke TuneCraft\'s access to your Spotify, SoundCloud, Tidal, or YouTube account at any time via each platform\'s connected apps settings',
+  'Revoke TuneCraft\'s access to your accounts at any time via each platform\'s connected apps settings',
   'Log out of TuneCraft at any time to clear your session tokens from your browser',
   'Request deletion of any data TuneCraft holds about you by contacting us (see below)',
   'Disable any active reshuffle schedules directly from within the app',
