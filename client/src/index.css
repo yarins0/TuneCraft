@@ -31,10 +31,47 @@ html, body {
     --color-platform-tidal: #96b1b1;
     --color-platform-apple-music: #76adbb;
     --color-platform-youtube: #FF0000;
+
+    /* Accent tints — derived from the accent colour at different opacities.
+       Used for decorative grid overlays, glow blobs, and subtle card backgrounds.
+       Defined with color-mix() so they update automatically if --color-accent changes. */
+    --color-accent-grid:   color-mix(in srgb, var(--color-accent)  3%, transparent);
+    --color-accent-subtle: color-mix(in srgb, var(--color-accent)  8%, transparent);
+    --color-accent-faint:  color-mix(in srgb, var(--color-accent)  2%, transparent);
+    /* Liked Songs card gradient start — accent blended dark so it reads as a deep purple. */
+    --color-liked-songs:   color-mix(in srgb, var(--color-accent) 25%, #000);
+
+    /* Unassigned bucket — amber highlight for the overflow group in the Split modal. */
+    --color-unassigned: #fbbf24;
+
+    /* Subtle white-tinted surface used for hover states and very light dividers.
+       Equivalent to white at 5% opacity — keeps hover feedback token-managed. */
+    --color-surface-hover: rgba(255, 255, 255, 0.05);
   }
 }
 
 @layer components {
+  /*
+   * Destructive / remove action button.
+   * Sets warning text colour plus a tinted hover background and glow — avoids
+   * repeating the color-mix() Tailwind arbitrary-value pattern at every call site.
+   */
+  .action-destructive {
+    color: var(--color-warning);
+  }
+  .action-destructive:hover {
+    background-color: color-mix(in srgb, var(--color-warning) 10%, transparent);
+    box-shadow: 0 0 8px var(--color-warning-glow);
+  }
+
+  /*
+   * Error toast background — warning colour at high opacity with a matching outer glow.
+   */
+  .toast-error-bg {
+    background-color: color-mix(in srgb, var(--color-warning) 90%, transparent);
+    box-shadow: 0 0 16px var(--color-warning-glow);
+  }
+
   /*
    * Reusable themed scrollbar — apply class="custom-scrollbar" to any
    * scrollable container to replace the browser default with a styled bar

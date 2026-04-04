@@ -91,7 +91,7 @@ const MergeModal: React.FC<MergeModalProps> = ({
             <button
               type="submit"
               disabled={isLoading}
-              className="px-5 py-2 text-sm w-[100px] rounded-full bg-accent text-white font-semibold hover:bg-accent-hover disabled:opacity-60 disabled:cursor-wait"
+              className="px-5 py-2 text-sm w-[100px] rounded-full bg-accent text-text-primary font-semibold hover:bg-accent-hover disabled:opacity-60 disabled:cursor-wait"
             >
               {isLoading ? mergeLabel : 'Merge'}
             </button>

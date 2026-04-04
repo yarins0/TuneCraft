@@ -14,6 +14,12 @@ export default {
         'text-primary': 'var(--color-text-primary)',
         'text-muted': 'var(--color-text-muted)',
         'border-color': 'var(--color-border)',
+        // Warning / destructive — mirrors --color-warning; enables text-warning, bg-warning, etc.
+        'warning': 'var(--color-warning)',
+        // Unassigned bucket — amber highlight for the overflow group in the Split modal.
+        'unassigned': 'var(--color-unassigned)',
+        // Subtle hover overlay — white at 5% opacity for button/row hover states.
+        'surface-hover': 'var(--color-surface-hover)',
       },
     },
   },

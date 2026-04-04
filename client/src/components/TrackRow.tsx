@@ -91,32 +91,9 @@ export default function TrackRow({
         onDrop={onDrop}
         className="flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-2 sm:py-3"
       >
-        {/* Combined drag handle + position number.
-            Both desktop drag and mobile touch drag originate here, so grabbing either
-            the ⋮⋮ icon or the number initiates a reorder.
-            touch-none prevents page scroll when a drag starts from this area. */}
-        <div
-          draggable={draggable}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          onTouchStart={() => { if (draggable) onDragStart(); }}
-          onTouchMove={draggable ? (e) => {
-            const t = e.touches[0];
-            if (t) onTouchDragMove(t.clientX, t.clientY);
-          } : undefined}
-          onTouchEnd={draggable ? () => onTouchDrop() : undefined}
-          className={[
-            'flex items-center gap-0 shrink-0',
-            draggable ? 'cursor-grab active:cursor-grabbing touch-none select-none' : '',
-          ].filter(Boolean).join(' ')}
-        >
-          {draggable && (
-            <span
-              className="text-text-muted text-xs opacity-60 group-hover:opacity-100"
-              aria-hidden="true"
-            >⋮⋮</span>
-          )}
-
+        {/* Position number — not part of the drag area.
+            Tap (mobile) or double-click (desktop) enters jump-to-position mode. */}
+        <div className="shrink-0">
           {isJumping ? (
             // Edit mode — shown after tapping/double-clicking the position number.
             // onBlur and Enter both confirm the jump so the user can use either.
@@ -155,7 +132,7 @@ export default function TrackRow({
             // Static mode — tap (mobile) or double-click (desktop) to enter edit mode.
             // Pointer type check distinguishes touch from mouse so each gets its natural interaction.
             <span
-              className="text-text-muted text-sm w-6 text-right cursor-pointer -ml-2"
+              className="text-text-muted text-sm w-6 text-right cursor-pointer block"
               title="Tap or double-click to jump to position"
               onClick={e => {
                 if (!window.matchMedia('(pointer: coarse)').matches) return;
@@ -173,11 +150,30 @@ export default function TrackRow({
           )}
         </div>
 
-        {/* Double-clicking anywhere from the album art rightward toggles audio features */}
+        {/* Drag area: album art + track info + duration.
+            On desktop the grab cursor signals the whole section is draggable — no ⋮⋮ needed.
+            On mobile the ⋮⋮ icon is shown as a familiar visual affordance for touch reorder.
+            Double-clicking here (outside link elements) toggles audio features.
+            touch-none prevents page scroll while a touch drag is in progress. */}
         <div
-          className="flex items-center gap-4 flex-1 min-w-0"
+          draggable={draggable}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onTouchStart={() => { if (draggable) onDragStart(); }}
+          onTouchMove={draggable ? (e) => {
+            const t = e.touches[0];
+            if (t) onTouchDragMove(t.clientX, t.clientY);
+          } : undefined}
+          onTouchEnd={draggable ? () => onTouchDrop() : undefined}
           onDoubleClick={onToggleOpen}
+          className={[
+            'flex items-center gap-4 flex-1 min-w-0',
+            draggable ? 'cursor-grab active:cursor-grabbing touch-none select-none' : '',
+          ].filter(Boolean).join(' ')}
         >
+          {draggable && (
+            <span className="sm:hidden text-text-muted text-xs opacity-60 shrink-0" aria-hidden="true">⋮⋮</span>
+          )}
           <div className="w-10 h-10 rounded-md overflow-hidden bg-bg-secondary shrink-0">
             {track.albumImageUrl ? (
               <img
@@ -192,19 +188,25 @@ export default function TrackRow({
             )}
           </div>
 
-          {/* Mobile layout: track name + artist on a single line */}
+          {/* Mobile layout: track name + artist on a single line.
+              Text is a non-interactive span to avoid accidental navigation on drag.
+              The ↗ button is the deliberate tap target for opening the platform link. */}
           <div className="sm:hidden flex flex-col min-w-0 flex-1">
-            <a
-              href={getPlatformTrackUrl(track.platform, track.id)}
-              target="_blank"
-              rel="noopener noreferrer"
-              onDoubleClick={e => e.stopPropagation()}
-              className="text-sm font-medium truncate block text-text-primary hover:text-accent hover:underline cursor-pointer"
-              title={getPlatformLabel(track.platform)}
-            >
-              {track.name}
-              <span className="text-text-muted font-normal"> — {track.artist}</span>
-            </a>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-sm font-medium truncate text-text-primary">
+                {track.name}
+                <span className="text-text-muted font-normal"> — {track.artist}</span>
+              </span>
+              <a
+                href={getPlatformTrackUrl(track.platform, track.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                className="shrink-0 text-text-muted hover:text-accent transition-colors text-xs leading-none"
+                title={getPlatformLabel(track.platform)}
+                aria-label={`Open on ${getPlatformLabel(track.platform)}`}
+              >↗</a>
+            </div>
             {track.genres.length > 0 && (
               <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                 {track.genres.slice(0, 2).map(genre => (
@@ -224,7 +226,7 @@ export default function TrackRow({
                 target="_blank"
                 rel="noopener noreferrer"
                 onDoubleClick={e => e.stopPropagation()}
-                className="text-sm font-medium truncate block text-text-primary hover:text-accent hover:underline cursor-pointer"
+                className="text-sm font-medium truncate inline-block max-w-full text-text-primary hover:text-accent hover:underline cursor-pointer"
                 title={getPlatformLabel(track.platform)}
               >
                 {track.name}
@@ -246,21 +248,22 @@ export default function TrackRow({
           <span className="hidden sm:inline-block text-text-muted text-sm w-10 text-right shrink-0">
             {formatDuration(track.durationMs)}
           </span>
-
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onToggleOpen();
-            }}
-            className="text-text-muted hover:text-text-primary transition-colors duration-200 shrink-0 w-11 text-right"
-            aria-label={isOpen ? 'Hide audio features' : 'Show audio features'}
-            title={isOpen ? 'Hide audio features' : 'Show audio features'}
-          >
-            <ChevronDown isOpen={isOpen} />
-          </button>
         </div>
+
+        {/* Chevron — outside the drag area so it keeps a normal pointer cursor */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggleOpen();
+          }}
+          className="text-text-muted hover:text-text-primary transition-colors duration-200 shrink-0 w-11 text-right"
+          aria-label={isOpen ? 'Hide audio features' : 'Show audio features'}
+          title={isOpen ? 'Hide audio features' : 'Show audio features'}
+        >
+          <ChevronDown isOpen={isOpen} />
+        </button>
       </div>
 
       {isOpen && (

@@ -72,7 +72,7 @@ export default function CopyModal({ isOpen, defaultName, isLoading, onClose, onC
           <button
             onClick={handleConfirm}
             disabled={isLoading || !name.trim()}
-            className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
+            className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-text-primary font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
           >
             {isLoading ? saveLabel : 'Save'}
           </button>

@@ -173,7 +173,7 @@ export default function ShuffleModal({
                     <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5 border-2 transition-colors ${
                       isChecked ? 'bg-accent border-accent' : 'border-border-color'
                     }`}>
-                      {isChecked && <span className="text-white text-xs">✓</span>}
+                      {isChecked && <span className="text-text-primary text-xs">✓</span>}
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-text-primary">
@@ -197,7 +197,7 @@ export default function ShuffleModal({
               <button
                 onClick={() => onShuffle(algorithms)}
                 disabled={noneSelected || isLoading}
-                className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
+                className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-text-primary font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
               >
                 {reshuffleLoading ? shuffleLabel : 'Shuffle'}
               </button>
@@ -271,7 +271,7 @@ export default function ShuffleModal({
                         disabled={!setReshuffleInterval}
                         className={`px-4 py-2 rounded-full text-sm font-semibold border transition-all duration-200 ${
                           reshuffleInterval === days
-                            ? 'bg-accent border-accent text-white'
+                            ? 'bg-accent border-accent text-text-primary'
                             : 'bg-bg-secondary border-border-color text-text-muted hover:border-accent/40'
                         } ${!setReshuffleInterval ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
@@ -321,7 +321,7 @@ export default function ShuffleModal({
                   disabled={reshuffleLoading || noneSelected || !onSaveReshuffle || !autoEnabled}
                   className="self-center mt-auto bg-accent
                             hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed
-                            text-white font-semibold px-6 py-2.5 rounded-full transition-all duration-200
+                            text-text-primary font-semibold px-6 py-2.5 rounded-full transition-all duration-200
                             hover:scale-105 active:scale-95 min-w-[200px] text-center"
                 >
                   {scheduleLabel}

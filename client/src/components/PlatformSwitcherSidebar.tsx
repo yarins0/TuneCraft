@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getAccounts, setActiveAccount, removeAccount, type StoredAccount } from '../utils/accounts';
 import { PLATFORM_COLORS, PLATFORM_LABELS, PLATFORM_ICONS } from '../utils/platform';
+import { COLOR_ACCENT } from '../constants/audioFeatures';
 
 interface PlatformSwitcherSidebarProps {
   isOpen: boolean;
@@ -167,7 +168,7 @@ export default function PlatformSwitcherSidebar({
             accounts.map(account => {
               const isActive = account.userId === activeUserId;
               const isConfirming = confirmingRemoveId === account.userId;
-              const color = PLATFORM_COLORS[account.platform] ?? '#a855f7';
+              const color = PLATFORM_COLORS[account.platform] ?? COLOR_ACCENT;
               const label = PLATFORM_LABELS[account.platform] ?? account.platform;
               const icon = PLATFORM_ICONS[account.platform] ?? '🎵';
 
@@ -290,8 +291,8 @@ export default function PlatformSwitcherSidebar({
             className={`w-full text-center px-5 py-2 rounded-full text-sm transition-all duration-200
               hover:scale-105 active:scale-95
               ${removeMode
-                ? 'bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20'
-                : 'text-text-muted hover:text-red-400 hover:shadow-[0_0_12px_var(--color-warning-glow)]'
+                ? 'bg-warning/10 border border-warning/30 text-warning hover:bg-warning/20'
+                : 'text-text-muted hover:text-warning hover:shadow-[0_0_12px_var(--color-warning-glow)]'
               }`}
           >
             {removeMode ? '✕ Cancel' : '− Remove a platform'}

@@ -117,7 +117,7 @@ export function LikedSongsCard({
           : 'border-border-color hover:border-accent/50 hover:bg-bg-secondary',
       ].join(' ')}
     >
-      <div className="aspect-square w-full bg-gradient-to-br from-purple-900 to-accent/30 flex items-center justify-center relative">
+      <div className="aspect-square w-full bg-gradient-to-br from-[var(--color-liked-songs)] to-accent/30 flex items-center justify-center relative">
         <SelectionCheckbox
           isSelected={isSelected}
           selectMode={selectMode}

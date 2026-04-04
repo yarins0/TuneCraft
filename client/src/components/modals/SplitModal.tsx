@@ -5,6 +5,7 @@ import type { SplitStrategy, SplitGroup } from '../../utils/splitPlaylist';
 import type { Track } from '../../api/tracks';
 import { useAnimatedLabel } from '../../hooks/useAnimatedLabel';
 import { MIN_AUDIO_FEATURE_COVERAGE } from '../../constants/audioFeatures';
+import ChevronDown from '../ui';
 
 interface Props {
   isOpen: boolean;
@@ -93,7 +94,7 @@ function TrackActionPopover({
           <button
             type="button"
             onClick={() => { onRemove(); onClose(); }}
-            className="w-full text-left px-3 py-2 text-sm text-[var(--color-warning)] hover:bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] hover:shadow-[0_0_8px_var(--color-warning-glow)] rounded-lg transition-colors"
+            className="w-full text-left px-3 py-2 text-sm rounded-lg transition-colors action-destructive"
           >
             🗑️ Remove
           </button>
@@ -165,6 +166,370 @@ function TrackActionPopover({
   );
 }
 
+// Tracks the naming state for each group in the split preview.
+// Lives at module scope so it can be referenced by the pure helper functions below.
+interface GroupMeta {
+  // Original algorithm bucket names merged into this group — drives the description and merge formula.
+  labels: string[];
+  // What's shown in the UI and written to the platform as the playlist name.
+  displayName: string;
+  // True once the user commits a rename — changes how further merges build the display name.
+  changed: boolean;
+  // Platform playlist description. Always built from labels, unaffected by user renames.
+  description: string;
+}
+
+// Reserved key for the overflow bucket — double-underscore prevents collision with real group names.
+const UNASSIGNED = '__unassigned__';
+
+// Generic Set toggle — returns a new Set with `item` added if absent, removed if present.
+// Used by enabledGroups and expandedGroups click handlers to avoid duplicating the same 4-line pattern.
+function toggleSetItem<T>(prev: Set<T>, item: T): Set<T> {
+  const next = new Set(prev);
+  if (next.has(item)) next.delete(item);
+  else next.add(item);
+  return next;
+}
+
+// Returns the display name for a group.
+// Unassigned always renders as "Unassigned" — it cannot be renamed.
+function resolvedName(
+  groupName: string,
+  groupMeta: Record<string, GroupMeta>,
+  playlistName: string,
+): string {
+  if (groupName === UNASSIGNED) return 'Unassigned';
+  return groupMeta[groupName]?.displayName ?? `${playlistName} — ${groupName}`;
+}
+
+// Builds the merged display name after combining a target group and a partner group.
+// Formula: changed parts come first, then unchanged parts are grouped under the playlist prefix.
+//   All changed  → "ChangedName1 + ChangedName2"
+//   All pristine → "My Playlist — Rock + Blues + Jazz"
+//   Mixed        → "ChangedName + My Playlist — Rock + Blues"
+function buildMergedDisplayName(
+  targetMeta: GroupMeta,
+  partnerMeta: GroupMeta,
+  playlistName: string,
+): string {
+  const parts = [
+    { displayName: targetMeta.displayName, changed: targetMeta.changed, labels: targetMeta.labels },
+    { displayName: partnerMeta.displayName, changed: partnerMeta.changed, labels: partnerMeta.labels },
+  ];
+  const changed = parts.filter(p => p.changed);
+  const unchanged = parts.filter(p => !p.changed);
+
+  const changedStr = changed.map(p => p.displayName).join(' + ');
+  const unchangedStr = unchanged.length > 0
+    ? `${playlistName} — ${unchanged.flatMap(p => p.labels).join(' + ')}`
+    : '';
+
+  if (changedStr && unchangedStr) return `${changedStr} + ${unchangedStr}`;
+  if (changedStr) return changedStr;
+  return unchangedStr;
+}
+
+// Builds the array of groups passed to onConfirm:
+// filters to only checked groups and resolves each group's display name and description.
+function buildConfirmPayload(
+  validGroups: SplitGroup[],
+  enabledGroups: Set<string>,
+  groupMeta: Record<string, GroupMeta>,
+  playlistName: string,
+): SplitGroup[] {
+  return validGroups
+    .filter(g => enabledGroups.has(g.name))
+    .map(g => ({
+      ...g,
+      name: resolvedName(g.name, groupMeta, playlistName),
+      description: groupMeta[g.name]?.description ?? `${playlistName} — ${g.name}`,
+    }));
+}
+
+// Left-column strategy picker — renders the ordered list of split-by buttons.
+// Disabled buttons are shown for audio-feature strategies when coverage is too low.
+function StrategyPicker({
+  selected,
+  audioFeatureCoverage,
+  onSelect,
+}: {
+  selected: SplitStrategy;
+  audioFeatureCoverage: number;
+  onSelect: (s: SplitStrategy) => void;
+}) {
+  return (
+    <div className="w-full sm:w-[24%] sm:shrink-0 flex flex-col min-h-0">
+      <p className="text-text-muted text-xs uppercase tracking-widest font-semibold mb-3 shrink-0">
+        Split by
+      </p>
+      <div className="flex flex-row sm:flex-col gap-0.5 overflow-x-auto sm:overflow-y-auto custom-scrollbar pb-1 sm:pb-0">
+        {STRATEGIES.map(s => {
+          const isDisabled = AUDIO_FEATURE_STRATEGIES.has(s.value) && audioFeatureCoverage < MIN_AUDIO_FEATURE_COVERAGE;
+          return (
+            <button
+              key={s.value}
+              type="button"
+              disabled={isDisabled}
+              onClick={() => !isDisabled && onSelect(s.value)}
+              title={isDisabled ? 'Audio features unavailable for most tracks in this playlist' : undefined}
+              className={[
+                'flex items-center gap-3 px-3 py-1 rounded-xl border text-left transition-all duration-150 shrink-0',
+                isDisabled
+                  ? 'border-border-color bg-bg-secondary text-text-muted opacity-35 cursor-not-allowed'
+                  : selected === s.value
+                    ? 'border-accent bg-accent/10 text-text-primary'
+                    : 'border-border-color bg-bg-secondary hover:border-accent/40 text-text-muted',
+              ].join(' ')}
+            >
+              <span className="text-xl shrink-0">{s.emoji}</span>
+              <div>
+                <p className="text-sm font-semibold leading-tight">{s.label}</p>
+                <p className="hidden sm:block text-xs text-text-muted leading-tight mt-0.5">{s.description}</p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// One row in the split preview — header bar + collapsible track list.
+// Receives all derived flags and callbacks from SplitModal so that no state lives here.
+interface GroupRowProps {
+  group: SplitGroup;
+  // True when this is the last visible row (suppresses the bottom border).
+  isLast: boolean;
+  isExpanded: boolean;
+  isEnabled: boolean;
+  isMergeMode: boolean;
+  isTheMergeTarget: boolean;
+  // The currently active merge target — needed to build the "Absorb into …" label.
+  mergeTarget: string | null;
+  editingGroupId: string | null;
+  groupMeta: Record<string, GroupMeta>;
+  openPopover: string | null;
+  playlistName: string;
+  // Other non-unassigned groups shown in the track action popover.
+  otherGroups: SplitGroup[];
+  onToggleEnabled: () => void;
+  onStartEdit: () => void;
+  onNameChange: (value: string) => void;
+  // Commits the rename: marks the group as changed if the name differs from the default.
+  onNameBlur: () => void;
+  onToggleExpand: () => void;
+  onStartMerge: () => void;
+  // Absorbs this row's group into the current mergeTarget.
+  onAbsorb: () => void;
+  onCancelMerge: () => void;
+  onRemoveTrack: (trackId: string) => void;
+  onCopyTrack: (trackId: string, target: string) => void;
+  onTransferTrack: (trackId: string, target: string) => void;
+  // Sets the open popover key ("groupName::trackId") or null to close.
+  onPopoverChange: (key: string | null) => void;
+}
+
+function GroupRow({
+  group,
+  isLast,
+  isExpanded,
+  isEnabled,
+  isMergeMode,
+  isTheMergeTarget,
+  mergeTarget,
+  editingGroupId,
+  groupMeta,
+  openPopover,
+  playlistName,
+  otherGroups,
+  onToggleEnabled,
+  onStartEdit,
+  onNameChange,
+  onNameBlur,
+  onToggleExpand,
+  onStartMerge,
+  onAbsorb,
+  onCancelMerge,
+  onRemoveTrack,
+  onCopyTrack,
+  onTransferTrack,
+  onPopoverChange,
+}: GroupRowProps) {
+  const isUnassigned = group.name === UNASSIGNED;
+  const isEditing = editingGroupId === group.name;
+
+  return (
+    <div
+      className={[
+        'border-border-color',
+        !isLast ? 'border-b' : '',
+        isUnassigned ? 'bg-[color-mix(in_srgb,var(--color-unassigned)_5%,transparent)]' : '',
+        isMergeMode && !isTheMergeTarget ? 'opacity-60' : '',
+      ].join(' ')}
+    >
+      {/* Group header row */}
+      <div className="flex items-center gap-3 px-4 py-3">
+
+        {/* Checkbox — controls whether this group is included in onConfirm.
+            Unassigned starts unchecked; it's an overflow bucket, not a real playlist. */}
+        <input
+          type="checkbox"
+          checked={isEnabled}
+          onChange={onToggleEnabled}
+          className="w-4 h-4 accent-accent shrink-0 cursor-pointer"
+          aria-label={`Include "${resolvedName(group.name, groupMeta, playlistName)}" in export`}
+        />
+
+        {/* Edit name pencil — hidden for Unassigned since its name is fixed */}
+        {!isUnassigned && (
+          <button
+            type="button"
+            onClick={onStartEdit}
+            className="text-xs text-text-muted hover:text-text-primary shrink-0"
+            title="Edit name"
+            aria-label="Edit playlist name"
+          >
+            ✏️
+          </button>
+        )}
+
+        {/* Name — inline editable for normal groups, fixed label for Unassigned */}
+        {!isUnassigned && isEditing ? (
+          <input
+            type="text"
+            value={groupMeta[group.name]?.displayName ?? `${playlistName} — ${group.name}`}
+            onChange={e => onNameChange(e.target.value)}
+            onBlur={onNameBlur}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+            className="flex-1 min-w-0 bg-transparent border-b border-border-color text-sm text-text-primary focus:outline-none"
+            autoFocus
+          />
+        ) : (
+          <p
+            className={[
+              'flex-1 min-w-0 text-sm font-medium truncate',
+              isUnassigned ? 'text-unassigned' : isEnabled ? 'text-text-primary' : 'text-text-muted line-through',
+            ].join(' ')}
+          >
+            {isUnassigned ? '📥 Unassigned' : resolvedName(group.name, groupMeta, playlistName)}
+          </p>
+        )}
+
+        {/* Track count */}
+        <p className="text-xs text-text-muted shrink-0">{group.tracks.length} tracks</p>
+
+        {/* Merge button — hidden for Unassigned, which can't be a merge target */}
+        {!isMergeMode && !isUnassigned && (
+          <button
+            type="button"
+            onClick={onStartMerge}
+            className="hidden sm:block text-xs text-text-muted hover:text-accent px-2 py-1 rounded-lg border border-border-color hover:border-accent/40 transition-colors shrink-0"
+            title="Merge another split into this one"
+          >
+            ⊕ Merge
+          </button>
+        )}
+
+        {/* While in merge mode: show "pick a split to absorb" label on the target row */}
+        {isTheMergeTarget && (
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs text-accent font-semibold">← pick a split to absorb</span>
+            <button
+              type="button"
+              onClick={onCancelMerge}
+              className="text-xs text-text-muted hover:text-text-primary"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* While in merge mode: every non-target row gets an "Absorb into …" button */}
+        {isMergeMode && !isTheMergeTarget && mergeTarget && (
+          <button
+            type="button"
+            onClick={onAbsorb}
+            className="hidden sm:block text-xs bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 px-2 py-1 rounded-lg transition-colors shrink-0"
+          >
+            Absorb into {resolvedName(mergeTarget, groupMeta, playlistName).split('—')[1]?.trim() || resolvedName(mergeTarget, groupMeta, playlistName)}
+          </button>
+        )}
+
+        {/* Expand/collapse chevron */}
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          className="text-text-muted hover:text-text-primary shrink-0 w-6 text-center"
+          aria-label={isExpanded ? 'Collapse tracks' : 'Expand tracks'}
+        >
+          <ChevronDown isOpen={isExpanded} />
+        </button>
+      </div>
+
+      {/* Expanded track list */}
+      {isExpanded && (
+        <div className="border-t border-border-color bg-bg-primary/40">
+          {group.tracks.length === 0 ? (
+            <p className="text-text-muted text-xs px-10 py-3 italic">No tracks left in this split</p>
+          ) : (
+            group.tracks.map(track => {
+              const popoverKey = `${group.name}::${track.id}`;
+              const isPopoverOpen = openPopover === popoverKey;
+
+              return (
+                <div
+                  key={track.id}
+                  className="flex items-center gap-3 px-4 sm:px-10 py-2 hover:bg-bg-card/50 transition-colors border-b border-border-color last:border-b-0"
+                >
+                  {/* Album art thumbnail */}
+                  <div className="w-7 h-7 rounded overflow-hidden bg-bg-secondary shrink-0">
+                    {track.albumImageUrl ? (
+                      <img src={track.albumImageUrl} alt={track.albumName} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-xs">🎵</div>
+                    )}
+                  </div>
+
+                  {/* Track name + artist */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-text-primary truncate">{track.name}</p>
+                    <p className="text-xs text-text-muted truncate">{track.artist}</p>
+                  </div>
+
+                  {/* Three-dot action button + popover */}
+                  <div className="relative shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => onPopoverChange(isPopoverOpen ? null : popoverKey)}
+                      className="text-text-muted hover:text-text-primary text-sm px-1 rounded transition-colors"
+                      aria-label="Track actions"
+                      title="Track actions"
+                    >
+                      ⋯
+                    </button>
+
+                    {isPopoverOpen && (
+                      <TrackActionPopover
+                        trackId={track.id}
+                        currentGroupName={group.name}
+                        otherGroups={otherGroups}
+                        onRemove={() => onRemoveTrack(track.id)}
+                        onCopy={target => onCopyTrack(track.id, target)}
+                        onTransfer={target => onTransferTrack(track.id, target)}
+                        onClose={() => onPopoverChange(null)}
+                      />
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SplitModal({
   isOpen,
   playlistName,
@@ -181,26 +546,7 @@ export default function SplitModal({
   const [groups, setGroups] = useState<SplitGroup[]>([]);
 
   // groupMeta is the single source of truth for each group's naming state.
-  // It replaces the old customNames / shortLabels / userRenamedGroups tangle.
-  //
-  // Each entry holds:
-  //   labels      — the ordered list of original algorithm bucket names that have been
-  //                 merged into this group (e.g. ["Rock"] or ["Rock", "Blues", "Jazz"]).
-  //                 Never modified by the user. Drives both the merge name formula and
-  //                 the Spotify description.
-  //   displayName — what is shown in the UI and written to Spotify as the playlist name.
-  //                 Starts as the auto-generated default and can be edited by the user.
-  //   changed     — true once the user has committed a rename via the ✏️ input.
-  //                 Used by mergeGroups to decide which naming formula to apply.
-  //   description — the Spotify playlist description. Always built from labels, never
-  //                 affected by user renames:
-  //                 "[playlistName] — Label1 + Label2 - Created by TuneCraft Split"
-  interface GroupMeta {
-    labels: string[];
-    displayName: string;
-    changed: boolean;
-    description: string;
-  }
+  // See the GroupMeta interface (module scope) for field documentation.
   const [groupMeta, setGroupMeta] = useState<Record<string, GroupMeta>>({});
 
   // editingGroupId tracks which group name input is currently being edited
@@ -270,46 +616,12 @@ export default function SplitModal({
 
   if (!isOpen) return null;
 
-  // The reserved internal key for the Unassigned overflow bucket.
-  // Double-underscore prefix prevents collision with real split group names.
-  const UNASSIGNED = '__unassigned__';
-
   // Only groups with at least one track are shown.
   // The Unassigned bucket is always pinned to the end of the list.
   const validGroups = [
     ...groups.filter(g => g.tracks.length > 0 && g.name !== UNASSIGNED),
     ...groups.filter(g => g.name === UNASSIGNED && g.tracks.length > 0),
   ];
-
-  // Returns the resolved display name for a group.
-  // Unassigned always renders as "Unassigned" — it cannot be renamed.
-  const resolvedName = (groupName: string) => {
-    if (groupName === UNASSIGNED) return 'Unassigned';
-    return groupMeta[groupName]?.displayName ?? `${playlistName} — ${groupName}`;
-  };
-
-  // Builds the merged display name after combining target + partner.
-  // Formula: changed parts come first, then unchanged parts are grouped under the playlist prefix.
-  //   All changed  → "ChangedName1 + ChangedName2"
-  //   All pristine → "My Playlist — Rock + Blues + Jazz"
-  //   Mixed        → "ChangedName + My Playlist — Rock + Blues"
-  const buildMergedDisplayName = (targetMeta: GroupMeta, partnerMeta: GroupMeta): string => {
-    const parts = [
-      { displayName: targetMeta.displayName, changed: targetMeta.changed, labels: targetMeta.labels },
-      { displayName: partnerMeta.displayName, changed: partnerMeta.changed, labels: partnerMeta.labels },
-    ];
-    const changed = parts.filter(p => p.changed);
-    const unchanged = parts.filter(p => !p.changed);
-
-    const changedStr = changed.map(p => p.displayName).join(' + ');
-    const unchangedStr = unchanged.length > 0
-      ? `${playlistName} — ${unchanged.flatMap(p => p.labels).join(' + ')}`
-      : '';
-
-    if (changedStr && unchangedStr) return `${changedStr} + ${unchangedStr}`;
-    if (changedStr) return changedStr;
-    return unchangedStr;
-  };
 
   // --- Track mutation helpers ---
 
@@ -421,7 +733,7 @@ export default function SplitModal({
       const mergedLabels = [...targetM.labels, ...partnerM.labels];
 
       // Build the new display name using the changed/unchanged formula
-      const newDisplayName = buildMergedDisplayName(targetM, partnerM);
+      const newDisplayName = buildMergedDisplayName(targetM, partnerM, playlistName);
 
       // Description always accumulates all original labels, ignoring any renames.
       // Format: "My Playlist — Rock + Blues + Jazz - Created by TuneCraft Split"
@@ -467,41 +779,11 @@ export default function SplitModal({
         <div className="flex flex-col sm:flex-row gap-6 flex-1 min-h-0">
 
           {/* Left column — strategy picker (~24%) */}
-          <div className="w-full sm:w-[24%] sm:shrink-0 flex flex-col min-h-0">
-            <p className="text-text-muted text-xs uppercase tracking-widest font-semibold mb-3 shrink-0">
-              Split by
-            </p>
-            <div className="flex flex-row sm:flex-col gap-0.5 overflow-x-auto sm:overflow-y-auto custom-scrollbar pb-1 sm:pb-0">
-              {STRATEGIES.map(s => {
-                // Audio-feature strategies are disabled when fewer than 20% of tracks
-                // have feature data — the resulting groups would be nearly empty or random.
-                const isDisabled = AUDIO_FEATURE_STRATEGIES.has(s.value) && audioFeatureCoverage < MIN_AUDIO_FEATURE_COVERAGE;
-                return (
-                  <button
-                    key={s.value}
-                    type="button"
-                    disabled={isDisabled}
-                    onClick={() => !isDisabled && setStrategy(s.value)}
-                    title={isDisabled ? 'Audio features unavailable for most tracks in this playlist' : undefined}
-                    className={[
-                      'flex items-center gap-3 px-3 py-1 rounded-xl border text-left transition-all duration-150 shrink-0',
-                      isDisabled
-                        ? 'border-border-color bg-bg-secondary text-text-muted opacity-35 cursor-not-allowed'
-                        : strategy === s.value
-                          ? 'border-accent bg-accent/10 text-text-primary'
-                          : 'border-border-color bg-bg-secondary hover:border-accent/40 text-text-muted',
-                    ].join(' ')}
-                  >
-                    <span className="text-xl shrink-0">{s.emoji}</span>
-                    <div>
-                      <p className="text-sm font-semibold leading-tight">{s.label}</p>
-                      <p className="hidden sm:block text-xs text-text-muted leading-tight mt-0.5">{s.description}</p>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <StrategyPicker
+            selected={strategy}
+            audioFeatureCoverage={audioFeatureCoverage}
+            onSelect={setStrategy}
+          />
 
           {/* Right column — preview + actions (~70%) */}
           {/* w-0 flex-1 overflow-hidden: starts at zero width so flex-grow has a baseline,
@@ -539,226 +821,42 @@ export default function SplitModal({
               No groups found for this strategy
             </p>
           ) : (
-            validGroups.map((group, index) => {
-              const isExpanded = expandedGroups.has(group.name);
-              const isEnabled = enabledGroups.has(group.name);
-              const isMergeMode = mergeTarget !== null;
-              const isTheMergeTarget = mergeTarget === group.name;
-              // Unassigned is excluded from the "other groups" list shown in track popovers
-              // and from merge targets — it's an overflow bucket, not a real destination
-              const isUnassigned = group.name === UNASSIGNED;
-              const otherGroups = validGroups.filter(g => g.name !== group.name && g.name !== UNASSIGNED);
-
-              return (
-                <div
-                  key={group.name}
-                  className={[
-                    'border-border-color',
-                    index < validGroups.length - 1 ? 'border-b' : '',
-                    // Unassigned gets a distinct amber tint so it stands out as a special bucket
-                    isUnassigned ? 'bg-amber-500/5' : '',
-                    // Dim groups that are not the merge target while in merge mode
-                    isMergeMode && !isTheMergeTarget ? 'opacity-60' : '',
-                  ].join(' ')}
-                >
-                  {/* Group header row */}
-                  <div className="flex items-center gap-3 px-4 py-3">
-
-                    {/* Checkbox — controls whether this group is included in onConfirm.
-                        Unassigned starts unchecked; it's an overflow bucket, not a real playlist. */}
-                    <input
-                      type="checkbox"
-                      checked={isEnabled}
-                      onChange={() => {
-                        setEnabledGroups(prev => {
-                          const next = new Set(prev);
-                          if (next.has(group.name)) next.delete(group.name);
-                          else next.add(group.name);
-                          return next;
-                        });
-                      }}
-                      className="w-4 h-4 accent-accent shrink-0 cursor-pointer"
-                      aria-label={`Include "${resolvedName(group.name)}" in export`}
-                    />
-
-                    {/* Edit name pencil — hidden for Unassigned since its name is fixed */}
-                    {!isUnassigned && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingGroupId(group.name);
-                        }}
-                        className="text-xs text-text-muted hover:text-text-primary shrink-0"
-                        title="Edit name"
-                        aria-label="Edit playlist name"
-                      >
-                        ✏️
-                      </button>
-                    )}
-
-                    {/* Name — inline editable for normal groups, fixed label for Unassigned */}
-                    {!isUnassigned && editingGroupId === group.name ? (
-                      <input
-                        type="text"
-                        value={groupMeta[group.name]?.displayName ?? `${playlistName} — ${group.name}`}
-                        onChange={e =>
-                          setGroupMeta(prev => ({
-                            ...prev,
-                            [group.name]: { ...prev[group.name], displayName: e.target.value },
-                          }))
-                        }
-                        onBlur={() => {
-                          // Only mark as changed if the display name differs from the
-                          // auto-generated default — clicking edit and walking away without
-                          // typing should not be treated as a user rename by merge logic.
-                          setGroupMeta(prev => {
-                            const current = prev[group.name];
-                            const defaultName = `${playlistName} — ${group.name}`;
-                            const isActuallyChanged = current?.displayName !== defaultName;
-                            return {
-                              ...prev,
-                              [group.name]: { ...current, changed: isActuallyChanged },
-                            };
-                          });
-                          setEditingGroupId(null);
-                        }}
-                        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-                        className="flex-1 min-w-0 bg-transparent border-b border-border-color text-sm text-text-primary focus:outline-none"
-                        autoFocus
-                      />
-                    ) : (
-                      <p
-                        className={[
-                          'flex-1 min-w-0 text-sm font-medium truncate',
-                          isUnassigned ? 'text-amber-400' : isEnabled ? 'text-text-primary' : 'text-text-muted line-through',
-                        ].join(' ')}
-                      >
-                        {isUnassigned ? '📥 Unassigned' : resolvedName(group.name)}
-                      </p>
-                    )}
-
-                    {/* Track count */}
-                    <p className="text-xs text-text-muted shrink-0">{group.tracks.length} tracks</p>
-
-                    {/* Merge button — hidden for Unassigned, which can't be a merge target */}
-                    {!isMergeMode && !isUnassigned && (
-                      <button
-                        type="button"
-                        onClick={() => setMergeTarget(group.name)}
-                        className="hidden sm:block text-xs text-text-muted hover:text-accent px-2 py-1 rounded-lg border border-border-color hover:border-accent/40 transition-colors shrink-0"
-                        title="Merge another split into this one"
-                      >
-                        ⊕ Merge
-                      </button>
-                    )}
-
-                    {/* While in merge mode: show "Merge into this" on the target row */}
-                    {isTheMergeTarget && (
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-xs text-accent font-semibold">← pick a split to absorb</span>
-                        <button
-                          type="button"
-                          onClick={() => setMergeTarget(null)}
-                          className="text-xs text-text-muted hover:text-text-primary"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    )}
-
-                    {/* While in merge mode: every non-target row gets an "Absorb" button */}
-                    {isMergeMode && !isTheMergeTarget && mergeTarget && (
-                      <button
-                        type="button"
-                        onClick={() => mergeGroups(mergeTarget, group.name)}
-                        className="hidden sm:block text-xs bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 px-2 py-1 rounded-lg transition-colors shrink-0"
-                      >
-                        Absorb into {resolvedName(mergeTarget).split('—')[1]?.trim() || resolvedName(mergeTarget)}
-                      </button>
-                    )}
-
-                    {/* Expand/collapse chevron */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setExpandedGroups(prev => {
-                          const next = new Set(prev);
-                          if (next.has(group.name)) next.delete(group.name);
-                          else next.add(group.name);
-                          return next;
-                        });
-                      }}
-                      className="text-text-muted hover:text-text-primary shrink-0 w-6 text-center transition-transform duration-200"
-                      style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
-                      aria-label={isExpanded ? 'Collapse tracks' : 'Expand tracks'}
-                    >
-                      ▼
-                    </button>
-                  </div>
-
-                  {/* Expanded track list */}
-                  {isExpanded && (
-                    <div className="border-t border-border-color bg-bg-primary/40">
-                      {group.tracks.length === 0 ? (
-                        <p className="text-text-muted text-xs px-10 py-3 italic">No tracks left in this split</p>
-                      ) : (
-                        group.tracks.map(track => {
-                          const popoverKey = `${group.name}::${track.id}`;
-                          const isPopoverOpen = openPopover === popoverKey;
-
-                          return (
-                            <div
-                              key={track.id}
-                              className="flex items-center gap-3 px-4 sm:px-10 py-2 hover:bg-bg-card/50 transition-colors border-b border-border-color last:border-b-0"
-                            >
-                              {/* Album art thumbnail */}
-                              <div className="w-7 h-7 rounded overflow-hidden bg-bg-secondary shrink-0">
-                                {track.albumImageUrl ? (
-                                  <img src={track.albumImageUrl} alt={track.albumName} className="w-full h-full object-cover" />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-xs">🎵</div>
-                                )}
-                              </div>
-
-                              {/* Track name + artist */}
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-medium text-text-primary truncate">{track.name}</p>
-                                <p className="text-xs text-text-muted truncate">{track.artist}</p>
-                              </div>
-
-                              {/* Three-dot action button + popover */}
-                              <div className="relative shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => setOpenPopover(isPopoverOpen ? null : popoverKey)}
-                                  className="text-text-muted hover:text-text-primary text-sm px-1 rounded transition-colors"
-                                  aria-label="Track actions"
-                                  title="Track actions"
-                                >
-                                  ⋯
-                                </button>
-
-                                {isPopoverOpen && (
-                                  <TrackActionPopover
-                                    trackId={track.id}
-                                    currentGroupName={group.name}
-                                    otherGroups={otherGroups}
-                                    onRemove={() => removeTrack(group.name, track.id)}
-                                    onCopy={(target) => copyTrack(group.name, track.id, target)}
-                                    onTransfer={(target) => transferTrack(group.name, track.id, target)}
-                                    onClose={() => setOpenPopover(null)}
-                                  />
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })
+            validGroups.map((group, index) => (
+              <GroupRow
+                key={group.name}
+                group={group}
+                isLast={index === validGroups.length - 1}
+                isExpanded={expandedGroups.has(group.name)}
+                isEnabled={enabledGroups.has(group.name)}
+                isMergeMode={mergeTarget !== null}
+                isTheMergeTarget={mergeTarget === group.name}
+                mergeTarget={mergeTarget}
+                editingGroupId={editingGroupId}
+                groupMeta={groupMeta}
+                openPopover={openPopover}
+                playlistName={playlistName}
+                otherGroups={validGroups.filter(g => g.name !== group.name && g.name !== UNASSIGNED)}
+                onToggleEnabled={() => setEnabledGroups(prev => toggleSetItem(prev, group.name))}
+                onStartEdit={() => setEditingGroupId(group.name)}
+                onNameChange={value => setGroupMeta(prev => ({ ...prev, [group.name]: { ...prev[group.name], displayName: value } }))}
+                onNameBlur={() => {
+                  setGroupMeta(prev => {
+                    const current = prev[group.name];
+                    const defaultName = `${playlistName} — ${group.name}`;
+                    return { ...prev, [group.name]: { ...current, changed: current?.displayName !== defaultName } };
+                  });
+                  setEditingGroupId(null);
+                }}
+                onToggleExpand={() => setExpandedGroups(prev => toggleSetItem(prev, group.name))}
+                onStartMerge={() => setMergeTarget(group.name)}
+                onAbsorb={() => mergeGroups(mergeTarget!, group.name)}
+                onCancelMerge={() => setMergeTarget(null)}
+                onRemoveTrack={trackId => removeTrack(group.name, trackId)}
+                onCopyTrack={(trackId, target) => copyTrack(group.name, trackId, target)}
+                onTransferTrack={(trackId, target) => transferTrack(group.name, trackId, target)}
+                onPopoverChange={setOpenPopover}
+              />
+            ))
           )}
         </div>
 
@@ -772,23 +870,9 @@ export default function SplitModal({
                 Cancel
               </button>
               <button
-                onClick={() =>
-                  onConfirm(
-                    // Only pass groups that are checked AND have at least one track
-                    validGroups
-                      .filter(g => enabledGroups.has(g.name))
-                      .map(g => ({
-                        ...g,
-                        name: resolvedName(g.name),
-
-                        // Pass the accumulated description so the backend can write it to Spotify
-                        description: groupMeta[g.name]?.description
-                          ?? `${playlistName} — ${g.name}`,
-                      }))
-                  )
-                }
+                onClick={() => onConfirm(buildConfirmPayload(validGroups, enabledGroups, groupMeta, playlistName))}
                 disabled={isLoading || checkedCount === 0}
-                className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-full transition-all duration-200"
+                className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-text-primary font-semibold py-3 rounded-full transition-all duration-200"
               >
                 {isLoading ? splitLabel : `Create ${checkedCount} Playlist${checkedCount !== 1 ? 's' : ''}`}
               </button>

@@ -73,7 +73,7 @@ function SelectionActionBar({
         </button>
         <button
           onClick={onMerge}
-          className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-2.5 rounded-full transition-all duration-200 hover:scale-105 active:scale-95 text-sm"
+          className="bg-accent hover:bg-accent-hover text-text-primary font-semibold px-6 py-2.5 rounded-full transition-all duration-200 hover:scale-105 active:scale-95 text-sm"
         >
           🔀 Merge {count} Playlists
         </button>
@@ -394,7 +394,7 @@ export default function Dashboard() {
             <p className="text-text-muted text-sm">{error}</p>
             <button
               onClick={loadLibrary}
-              className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-2.5 rounded-full transition-all duration-200 hover:scale-105 active:scale-95 text-sm mt-2"
+              className="bg-accent hover:bg-accent-hover text-text-primary font-semibold px-6 py-2.5 rounded-full transition-all duration-200 hover:scale-105 active:scale-95 text-sm mt-2"
             >
               Try again
             </button>
@@ -441,7 +441,7 @@ export default function Dashboard() {
                 if (e.button === 1) { e.preventDefault(); handleDiscover(true); }
               }}
               disabled={discoverLoading || !discoverInput.trim()}
-              className="bg-accent hover:bg-accent-hover w-[130px] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-6 py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
+              className="bg-accent hover:bg-accent-hover w-[130px] disabled:opacity-50 disabled:cursor-not-allowed text-text-primary font-semibold px-6 py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
             >
               {discoverLoading ? discoverLoadingLabel : 'Go'}
             </button>

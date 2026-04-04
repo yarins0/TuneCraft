@@ -1,5 +1,5 @@
 import { PieChart, Pie, Cell } from 'recharts';
-import { AUDIO_FEATURES } from '../constants/audioFeatures';
+import { AUDIO_FEATURES, COLOR_ACCENT, CHART_TRACK_COLOR } from '../constants/audioFeatures';
 
 interface AudioFeatureChartProps {
   label: string;
@@ -19,7 +19,7 @@ export default function AudioFeatureChart({
   isLoading = false,
 }: AudioFeatureChartProps) {
   const meta = getFeatureMeta(label);
-  const color = meta?.color || '#a855f7';
+  const color = meta?.color || COLOR_ACCENT;
   const baseDescription = meta?.description || '';
   const tooltip = (() => {
     if (value === null) {
@@ -86,7 +86,7 @@ export default function AudioFeatureChart({
             strokeWidth={0}
           >
             <Cell fill={color} />
-            <Cell fill="rgba(255,255,255,0.05)" />
+            <Cell fill={CHART_TRACK_COLOR} />
           </Pie>
         </PieChart>
         <div className="absolute inset-0 flex flex-col items-center justify-center">

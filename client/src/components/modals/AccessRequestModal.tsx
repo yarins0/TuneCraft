@@ -108,7 +108,7 @@ export default function AccessRequestModal({
               {/* New / removed path — shows the request form */}
               <button
                 onClick={() => setScreen('form')}
-                className="w-full py-3 px-4 rounded-xl font-semibold text-sm border border-border-color text-text-primary hover:bg-white/5 active:scale-95 transition-all"
+                className="w-full py-3 px-4 rounded-xl font-semibold text-sm border border-border-color text-text-primary hover:bg-surface-hover active:scale-95 transition-all"
               >
                 I'm new or I've been removed — request access
               </button>
@@ -185,7 +185,7 @@ export default function AccessRequestModal({
               <button
                 type="button"
                 onClick={() => setScreen('choice')}
-                className="flex-1 py-3 rounded-xl text-sm font-semibold border border-border-color text-text-muted hover:text-text-primary hover:bg-white/5 active:scale-95 transition-all"
+                className="flex-1 py-3 rounded-xl text-sm font-semibold border border-border-color text-text-muted hover:text-text-primary hover:bg-surface-hover active:scale-95 transition-all"
               >
                 Back
               </button>
@@ -216,7 +216,7 @@ export default function AccessRequestModal({
             </div>
             <button
               onClick={onClose}
-              className="w-full py-3 rounded-xl text-sm font-semibold border border-border-color text-text-primary hover:bg-white/5 active:scale-95 transition-all"
+              className="w-full py-3 rounded-xl text-sm font-semibold border border-border-color text-text-primary hover:bg-surface-hover active:scale-95 transition-all"
             >
               Close
             </button>

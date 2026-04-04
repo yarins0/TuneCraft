@@ -48,7 +48,7 @@ function PlatformMismatchScreen({
         </p>
         <Link
           to="/dashboard"
-          className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-3 rounded-full transition-all duration-200 inline-block"
+          className="bg-accent hover:bg-accent-hover text-text-primary font-semibold px-6 py-3 rounded-full transition-all duration-200 inline-block"
         >
           Back to Dashboard
         </Link>
@@ -98,7 +98,7 @@ function ErrorScreen({
         )}
         <Link
           to="/dashboard"
-          className="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-3 rounded-full transition-all duration-200 inline-block"
+          className="bg-accent hover:bg-accent-hover text-text-primary font-semibold px-6 py-3 rounded-full transition-all duration-200 inline-block"
         >
           Back to Dashboard
         </Link>
@@ -405,7 +405,7 @@ export default function PlaylistDetail() {
             onClick={() => setShuffleModalOpen(true)}
             disabled={loadingMore}
             className={`bg-accent hover:bg-bg-secondary
-            disabled:opacity-50 text-white font-semibold px-3 sm:px-5 rounded-full text-sm
+            disabled:opacity-50 text-text-primary font-semibold px-3 sm:px-5 rounded-full text-sm
             transition-all duration-200 hover:scale-105 active:scale-95
             flex flex-col items-center ${reshuffleSchedule ? 'py-0.5' : 'py-1.5 sm:py-2'}`}
           >

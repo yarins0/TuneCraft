@@ -14,7 +14,7 @@ export default function PageShell({ children }: { children: ReactNode }) {
         className="fixed inset-0 pointer-events-none z-0"
         style={{
           backgroundImage:
-            'linear-gradient(rgba(168,85,247,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(168,85,247,0.03) 1px, transparent 1px)',
+            'linear-gradient(var(--color-accent-grid) 1px, transparent 1px), linear-gradient(90deg, var(--color-accent-grid) 1px, transparent 1px)',
           backgroundSize: '40px 40px',
         }}
       />
@@ -28,7 +28,7 @@ export default function PageShell({ children }: { children: ReactNode }) {
           transform: 'translateX(-50%)',
           width: 800,
           height: 500,
-          background: 'radial-gradient(ellipse, rgba(168,85,247,0.08) 0%, transparent 70%)',
+          background: 'radial-gradient(ellipse, var(--color-accent-subtle) 0%, transparent 70%)',
         }}
       />
 

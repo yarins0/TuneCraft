@@ -91,7 +91,7 @@ export function AccentCard({ children, className = '' }: { children: ReactNode; 
   return (
     <div
       className={`border border-border-color rounded-2xl ${className}`.trim()}
-      style={{ background: 'linear-gradient(135deg, rgba(168,85,247,0.08), rgba(168,85,247,0.02))' }}
+      style={{ background: 'linear-gradient(135deg, var(--color-accent-subtle), var(--color-accent-faint))' }}
     >
       {children}
     </div>
@@ -126,7 +126,7 @@ export function SelectionCheckbox({
         selectMode ? 'opacity-100' : 'sm:opacity-0 sm:group-hover:opacity-100',
       ].join(' ')}
     >
-      {isSelected && <span className="text-white text-xs font-bold leading-none">✓</span>}
+      {isSelected && <span className="text-text-primary text-xs font-bold leading-none">✓</span>}
     </div>
   );
 }
@@ -138,13 +138,13 @@ export function Toast({ variant, message }: { variant: 'success' | 'error'; mess
   if (!message) return null;
   if (variant === 'success') {
     return (
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-accent text-white px-6 py-3 rounded-full shadow-lg z-50">
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-accent text-text-primary px-6 py-3 rounded-full shadow-lg z-50">
         ✅ {message}
       </div>
     );
   }
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[color-mix(in_srgb,var(--color-warning)_90%,transparent)] text-white px-6 py-3 rounded-full shadow-[0_0_16px_var(--color-warning-glow)] z-50 text-center max-w-md">
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 toast-error-bg text-text-primary px-6 py-3 rounded-full z-50 text-center max-w-md">
       ⚠️ {message}
     </div>
   );
