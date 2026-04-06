@@ -138,6 +138,8 @@ export default function PlaylistCompositionCharts({ tracks, isLoading }: Props) 
                 outerRadius={90}
                 paddingAngle={2}
                 dataKey="value"
+                activeShape={undefined}
+                cursor="default"
               >
                 {genreData.map((_, index) => (
                   <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
@@ -179,6 +181,8 @@ export default function PlaylistCompositionCharts({ tracks, isLoading }: Props) 
                 outerRadius={90}
                 paddingAngle={2}
                 dataKey="value"
+                activeShape={undefined}
+                cursor="default"
               >
                 {decadeData.map((_, index) => (
                   <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />

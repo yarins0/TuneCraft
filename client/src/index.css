@@ -110,3 +110,11 @@ html, body {
     box-shadow: 0 0 6px var(--color-accent-glow);
   }
 }
+
+/* Recharts elements can receive browser focus on click — remove all focus outlines. */
+.recharts-sector,
+.recharts-responsive-container,
+.recharts-wrapper,
+.recharts-surface {
+  outline: none;
+}
