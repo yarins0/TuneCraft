@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
-import type { PlaylistAverages } from '../api/tracks';
-import { getPlatformPlaylistUrl, getPlatformLabel, getPlatformBadgeStyle, getPlatformConfig, PLATFORM_LABELS } from '../utils/platform';
+import { getPlatformConfig, PLATFORM_LABELS } from '../utils/platform';
 import { getActiveAccount, setSessionAccount } from '../utils/accounts';
-import AudioFeatureChart from '../components/AudioFeatureChart';
-import { AUDIO_FEATURES, MIN_AUDIO_FEATURE_COVERAGE } from '../constants/audioFeatures';
-import PlaylistCompositionCharts from '../components/PlaylistCompositionCharts';
 import ShuffleModal from '../components/modals/ShuffleModal';
 import CopyModal from '../components/modals/CopyModal';
 import SplitModal from '../components/modals/SplitModal';
@@ -18,8 +14,9 @@ import { usePlaylistActions } from '../hooks/usePlaylistActions';
 import { useReshuffleSchedule } from '../hooks/useReshuffleSchedule';
 import { findDuplicates } from '../utils/findDuplicates';
 import AppFooter from '../components/AppFooter';
-import AppLogo from '../components/AppLogo';
-import ChevronDown, { Badge, Toast } from '../components/ui';
+import PlaylistHeader from '../components/PlaylistHeader';
+import PlaylistInsights from '../components/PlaylistInsights';
+import ChevronDown, { Toast } from '../components/ui';
 
 const getPlatformUserId = () => getActiveAccount()?.platformUserId || '';
 
@@ -346,110 +343,24 @@ export default function PlaylistDetail() {
       <div className="min-h-screen">
 
       {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-border-color px-4 sm:px-8 py-3 sm:py-6 bg-bg-secondary">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-0">
-        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-
-          <AppLogo variant="compact" />
-
-          <div className="hidden sm:block h-8 w-px bg-border-color shrink-0" />
-
-          {/* Playlist name + live track count */}
-          <div className="min-w-0">
-            {name && (
-              // Real <a> tag so the browser recognises this as a link —
-              // enables middle-click, Ctrl+click, and right-click "Open in new tab".
-              // href is undefined until tracks load (no platform yet), which safely
-              // disables the link without hiding the title text.
-              <a
-                href={tracks[0]?.platform ? getPlatformPlaylistUrl(tracks[0].platform, playlistId!) : undefined}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={getPlatformLabel(tracks[0]?.platform)}
-                className="text-lg font-semibold text-left text-text-primary hover:text-accent hover:underline cursor-pointer truncate max-w-xs block"
-              >
-                {name}
-              </a>
-            )}
-            <p className="text-text-muted text-sm flex items-center gap-2">
-              {loadingMore
-                ? (() => {
-                    // When totalTracksReliable is false (e.g. Tidal), the API often omits meta.total,
-                    // so `total` equals the accumulated page count rather than the real track count.
-                    // Fall back to the count the dashboard already knew from the playlist list API.
-                    const displayTotal =
-                      total > tracks.length
-                        ? total                                            // real total from the API
-                        : !platformConfig.totalTracksReliable && dashboardTrackCount
-                          ? dashboardTrackCount                            // dashboard fallback
-                          : null;                                         // unknown — don't show "X of Y"
-                    return displayTotal
-                      ? `Loading... ${tracks.length} of ${displayTotal} tracks`
-                      : `Loading... ${tracks.length} tracks`;
-                  })()
-                : `${tracks.length} tracks`
-              }
-              {/* Platform badge — shown for every platform, coloured with the platform's brand colour */}
-              {tracks.length > 0 && tracks[0]?.platform && (
-                <Badge variant="platform" style={getPlatformBadgeStyle(tracks[0].platform)}>
-                  {tracks[0].platform}
-                </Badge>
-              )}
-            </p>
-          </div>
-        </div>
-
-        {/* Action buttons */}
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-3">
-          <button
-            onClick={() => setShuffleModalOpen(true)}
-            disabled={loadingMore}
-            className={`bg-accent hover:bg-bg-secondary
-            disabled:opacity-50 text-text-primary font-semibold px-3 sm:px-5 rounded-full text-sm
-            transition-all duration-200 hover:scale-105 active:scale-95
-            flex flex-col items-center ${reshuffleSchedule ? 'py-0.5' : 'py-1.5 sm:py-2'}`}
-          >
-            <span>🔀 Shuffle</span>
-            {reshuffleSchedule && (
-              <span className="text-xs font-normal opacity-80 leading-tight">Active</span>
-            )}
-          </button>
-          <button
-            onClick={() => setSplitModalOpen(true)}
-            disabled={loadingMore}
-            className="bg-accent hover:bg-bg-secondary
-            disabled:opacity-50 text-text-primary font-semibold px-3 py-1.5 sm:px-5 sm:py-2 rounded-full text-sm
-            border border-border-color transition-all duration-200 hover:border-accent/50"
-          >
-            ✂️ Split
-          </button>
-          {isOwner && playlistId !== 'liked' && (
-                <button
-                  onClick={handleSave}
-                  disabled={saveLoading || loadingMore}
-                  className="bg-bg-card hover:bg-bg-secondary
-                  disabled:opacity-50 text-text-primary font-semibold px-3 py-1.5 sm:px-5 sm:py-2 rounded-full text-sm
-                  border border-border-color transition-all duration-200 hover:border-accent/50"
-                >
-                  <span className="inline-block sm:w-[90px] text-center">
-                    {saveLoading ? saveLabel : '💾 Save'}
-                  </span>
-                </button>
-          )}
-          <button
-            onClick={() => setCopyModalOpen(true)}
-            disabled={saveLoading || loadingMore}
-            className="bg-bg-card hover:bg-bg-secondary
-                      disabled:opacity-50 text-text-primary font-semibold px-3 py-1.5 sm:px-5 sm:py-2 rounded-full text-sm
-                      border border-border-color transition-all duration-200 hover:border-accent/50"
-          >
-            <span className="inline-block sm:w-[150px] text-center">
-              {saveLoading ? copyLabel : '💾 Save as copy'}
-            </span>
-          </button>
-        </div>
-        </div>
-      </div>
+      <PlaylistHeader
+        name={name}
+        tracks={tracks}
+        playlistId={playlistId!}
+        loadingMore={loadingMore}
+        total={total}
+        platformConfig={platformConfig}
+        dashboardTrackCount={dashboardTrackCount}
+        reshuffleSchedule={reshuffleSchedule}
+        saveLoading={saveLoading}
+        saveLabel={saveLabel}
+        copyLabel={copyLabel}
+        isOwner={isOwner}
+        onShuffleOpen={() => setShuffleModalOpen(true)}
+        onSplitOpen={() => setSplitModalOpen(true)}
+        onSave={handleSave}
+        onCopyOpen={() => setCopyModalOpen(true)}
+      />
 
       {/* Unsaved changes banner */}
       {hasUnsavedChanges && (
@@ -469,52 +380,15 @@ export default function PlaylistDetail() {
       <div className="px-4 sm:px-8 py-2">
 
         {/* Collapsible Insights Section */}
-        <div className="mb-8 bg-bg-card rounded-2xl border border-border-color overflow-hidden">
-          <button
-            onClick={() => setInsightsOpen(!insightsOpen)}
-            className="w-full px-6 py-4 flex items-center justify-between hover:bg-bg-secondary transition-colors duration-200"
-          >
-            <span className="text-sm font-semibold uppercase tracking-widest text-text-muted">
-              Playlist Insights
-              {loadingMore && (
-                <span className="ml-2 text-accent/60 normal-case font-normal">
-                  — updating as tracks load
-                </span>
-              )}
-            </span>
-            <ChevronDown isOpen={insightsOpen} className="text-text-muted" />
-          </button>
-
-          {insightsOpen && averages && (
-            <div className="px-6 pb-6">
-              {/* Audio feature charts — hidden when coverage is below the minimum threshold */}
-              {audioFeatureCoverage >= MIN_AUDIO_FEATURE_COVERAGE ? (
-                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-6 justify-items-center mb-8">
-                  {AUDIO_FEATURES.map(feature => (
-                    <AudioFeatureChart
-                      key={feature.key}
-                      label={feature.label}
-                      value={averages[feature.key as keyof PlaylistAverages]}
-                      isTempo={feature.isTempo}
-                      isLoading={loadingMore}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 text-text-muted text-sm mb-8 px-1 py-3 bg-bg-secondary rounded-xl border border-border-color">
-                  <span className="text-2xl shrink-0 pl-1">🎙️</span>
-                  <span>
-                    {platformConfig.audioFeaturesMissingHint
-                      ? `Audio feature data isn't available for most tracks here — ${platformConfig.audioFeaturesMissingHint}`
-                      : "Audio feature data isn't available for most tracks here."}
-                  </span>
-                </div>
-              )}
-              {/* Genre and decade charts — always shown; sourced from Last.fm */}
-              <PlaylistCompositionCharts tracks={tracks} isLoading={loadingMore} />
-            </div>
-          )}
-        </div>
+        <PlaylistInsights
+          isOpen={insightsOpen}
+          onToggle={() => setInsightsOpen(!insightsOpen)}
+          loadingMore={loadingMore}
+          averages={averages}
+          audioFeatureCoverage={audioFeatureCoverage}
+          platformConfig={platformConfig}
+          tracks={tracks}
+        />
 
         {/* Duplicate warning */}
         {duplicates.length > 0 && (
