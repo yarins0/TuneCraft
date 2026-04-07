@@ -31,7 +31,7 @@ Every track is enriched with:
 - Visualized as donut charts on the playlist detail page
 
 ### Playlist Discovery
-Paste any public Spotify playlist URL to open and analyze it, even if it's not in your library.
+Paste any public playlist URL from a supported platform to open and analyze it, even if it's not in your library. Supports Spotify, SoundCloud, Tidal, and YouTube.
 
 ---
 
@@ -390,9 +390,10 @@ The 1s floor prevents APIs that send `Retry-After: 0` from burning all retry att
 | Frontend        | React, TypeScript, Vite, Tailwind CSS                                        |
 | Backend         | Node.js, Express, TypeScript                                                 |
 | Database        | PostgreSQL via Prisma ORM                                                    |
-| Auth            | Spotify OAuth 2.0 with automatic token refresh                               |
+| Auth            | OAuth 2.0 (Spotify, SoundCloud, YouTube) + PKCE (Tidal) with automatic token refresh |
 | External APIs   | Spotify Web API, SoundCloud API, Tidal API (OpenAPI v2), YouTube Data API v3, Last.fm, ReccoBeats |
 | Background jobs | node-cron                                                                    |
+| Tests           | Vitest, @testing-library/react                                               |
 
 ---
 
@@ -491,13 +492,17 @@ Health check: `GET http://127.0.0.1:3000/health`
 tunecraft/
 ├── client/                        # React frontend (Vite + TypeScript)
 │   └── src/
+│       ├── __tests__/             # Vitest suite — hooks (tracks, actions, reshuffle) + UI screens
 │       ├── api/                   # Typed fetch wrappers (playlists, tracks, reshuffle)
-│       ├── components/            # Modals (Shuffle, Split, Merge, Copy, Duplicates), AppFooter, PlatformSwitcherSidebar
+│       ├── components/            # Modals (Shuffle, Split, Merge, Copy, Duplicates),
+│       │                          #   PlaylistHeader, PlaylistInsights,
+│       │                          #   AppFooter, PlatformSwitcherSidebar
 │       ├── constants/             # Audio feature keys, labels, chart colours
 │       ├── hooks/                 # useAnimatedLabel, usePlaylistTracks, usePlaylistActions, useReshuffleSchedule
 │       ├── pages/                 # Route-level components (Login, Dashboard, PlaylistDetail, Contact, PrivacyPolicy, Callback)
 │       └── utils/                 # shuffleAlgorithms, splitPlaylist, mergePlaylists, platform helpers
 └── server/                        # Express backend (Node.js + TypeScript)
+    ├── tests/                     # Vitest suite — controllers (tracks, discover) + pure functions (shuffle, ISRC lookup)
     └── src/
         ├── controllers/           # Route handlers by domain: library, discover, tracks, operations
         ├── lib/
@@ -523,6 +528,7 @@ npm run dev        # Start client + server + Prisma Studio concurrently
 npm run dev        # Start server with hot reload (ts-node + nodemon)
 npm run build      # Compile TypeScript to dist/
 npm start          # Run compiled dist/
+npm test           # Run Vitest suite (controllers + pure functions)
 ```
 
 **`client/`:**
@@ -531,6 +537,7 @@ npm run dev        # Start Vite dev server
 npm run build      # Production build
 npm run lint       # ESLint
 npm run preview    # Preview production build locally
+npm test           # Run Vitest suite (hooks + UI components)
 ```
 
 **Database (`server/`):**
