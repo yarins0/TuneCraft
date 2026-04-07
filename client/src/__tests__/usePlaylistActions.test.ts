@@ -71,9 +71,9 @@ describe('usePlaylistActions', () => {
     });
 
     it('sets isSaveLoading to true while the save is in progress', async () => {
-      let resolveSave!: () => void;
+      let resolveSave!: (value: { success: boolean }) => void;
       mockSavePlaylist.mockReturnValueOnce(
-        new Promise<void>(resolve => { resolveSave = resolve; })
+        new Promise<{ success: boolean }>(resolve => { resolveSave = resolve; })
       );
 
       const { result } = renderWithTracks([makeTrack('t1'), makeTrack('t2')]);
@@ -88,7 +88,7 @@ describe('usePlaylistActions', () => {
 
       // Complete the save and verify the flag resets
       await act(async () => {
-        resolveSave();
+        resolveSave({ success: true });
         await Promise.resolve();
         await Promise.resolve();
       });
