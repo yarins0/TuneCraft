@@ -8,6 +8,6 @@
     "esModuleInterop": true, // allows cleaner imports
     "skipLibCheck": true     // skips type checking of libraries
   },
-  "include": ["src/**/*", "sandbox/**/*"],
+  "include": ["src/**/*", "sandbox/**/*", "tests/**/*"],
   "exclude": ["node_modules"]
 }

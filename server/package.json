@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc",
-    "start": "node dist/src/index.js"
+    "start": "node dist/src/index.js",
+    "test": "vitest"
   },
   "keywords": [],
   "author": "",
@@ -32,6 +33,7 @@
     "prisma": "^6.2.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
+    "vitest": "^4.1.2",
     "ytmusic-api": "^5.3.1"
   }
 }
