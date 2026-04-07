@@ -8,7 +8,7 @@ import ChevronDown from './ui';
 interface Props {
   isOpen: boolean;
   onToggle: () => void;
-  loadingMore: boolean;
+  isLoadingMore: boolean;
   averages: PlaylistAverages | null;
   audioFeatureCoverage: number;
   platformConfig: ReturnType<typeof getPlatformConfig>;
@@ -18,7 +18,7 @@ interface Props {
 export default function PlaylistInsights({
   isOpen,
   onToggle,
-  loadingMore,
+  isLoadingMore,
   averages,
   audioFeatureCoverage,
   platformConfig,
@@ -32,7 +32,7 @@ export default function PlaylistInsights({
       >
         <span className="text-sm font-semibold uppercase tracking-widest text-text-muted">
           Playlist Insights
-          {loadingMore && (
+          {isLoadingMore && (
             <span className="ml-2 text-accent/60 normal-case font-normal">
               — updating as tracks load
             </span>
@@ -52,7 +52,7 @@ export default function PlaylistInsights({
                   label={feature.label}
                   value={averages[feature.key as keyof PlaylistAverages]}
                   isTempo={feature.isTempo}
-                  isLoading={loadingMore}
+                  isLoading={isLoadingMore}
                 />
               ))}
             </div>
@@ -67,7 +67,7 @@ export default function PlaylistInsights({
             </div>
           )}
           {/* Genre and decade charts — always shown; sourced from Last.fm */}
-          <PlaylistCompositionCharts tracks={tracks} isLoading={loadingMore} />
+          <PlaylistCompositionCharts tracks={tracks} isLoading={isLoadingMore} />
         </div>
       )}
     </div>

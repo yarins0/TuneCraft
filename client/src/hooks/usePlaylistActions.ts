@@ -9,7 +9,7 @@ import { getActiveAccount } from '../utils/accounts';
 
 const getUserId = () => getActiveAccount()?.userId || '';
 
-interface Options {
+interface UsePlaylistActionsOptions {
   playlistId: string | undefined;
   name: string | undefined;
   tracks: Track[];
@@ -28,8 +28,8 @@ interface Options {
 
 export interface UsePlaylistActionsResult {
   hasUnsavedChanges: boolean;
-  saveLoading: boolean;
-  splitLoading: boolean;
+  isSaveLoading: boolean;
+  isSplitLoading: boolean;
   handleShuffle: (algorithms: {
     trueRandom: boolean;
     artistSpread: boolean;
@@ -67,11 +67,11 @@ export const usePlaylistActions = ({
   onSplitComplete,
   onSuccess,
   onError,
-}: Options): UsePlaylistActionsResult => {
+}: UsePlaylistActionsOptions): UsePlaylistActionsResult => {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalTracks, setOriginalTracks] = useState<Track[]>([]);
-  const [saveLoading, setSaveLoading] = useState(false);
-  const [splitLoading, setSplitLoading] = useState(false);
+  const [isSaveLoading, setIsSaveLoading] = useState(false);
+  const [isSplitLoading, setIsSplitLoading] = useState(false);
 
   // Saves the pre-shuffle snapshot on first edit so the user can undo back to the original order
   const markDirty = () => {
@@ -125,7 +125,7 @@ export const usePlaylistActions = ({
   // ShuffleModal shows the correct next-reshuffle date without requiring a page reload.
   const handleSave = async () => {
     if (!playlistId || !hasUnsavedChanges) return;
-    setSaveLoading(true);
+    setIsSaveLoading(true);
 
     try {
       await savePlaylist(getUserId(), playlistId, tracks);
@@ -148,7 +148,7 @@ export const usePlaylistActions = ({
         5000
       );
     } finally {
-      setSaveLoading(false);
+      setIsSaveLoading(false);
     }
   };
 
@@ -156,7 +156,7 @@ export const usePlaylistActions = ({
   // ownerId and name are passed as query params because React Router location.state
   // does not survive across new tab opens.
   const handleConfirmCopy = async (copyName: string) => {
-    setSaveLoading(true);
+    setIsSaveLoading(true);
 
     try {
       const { playlist: newPlaylist } = await copyPlaylist(
@@ -179,13 +179,13 @@ export const usePlaylistActions = ({
         5000
       );
     } finally {
-      setSaveLoading(false);
+      setIsSaveLoading(false);
     }
   };
 
   // Sends pre-grouped tracks to the backend, which creates one playlist per group.
   const handleConfirmSplit = async (groups: SplitGroup[]) => {
-    setSplitLoading(true);
+    setIsSplitLoading(true);
 
     try {
       const payload = groups.map(g => ({
@@ -200,14 +200,14 @@ export const usePlaylistActions = ({
     } catch {
       onError('Failed to split playlist. Please try again.', 5000);
     } finally {
-      setSplitLoading(false);
+      setIsSplitLoading(false);
     }
   };
 
   return {
     hasUnsavedChanges,
-    saveLoading,
-    splitLoading,
+    isSaveLoading,
+    isSplitLoading,
     handleShuffle,
     reorderTracks,
     handleRemoveDuplicate,

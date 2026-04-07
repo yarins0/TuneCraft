@@ -4,6 +4,11 @@ import { getAdapter } from '../lib/platform/registry';
 import { calculateAverages, enqueueWrite } from '../lib/playlistHelpers';
 import type { Platform } from '../lib/platform/types';
 
+// Tracks are served 50 per page — matches the Spotify/SoundCloud batch sizes used by adapters.
+const PAGE_LIMIT = 50;
+// Clamp page numbers to prevent absurdly large offsets reaching the platform API.
+const MAX_PAGE_BOUND = 1000;
+
 // Resets the reshuffle schedule timestamps after a manual write so the cron doesn't
 // immediately overwrite the user's intentional change before the next interval elapses.
 // Called fire-and-forget — a failure here does not roll back the playlist write.
@@ -34,8 +39,8 @@ export const getTracks = async (req: Request, res: Response): Promise<void> => {
   const playlistId  = req.params.playlistId as string;
   const accessToken = req.accessToken;
   const adapter     = getAdapter(req.userPlatform as Platform);
-  const page  = Math.max(0, Math.min(parseInt(req.query.page as string) || 0, 1000));
-  const limit = 50;
+  const page = Math.max(0, Math.min(parseInt(req.query.page as string) || 0, MAX_PAGE_BOUND));
+  const limit = PAGE_LIMIT;
 
   // Abort the in-flight platform API call if the client closes the connection
   // (tab closed, navigation away) so we stop consuming API quota for nobody.
@@ -49,7 +54,7 @@ export const getTracks = async (req: Request, res: Response): Promise<void> => {
 
     // Use the adapter-provided hasMore when present (e.g. Tidal, which returns 20 refs/page
     // regardless of page[size]=50 so the page*limit formula would be wrong).
-    const hasMore = (result as any).hasMore ?? (page * limit + tracks.length < total);
+    const hasMore = result.hasMore ?? (page * limit + tracks.length < total);
 
     res.json({
       tracks: tracksWithPlatform,

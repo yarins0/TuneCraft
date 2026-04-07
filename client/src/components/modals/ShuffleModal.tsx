@@ -25,7 +25,7 @@ interface Props {
   initialAlgorithms?: ShuffleAlgorithms;
   onSaveReshuffle?: (intervalDays: number, algorithms: ShuffleAlgorithms) => void | Promise<void>;
   onDisableReshuffle?: () => void | Promise<void>;
-  reshuffleLoading?: boolean;
+  isReshuffleLoading?: boolean;
 }
 
 const SHUFFLE_OPTIONS = [
@@ -69,7 +69,7 @@ export default function ShuffleModal({
   initialAlgorithms,
   onSaveReshuffle,
   onDisableReshuffle,
-  reshuffleLoading = false,
+  isReshuffleLoading = false,
 }: Props) {
   const [algorithms, setAlgorithms] = useState<ShuffleAlgorithms>(
     initialAlgorithms ?? {
@@ -94,7 +94,7 @@ export default function ShuffleModal({
 
   // Animates the schedule save button label while the DB write is in flight
   const scheduleLabelBase = reshuffleSchedule ? 'Update Schedule' : 'Activate Schedule';
-  const scheduleLabel = useAnimatedLabel(reshuffleLoading, scheduleLabelBase);
+  const scheduleLabel = useAnimatedLabel(isReshuffleLoading, scheduleLabelBase);
 
   if (!isOpen) return null;
 
@@ -199,7 +199,7 @@ export default function ShuffleModal({
                 disabled={noneSelected || isLoading}
                 className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-text-primary font-semibold py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
               >
-                {reshuffleLoading ? shuffleLabel : 'Shuffle'}
+                {isReshuffleLoading ? shuffleLabel : 'Shuffle'}
               </button>
             </div>
           </div>
@@ -228,7 +228,7 @@ export default function ShuffleModal({
                         setAutoEnabled(v => !v);
                       }
                     }}
-                    disabled={reshuffleLoading}
+                    disabled={isReshuffleLoading}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all duration-200 disabled:opacity-50 ${
                       autoEnabled ? 'border-accent bg-accent/10 text-accent' : 'border-border-color text-text-muted hover:border-accent/40'
                     }`}
@@ -318,7 +318,7 @@ export default function ShuffleModal({
                 {/* Bottom: Save button */}
                 <button
                   onClick={() => void onSaveReshuffle?.(reshuffleInterval, algorithms)}
-                  disabled={reshuffleLoading || noneSelected || !onSaveReshuffle || !autoEnabled}
+                  disabled={isReshuffleLoading || noneSelected || !onSaveReshuffle || !autoEnabled}
                   className="self-center mt-auto bg-accent
                             hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed
                             text-text-primary font-semibold px-6 py-2.5 rounded-full transition-all duration-200

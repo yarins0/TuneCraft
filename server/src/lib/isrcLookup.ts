@@ -1,6 +1,12 @@
 import axios from 'axios';
 import { requestWithRetry } from './requestWithRetry';
 
+// Minimal shape of a MusicBrainz recording as returned by the ISRC lookup endpoint.
+// Only the fields we actually read are typed — the full schema is much larger.
+interface MusicBrainzRecording {
+  relations?: { url?: { resource?: string } }[];
+}
+
 // ─── MusicBrainz lookup ───────────────────────────────────────────────────────
 //
 // Primary ISRC resolution path. Free, no auth, 1 req/sec rate limit.
@@ -25,9 +31,9 @@ const lookupViaMusicBrainz = async (isrc: string): Promise<string | null> => {
       }
     );
 
-    const recordings: any[] = response.data?.recordings ?? [];
+    const recordings: MusicBrainzRecording[] = response.data?.recordings ?? [];
     for (const recording of recordings) {
-      for (const rel of (recording.relations ?? []) as any[]) {
+      for (const rel of recording.relations ?? []) {
         const resource: string = rel.url?.resource ?? '';
         // Spotify track URLs: https://open.spotify.com/track/{22-char-id}
         const match = resource.match(/open\.spotify\.com\/track\/([a-zA-Z0-9]+)/);

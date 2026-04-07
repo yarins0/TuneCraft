@@ -40,8 +40,8 @@ export interface UsePlaylistTracksResult {
   setTracks: React.Dispatch<React.SetStateAction<Track[]>>;
   averages: PlaylistAverages | null;
   total: number;
-  loading: boolean;
-  loadingMore: boolean;
+  isLoading: boolean;
+  isLoadingMore: boolean;
   error: string | null;
 }
 
@@ -62,8 +62,8 @@ export const usePlaylistTracks = (
   const [tracks, setTracks] = useState<Track[]>([]);
   const [averages, setAverages] = useState<PlaylistAverages | null>(null);
   const [total, setTotal] = useState<number>(0);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Holds the latest onReset without making it an effect dependency
@@ -93,8 +93,8 @@ export const usePlaylistTracks = (
     // Reset all hook state and notify the parent to reset its own UI state
     setTracks([]);
     setAverages(null);
-    setLoading(true);
-    setLoadingMore(false);
+    setIsLoading(true);
+    setIsLoadingMore(false);
     onResetRef.current();
 
     let cancelled = false;
@@ -254,7 +254,7 @@ export const usePlaylistTracks = (
     const loadAllPages = async (startPage: number) => {
       let currentPage = startPage;
       let more = true;
-      setLoadingMore(true);
+      setIsLoadingMore(true);
 
       while (more && !cancelled) {
         try {
@@ -285,31 +285,31 @@ export const usePlaylistTracks = (
         }
       }
 
-      if (!cancelled) setLoadingMore(false);
+      if (!cancelled) setIsLoadingMore(false);
     };
 
     // Load the first page immediately, then kick off background loading for the rest.
     // The AbortSignal is passed so navigating away drops the network request, not just
     // the state update.
-    fetchTracksPage(getUserId(), playlistId, 0, signal)
-      .then(data => {
+    (async () => {
+      try {
+        const data = await fetchTracksPage(getUserId(), playlistId, 0, signal);
         if (cancelled) return;
         setTracks(data.tracks);
         setAverages(data.playlistAverages);
         setTotal(data.total);
-        setLoading(false);
+        setIsLoading(false);
         scheduleFeaturePolling(data.tracks);
         scheduleGenrePolling(data.tracks);
-
         if (data.hasMore) loadAllPages(data.nextPage);
-      })
-      .catch(err => {
+      } catch (err) {
         // AbortError: the user navigated away — not a real error, do not surface it.
         if (err instanceof DOMException && err.name === 'AbortError') return;
         if (cancelled) return;
-        setError(err.message || 'Failed to load tracks');
-        setLoading(false);
-      });
+        setError(err instanceof Error ? err.message : 'Failed to load tracks');
+        setIsLoading(false);
+      }
+    })();
 
     // If playlistId changes (or the component unmounts) before loading finishes,
     // abort all in-flight fetch() calls at the network level and stop polling.
@@ -322,5 +322,5 @@ export const usePlaylistTracks = (
     };
   }, [playlistId]);
 
-  return { tracks, setTracks, averages, total, loading, loadingMore, error };
+  return { tracks, setTracks, averages, total, isLoading, isLoadingMore, error };
 };

@@ -5,7 +5,7 @@ import { getActiveAccount } from '../utils/accounts';
 
 const getUserId = () => getActiveAccount()?.userId || '';
 
-interface Options {
+interface UseReshuffleScheduleOptions {
   playlistId: string | undefined;
   isOwner: boolean;
   name: string | undefined;
@@ -25,7 +25,7 @@ export interface UseReshuffleScheduleResult {
     genreSpread: boolean;
     chronological: boolean;
   };
-  reshuffleLoading: boolean;
+  isReshuffleLoading: boolean;
   handleSaveReshuffle: (
     intervalDays: number,
     algorithms: { trueRandom: boolean; artistSpread: boolean; genreSpread: boolean; chronological: boolean }
@@ -44,7 +44,7 @@ export const useReshuffleSchedule = ({
   platform,
   onSuccess,
   onError,
-}: Options): UseReshuffleScheduleResult => {
+}: UseReshuffleScheduleOptions): UseReshuffleScheduleResult => {
   const [reshuffleSchedule, setReshuffleSchedule] = useState<ReshuffleSchedule | null>(null);
   const [reshuffleInterval, setReshuffleInterval] = useState(7);
   const [reshuffleAlgorithms, setReshuffleAlgorithms] = useState({
@@ -53,23 +53,27 @@ export const useReshuffleSchedule = ({
     genreSpread: false,
     chronological: false,
   });
-  const [reshuffleLoading, setReshuffleLoading] = useState(false);
+  const [isReshuffleLoading, setIsReshuffleLoading] = useState(false);
 
   // Fetch the saved schedule when the playlist loads.
   // Liked Songs and non-owner playlists never have a reshuffle schedule.
   useEffect(() => {
     if (!playlistId || playlistId === 'liked' || !isOwner) return;
 
-    fetchReshuffleSchedule(getUserId(), playlistId)
-      .then(schedule => {
+    const loadSchedule = async () => {
+      try {
+        const schedule = await fetchReshuffleSchedule(getUserId(), playlistId);
         setReshuffleSchedule(schedule);
         // Pre-fill inputs from the saved schedule so the user sees their current settings
         if (schedule) {
           setReshuffleInterval(schedule.intervalDays ?? 7);
           if (schedule.algorithms) setReshuffleAlgorithms(schedule.algorithms);
         }
-      })
-      .catch(() => {}); // Silently ignore — the panel just shows defaults
+      } catch {
+        // Silently ignore — the panel just shows defaults
+      }
+    };
+    loadSchedule();
   }, [playlistId, isOwner]);
 
   // Saves a new or updated reshuffle schedule to the database.
@@ -79,7 +83,7 @@ export const useReshuffleSchedule = ({
     algorithms: { trueRandom: boolean; artistSpread: boolean; genreSpread: boolean; chronological: boolean }
   ) => {
     if (!playlistId) return;
-    setReshuffleLoading(true);
+    setIsReshuffleLoading(true);
     try {
       const { schedule } = await enableReshuffle(
         getUserId(), playlistId, name || '', intervalDays, algorithms, platform
@@ -91,14 +95,14 @@ export const useReshuffleSchedule = ({
     } catch {
       onError('Failed to save auto-reshuffle settings.');
     } finally {
-      setReshuffleLoading(false);
+      setIsReshuffleLoading(false);
     }
   };
 
   // Deletes the schedule from the database and resets local state to defaults.
   const handleDisableReshuffle = async () => {
     if (!playlistId) return;
-    setReshuffleLoading(true);
+    setIsReshuffleLoading(true);
     try {
       await disableReshuffle(getUserId(), playlistId);
       setReshuffleSchedule(null);
@@ -108,7 +112,7 @@ export const useReshuffleSchedule = ({
     } catch {
       onError('Failed to disable auto-reshuffle.');
     } finally {
-      setReshuffleLoading(false);
+      setIsReshuffleLoading(false);
     }
   };
 
@@ -118,7 +122,7 @@ export const useReshuffleSchedule = ({
     reshuffleInterval,
     setReshuffleInterval,
     reshuffleAlgorithms,
-    reshuffleLoading,
+    isReshuffleLoading,
     handleSaveReshuffle,
     handleDisableReshuffle,
   };

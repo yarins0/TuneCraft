@@ -4,6 +4,9 @@ import { getAdapter } from '../lib/platform/registry';
 import { calculateAverages } from '../lib/playlistHelpers';
 import type { Platform } from '../lib/platform/types';
 
+const PAGE_LIMIT = 50;
+const MAX_PAGE_BOUND = 1000;
+
 // GET /playlists/:userId
 // Fetches all playlists for the authenticated user.
 export const getPlaylists = async (req: Request, res: Response): Promise<void> => {
@@ -136,8 +139,8 @@ export const getLiked = async (req: Request, res: Response): Promise<void> => {
 export const getLikedTracks = async (req: Request, res: Response): Promise<void> => {
   const accessToken = req.accessToken;
   const adapter     = getAdapter(req.userPlatform as Platform);
-  const page  = Math.max(0, Math.min(parseInt(req.query.page as string) || 0, 1000));
-  const limit = 50;
+  const page = Math.max(0, Math.min(parseInt(req.query.page as string) || 0, MAX_PAGE_BOUND));
+  const limit = PAGE_LIMIT;
 
   try {
     const { tracks, total, hasMore: adapterHasMore } =

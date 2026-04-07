@@ -85,11 +85,11 @@ function SelectionActionBar({
 export default function Dashboard() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [likedCount, setLikedCount] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [discoverInput, setDiscoverInput] = useState('');
   const [discoverError, setDiscoverError] = useState<string | null>(null);
-  const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [isDiscoverLoading, setIsDiscoverLoading] = useState(false);
 
   // --- Platform Switcher state ---
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -102,7 +102,7 @@ export default function Dashboard() {
 
   // --- Phase 5: Merge modal state ---
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
-  const [mergeLoading, setMergeLoading] = useState(false);
+  const [isMergeLoading, setIsMergeLoading] = useState(false);
   const [mergeSuccess, setMergeSuccess] = useState<string | null>(null);
   const [mergeError, setMergeError] = useState<string | null>(null);
 
@@ -116,9 +116,9 @@ export default function Dashboard() {
   const location = useLocation();
 
   // Animates "Loading your music." → ".." → "..." while the library is fetching.
-  const loadingLabel = useAnimatedLabel(loading, 'Loading your music');
+  const loadingLabel = useAnimatedLabel(isLoading, 'Loading your music');
   // Animates "Loading." → ".." → "..." on the discover Go button while fetching playlist metadata.
-  const discoverLoadingLabel = useAnimatedLabel(discoverLoading, 'Loading');
+  const discoverLoadingLabel = useAnimatedLabel(isDiscoverLoading, 'Loading');
 
   // Monotonically increasing counter — incremented every time a new load starts.
   // Each loadLibrary call captures the current value; the .then() handler discards
@@ -129,39 +129,39 @@ export default function Dashboard() {
 
   // loadLibrary fetches playlists and liked-song count for the currently active account.
   // Extracted into a useCallback so it can be called both on mount and after an account switch.
-  const loadLibrary = useCallback(() => {
+  const loadLibrary = useCallback(async () => {
     const userId = getUserId();
 
     if (!userId) {
       setError('No user session found. Please log in again.');
-      setLoading(false);
+      setIsLoading(false);
       return;
     }
 
     // Claim this load's generation slot before any async work starts.
     const gen = ++loadGenRef.current;
 
-    setLoading(true);
+    setIsLoading(true);
     setError(null);
 
-    // Fetch both playlists and liked songs count in parallel.
-    Promise.all([
-      fetchPlaylists(userId),
-      fetchLikedSongs(userId),
-    ])
-      .then(([playlistData, likedData]) => {
-        // Discard if a newer load has started since this one was fired.
-        // Covers: switching platforms, double-clicking retry, or tab focus restoring a stale request.
-        if (gen !== loadGenRef.current) return;
-        setPlaylists(playlistData);
-        setLikedCount(likedData.trackCount);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (gen !== loadGenRef.current) return;
-        setError('Failed to load playlists');
-        setLoading(false);
-      });
+    try {
+      // Fetch both playlists and liked songs count in parallel.
+      const [playlistData, likedData] = await Promise.all([
+        fetchPlaylists(userId),
+        fetchLikedSongs(userId),
+      ]);
+
+      // Discard if a newer load has started since this one was fired.
+      // Covers: switching platforms, double-clicking retry, or tab focus restoring a stale request.
+      if (gen !== loadGenRef.current) return;
+      setPlaylists(playlistData);
+      setLikedCount(likedData.trackCount);
+      setIsLoading(false);
+    } catch {
+      if (gen !== loadGenRef.current) return;
+      setError('Failed to load playlists');
+      setIsLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -223,7 +223,7 @@ export default function Dashboard() {
       return;
     }
 
-    setDiscoverLoading(true);
+    setIsDiscoverLoading(true);
 
     try {
       // If extractPlaylistId returned a full URL, the platform needs server-side slug resolution.
@@ -249,7 +249,7 @@ export default function Dashboard() {
     } catch (error: any) {
       setDiscoverError(error.message);
     } finally {
-      setDiscoverLoading(false);
+      setIsDiscoverLoading(false);
     }
   };
 
@@ -262,7 +262,7 @@ export default function Dashboard() {
   // Fetches all tracks from the selected playlists, deduplicates if requested,
   // then calls the backend to create the merged Spotify playlist
   const handleMerge = async (name: string, removeDuplicates: boolean) => {
-    setMergeLoading(true);
+    setIsMergeLoading(true);
     try {
       // Build the ordered list of IDs to merge — 'liked' is the sentinel for Liked Songs
       // The order here determines which playlist's tracks come first in the merged result
@@ -288,7 +288,7 @@ export default function Dashboard() {
       setMergeError('Failed to merge playlists. Please try again.');
       setTimeout(() => setMergeError(null), 5000);
     } finally {
-      setMergeLoading(false);
+      setIsMergeLoading(false);
     }
   };
 
@@ -408,13 +408,13 @@ export default function Dashboard() {
         )}
 
         {/* Loading state — rendered inside the layout so header and footer stay visible */}
-        {loading && (
+        {isLoading && (
           <div className="flex items-center justify-center py-40">
             <p className="text-accent text-xl">{loadingLabel}</p>
           </div>
         )}
 
-        {!loading && !error && (
+        {!isLoading && !error && (
           <>
         {/* Playlist Discovery Search Bar */}
         <div className="mb-8">
@@ -440,10 +440,10 @@ export default function Dashboard() {
                 // Middle-click (button 1) — open in new tab, same as a native anchor
                 if (e.button === 1) { e.preventDefault(); handleDiscover(true); }
               }}
-              disabled={discoverLoading || !discoverInput.trim()}
+              disabled={isDiscoverLoading || !discoverInput.trim()}
               className="bg-accent hover:bg-accent-hover w-[130px] disabled:opacity-50 disabled:cursor-not-allowed text-text-primary font-semibold px-6 py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95"
             >
-              {discoverLoading ? discoverLoadingLabel : 'Go'}
+              {isDiscoverLoading ? discoverLoadingLabel : 'Go'}
             </button>
           </div>
           {discoverError && (
@@ -565,7 +565,7 @@ export default function Dashboard() {
         selectedPlaylists={selectedPlaylists}
         likedSongsSelected={likedSongsSelected}
         likedCount={likedCount}
-        isLoading={mergeLoading}
+        isLoading={isMergeLoading}
         onClose={() => setMergeModalOpen(false)}
         onConfirm={handleMerge}
       />

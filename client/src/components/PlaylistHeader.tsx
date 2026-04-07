@@ -9,12 +9,12 @@ interface Props {
   name: string | undefined;
   tracks: Track[];
   playlistId: string;
-  loadingMore: boolean;
+  isLoadingMore: boolean;
   total: number;
   platformConfig: ReturnType<typeof getPlatformConfig>;
   dashboardTrackCount: number | null;
   reshuffleSchedule: ReshuffleSchedule | null;
-  saveLoading: boolean;
+  isSaveLoading: boolean;
   saveLabel: string;
   copyLabel: string;
   isOwner: boolean;
@@ -28,12 +28,12 @@ export default function PlaylistHeader({
   name,
   tracks,
   playlistId,
-  loadingMore,
+  isLoadingMore,
   total,
   platformConfig,
   dashboardTrackCount,
   reshuffleSchedule,
-  saveLoading,
+  isSaveLoading,
   saveLabel,
   copyLabel,
   isOwner,
@@ -69,7 +69,7 @@ export default function PlaylistHeader({
               </a>
             )}
             <p className="text-text-muted text-sm flex items-center gap-2">
-              {loadingMore
+              {isLoadingMore
                 ? (() => {
                     // When totalTracksReliable is false (e.g. Tidal), the API often omits meta.total,
                     // so `total` equals the accumulated page count rather than the real track count.
@@ -100,7 +100,7 @@ export default function PlaylistHeader({
         <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-3">
           <button
             onClick={onShuffleOpen}
-            disabled={loadingMore}
+            disabled={isLoadingMore}
             className={`bg-accent hover:bg-bg-secondary
             disabled:opacity-50 text-text-primary font-semibold px-3 sm:px-5 rounded-full text-sm
             transition-all duration-200 hover:scale-105 active:scale-95
@@ -113,7 +113,7 @@ export default function PlaylistHeader({
           </button>
           <button
             onClick={onSplitOpen}
-            disabled={loadingMore}
+            disabled={isLoadingMore}
             className="bg-accent hover:bg-bg-secondary
             disabled:opacity-50 text-text-primary font-semibold px-3 py-1.5 sm:px-5 sm:py-2 rounded-full text-sm
             border border-border-color transition-all duration-200 hover:border-accent/50"
@@ -123,25 +123,25 @@ export default function PlaylistHeader({
           {isOwner && playlistId !== 'liked' && (
             <button
               onClick={onSave}
-              disabled={saveLoading || loadingMore}
+              disabled={isSaveLoading || isLoadingMore}
               className="bg-bg-card hover:bg-bg-secondary
               disabled:opacity-50 text-text-primary font-semibold px-3 py-1.5 sm:px-5 sm:py-2 rounded-full text-sm
               border border-border-color transition-all duration-200 hover:border-accent/50"
             >
               <span className="inline-block sm:w-[90px] text-center">
-                {saveLoading ? saveLabel : '💾 Save'}
+                {isSaveLoading ? saveLabel : '💾 Save'}
               </span>
             </button>
           )}
           <button
             onClick={onCopyOpen}
-            disabled={saveLoading || loadingMore}
+            disabled={isSaveLoading || isLoadingMore}
             className="bg-bg-card hover:bg-bg-secondary
                       disabled:opacity-50 text-text-primary font-semibold px-3 py-1.5 sm:px-5 sm:py-2 rounded-full text-sm
                       border border-border-color transition-all duration-200 hover:border-accent/50"
           >
             <span className="inline-block sm:w-[150px] text-center">
-              {saveLoading ? copyLabel : '💾 Save as copy'}
+              {isSaveLoading ? copyLabel : '💾 Save as copy'}
             </span>
           </button>
         </div>

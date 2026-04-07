@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useLocation, Link } from 'react-router-dom';
-import { getPlatformConfig, PLATFORM_LABELS } from '../utils/platform';
+import { useParams, useLocation } from 'react-router-dom';
+import { getPlatformConfig } from '../utils/platform';
 import { getActiveAccount, setSessionAccount } from '../utils/accounts';
 import ShuffleModal from '../components/modals/ShuffleModal';
 import CopyModal from '../components/modals/CopyModal';
@@ -16,93 +16,9 @@ import { findDuplicates } from '../utils/findDuplicates';
 import AppFooter from '../components/AppFooter';
 import PlaylistHeader from '../components/PlaylistHeader';
 import PlaylistInsights from '../components/PlaylistInsights';
-import ChevronDown, { Toast } from '../components/ui';
+import ChevronDown, { Toast, PlatformMismatchScreen, PlaylistLoadingScreen, PlaylistErrorScreen } from '../components/ui';
 
 const getPlatformUserId = () => getActiveAccount()?.platformUserId || '';
-
-function PlatformMismatchScreen({
-  playlistPlatform,
-  activeAccountPlatform,
-}: {
-  playlistPlatform: string;
-  activeAccountPlatform: string;
-}) {
-  return (
-    <div className="min-h-screen bg-bg-primary flex items-center justify-center px-8">
-      <div className="text-center max-w-md">
-        <p className="text-4xl mb-4">🔄</p>
-        <p className="text-text-primary text-lg font-semibold mb-2">Wrong Platform</p>
-        <p className="text-text-muted text-sm mb-6">
-          This playlist is from{' '}
-          <span className="text-text-primary font-medium">
-            {PLATFORM_LABELS[playlistPlatform] ?? playlistPlatform}
-          </span>
-          , but you're currently logged in with{' '}
-          <span className="text-text-primary font-medium">
-            {PLATFORM_LABELS[activeAccountPlatform] ?? activeAccountPlatform}
-          </span>
-          . Switch accounts on the dashboard to view this playlist.
-        </p>
-        <Link
-          to="/dashboard"
-          className="bg-accent hover:bg-accent-hover text-text-primary font-semibold px-6 py-3 rounded-full transition-all duration-200 inline-block"
-        >
-          Back to Dashboard
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-function LoadingScreen() {
-  return (
-    <div className="min-h-screen bg-bg-primary flex items-center justify-center">
-      <div className="text-accent text-xl animate-pulse">Loading playlist...</div>
-    </div>
-  );
-}
-
-function ErrorScreen({
-  isOwner,
-  platformConfig,
-  error,
-}: {
-  isOwner: boolean;
-  platformConfig: ReturnType<typeof getPlatformConfig>;
-  error: string;
-}) {
-  const ownershipBlocked = !isOwner && platformConfig.ownershipRestricted;
-  return (
-    <div className="min-h-screen bg-bg-primary flex items-center justify-center px-8">
-      <div className="text-center max-w-md">
-        {/* ownershipRestricted is declared per-platform in the platform config — no string comparison needed */}
-        <p className="text-4xl mb-4">{ownershipBlocked ? '🔒' : '⚠️'}</p>
-        <p className="text-text-primary text-lg font-semibold mb-2">
-          {ownershipBlocked ? 'Playlist Unavailable' : 'Something went wrong'}
-        </p>
-        <p className="text-text-muted text-sm mb-2">{error}</p>
-        {ownershipBlocked && (
-          <p className="text-text-muted text-sm mb-4">
-            {platformConfig.label} restricts access to playlists owned by other users.
-          </p>
-        )}
-        {/* Cross-platform hint — shown whenever the error is not an ownership restriction. */}
-        {!ownershipBlocked && (
-          <p className="text-text-muted text-sm mb-6">
-            If this playlist belongs to a different platform than the one you're currently logged into,
-            try switching accounts on the dashboard.
-          </p>
-        )}
-        <Link
-          to="/dashboard"
-          className="bg-accent hover:bg-accent-hover text-text-primary font-semibold px-6 py-3 rounded-full transition-all duration-200 inline-block"
-        >
-          Back to Dashboard
-        </Link>
-      </div>
-    </div>
-  );
-}
 
 export default function PlaylistDetail() {
   const { playlistId } = useParams<{ playlistId: string }>();
@@ -185,7 +101,7 @@ export default function PlaylistDetail() {
   const [jumpInputValue, setJumpInputValue] = useState('');
 
   // ─── Track loading ────────────────────────────────────────────────────────────
-  const { tracks, setTracks, averages, total, loading, loadingMore, error } = usePlaylistTracks(
+  const { tracks, setTracks, averages, total, isLoading, isLoadingMore, error } = usePlaylistTracks(
     // Suppress loading entirely when we already know the platform is wrong
     platformMismatch ? undefined : playlistId,
     () => {
@@ -202,7 +118,7 @@ export default function PlaylistDetail() {
     reshuffleInterval,
     setReshuffleInterval,
     reshuffleAlgorithms,
-    reshuffleLoading,
+    isReshuffleLoading,
     handleSaveReshuffle,
     handleDisableReshuffle,
   } = useReshuffleSchedule({ playlistId, isOwner, name, platform: playlistPlatform, onSuccess: showSuccess, onError: showError });
@@ -210,8 +126,8 @@ export default function PlaylistDetail() {
   // ─── Track editing and playlist persistence ───────────────────────────────────
   const {
     hasUnsavedChanges,
-    saveLoading,
-    splitLoading,
+    isSaveLoading,
+    isSplitLoading,
     handleShuffle,
     reorderTracks,
     handleRemoveDuplicate,
@@ -268,12 +184,12 @@ export default function PlaylistDetail() {
   //
   // Defaults to 1 while loading — keeps charts visible until we have the full picture.
   const audioFeatureCoverage = useMemo(() => {
-    if (tracks.length === 0 || loadingMore) return 1;
+    if (tracks.length === 0 || isLoadingMore) return 1;
     const withFeatures = tracks.filter(t =>
       Object.values(t.audioFeatures).some(v => v !== null)
     ).length;
     return withFeatures / tracks.length;
-  }, [tracks, loadingMore]);
+  }, [tracks, isLoadingMore]);
 
   // Reset the search query whenever the user navigates to a different playlist
   useEffect(() => { setSearchQuery(''); }, [playlistId]);
@@ -305,9 +221,9 @@ export default function PlaylistDetail() {
   // Provides increment/decrement helpers and reversed arrow-key handling for the jump input
   const jumpStepper = useNumberStepper(jumpInputValue, setJumpInputValue, 1, tracks.length);
 
-  // Animated labels for the Save and Save as Copy buttons while saveLoading is true
-  const saveLabel = useAnimatedLabel(saveLoading, '💾 Saving');
-  const copyLabel = useAnimatedLabel(saveLoading, '💾 Saving as Copy');
+  // Animated labels for the Save and Save as Copy buttons while isSaveLoading is true
+  const saveLabel = useAnimatedLabel(isSaveLoading, '💾 Saving');
+  const copyLabel = useAnimatedLabel(isSaveLoading, '💾 Saving as Copy');
 
   // Confirms a position jump when the user presses Enter or blurs the input.
   // fromIndex is 0-based (array index); the input value is 1-based (display position).
@@ -332,10 +248,10 @@ export default function PlaylistDetail() {
     />
   );
 
-  if (loading) return <LoadingScreen />;
+  if (isLoading) return <PlaylistLoadingScreen />;
 
   if (error) return (
-    <ErrorScreen isOwner={isOwner} platformConfig={platformConfig} error={error} />
+    <PlaylistErrorScreen isOwner={isOwner} platformConfig={platformConfig} error={error} />
   );
 
   return (
@@ -347,12 +263,12 @@ export default function PlaylistDetail() {
         name={name}
         tracks={tracks}
         playlistId={playlistId!}
-        loadingMore={loadingMore}
+        isLoadingMore={isLoadingMore}
         total={total}
         platformConfig={platformConfig}
         dashboardTrackCount={dashboardTrackCount}
         reshuffleSchedule={reshuffleSchedule}
-        saveLoading={saveLoading}
+        isSaveLoading={isSaveLoading}
         saveLabel={saveLabel}
         copyLabel={copyLabel}
         isOwner={isOwner}
@@ -383,7 +299,7 @@ export default function PlaylistDetail() {
         <PlaylistInsights
           isOpen={insightsOpen}
           onToggle={() => setInsightsOpen(!insightsOpen)}
-          loadingMore={loadingMore}
+          isLoadingMore={isLoadingMore}
           averages={averages}
           audioFeatureCoverage={audioFeatureCoverage}
           platformConfig={platformConfig}
@@ -458,7 +374,7 @@ export default function PlaylistDetail() {
         )}
 
         {/* Empty state — playlist has no tracks at all */}
-        {!loading && !loadingMore && tracks.length === 0 && (
+        {!isLoading && !isLoadingMore && tracks.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
             <span className="text-5xl">🎵</span>
             <p className="text-text-primary font-semibold">This playlist is empty.</p>
@@ -526,7 +442,7 @@ export default function PlaylistDetail() {
         </div>
 
         {/* Background loading indicator */}
-        {loadingMore && (
+        {isLoadingMore && (
           <div className="flex justify-center py-8">
             <div className="text-accent/60 text-sm animate-pulse">
               Loading remaining tracks in background...
@@ -552,13 +468,13 @@ export default function PlaylistDetail() {
         initialAlgorithms={reshuffleAlgorithms}
         onSaveReshuffle={handleSaveReshuffle}
         onDisableReshuffle={handleDisableReshuffle}
-        reshuffleLoading={reshuffleLoading}
+        isReshuffleLoading={isReshuffleLoading}
       />
 
       <CopyModal
         isOpen={copyModalOpen}
         defaultName={`${name || 'My Playlist'} (Tunecraft Copy)`}
-        isLoading={saveLoading}
+        isLoading={isSaveLoading}
         onClose={() => setCopyModalOpen(false)}
         onConfirm={handleConfirmCopy}
       />
@@ -567,7 +483,7 @@ export default function PlaylistDetail() {
         isOpen={splitModalOpen}
         playlistName={name || 'My Playlist'}
         tracks={tracks}
-        isLoading={splitLoading}
+        isLoading={isSplitLoading}
         audioFeatureCoverage={audioFeatureCoverage}
         onClose={() => setSplitModalOpen(false)}
         onConfirm={handleConfirmSplit}

@@ -60,7 +60,7 @@ export const requestWithRetry = async (
   method: 'get' | 'post' | 'put' | 'delete' | 'patch',
   url: string,
   config: object,
-  data?: any,
+  data?: unknown,
   maxRetries = 3,
   label = 'API',
   signal?: AbortSignal,        // optional 7th argument — all existing callers omit it safely

@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { getAdapter } from '../lib/platform/registry';
-import type { Platform } from '../lib/platform/types';
+import type { Platform, PlatformPlaylist } from '../lib/platform/types';
 
 // Maps common platform HTTP error codes to client-facing messages.
 const handlePlaylistFetchError = (error: any, res: Response, fallbackMessage: string): void => {
@@ -11,7 +11,7 @@ const handlePlaylistFetchError = (error: any, res: Response, fallbackMessage: st
 };
 
 // Shapes a fetched playlist into the standard discovery response object.
-const formatPlaylistResponse = (playlist: any, platform: string) => ({
+const formatPlaylistResponse = (playlist: PlatformPlaylist, platform: string) => ({
   platformId: playlist.id,
   name:       playlist.name,
   ownerId:    playlist.ownerId,

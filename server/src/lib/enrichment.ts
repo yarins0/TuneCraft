@@ -92,22 +92,37 @@ const buildArtistCacheOrConditions = (tracks: EnrichmentTrack[]): object[] => {
   const conditions: object[] = [];
 
   // Strategy 1: per-platform ID column
+  // Guard against null/undefined artistId — Spotify tracks without a populated artist
+  // field would otherwise inject null into the `in` list, which Prisma rejects.
   const idsByField: Record<string, string[]> = {};
   for (const t of tracks) {
+    if (!t.artistId) continue;
     const field = artistCacheIdField(t.platform);
     if (!idsByField[field]) idsByField[field] = [];
     idsByField[field].push(t.artistId);
   }
   for (const [field, ids] of Object.entries(idsByField)) {
-    conditions.push({ [field]: { in: ids } });
+    if (ids.length > 0) conditions.push({ [field]: { in: ids } });
   }
 
   // Strategy 2: normalizedName for cross-platform dedup
-  const normalizedNames = [...new Set(tracks.map(t => t.artistName.toLowerCase().trim()))];
-  conditions.push({ normalizedName: { in: normalizedNames } });
+  // Filter empty/null names — toLowerCase() would throw on null.
+  const normalizedNames = [
+    ...new Set(tracks.map(t => t.artistName?.toLowerCase().trim()).filter(Boolean) as string[]),
+  ];
+  if (normalizedNames.length > 0) conditions.push({ normalizedName: { in: normalizedNames } });
 
   return conditions;
 };
+
+// Stable fields present on every ArtistCache row returned from Prisma.
+// The per-platform ID columns (e.g. tidalArtistId) are dynamic and accessed via a
+// runtime string key — those still require (row as any)[field] at the call site.
+interface ArtistCacheRow {
+  id: string;
+  normalizedName: string | null;
+  genres: unknown;
+}
 
 // Builds an artistId → genres map from cached ArtistCache rows.
 //
@@ -116,7 +131,7 @@ const buildArtistCacheOrConditions = (tracks: EnrichmentTrack[]): object[] => {
 // track (tidalArtistId: 'abc') correctly resolves genres from a row that was originally
 // stored by Spotify (spotifyArtistId: 'xyz') if both share the same normalizedName.
 const buildArtistGenreMap = (
-  cachedArtists: any[],
+  cachedArtists: ArtistCacheRow[],
   tracks: EnrichmentTrack[]
 ): Record<string, string[]> => {
   const map: Record<string, string[]> = {};
@@ -163,6 +178,9 @@ const buildArtistGenreMap = (
 const buildTrackCacheOrConditions = (tracks: EnrichmentTrack[]): object[] => {
   const idsByField: Record<string, string[]> = {};
   for (const t of tracks) {
+    // Guard against null/undefined platformId — tracks with missing IDs in platform
+    // metadata would otherwise inject null into the `in` list, which Prisma rejects.
+    if (!t.platformId) continue;
     if (!idsByField[t.idField]) idsByField[t.idField] = [];
     idsByField[t.idField].push(t.platformId);
   }
@@ -178,6 +196,15 @@ const buildTrackCacheOrConditions = (tracks: EnrichmentTrack[]): object[] => {
   return conditions;
 };
 
+// Stable fields present on every TrackCache row returned from Prisma.
+// The per-platform ID columns (e.g. tidalId, youtubeId) are dynamic and accessed via a
+// runtime string key — those still require (row as any)[field] at the call site.
+interface TrackCacheRow {
+  id: string;
+  isrc: string | null;
+  audioFeatures: unknown;
+}
+
 // Builds a platformId → audio-features map from cached TrackCache rows.
 //
 // Handles three match cases:
@@ -187,9 +214,9 @@ const buildTrackCacheOrConditions = (tracks: EnrichmentTrack[]): object[] => {
 //      For case 3, the current platform's native ID is backfilled onto the row (fire-and-forget)
 //      so future requests can find it by platform ID directly, skipping the ISRC lookup.
 const buildAudioFeaturesMap = (
-  cachedTracks: any[],
+  cachedTracks: TrackCacheRow[],
   tracks: EnrichmentTrack[]
-): Record<string, any> => {
+): Record<string, Record<string, unknown>> => {
   const map: Record<string, any> = {};
   const usedIdFields = [...new Set(tracks.map(t => t.idField))];
 
@@ -248,7 +275,7 @@ const TRACK_CACHE_TTL_DAYS = 90;
 export const readEnrichmentCache = async (
   tracks: EnrichmentTrack[]
 ): Promise<{
-  audioFeaturesMap: Record<string, any>;
+  audioFeaturesMap: Record<string, Record<string, unknown>>;
   artistGenreMap: Record<string, string[]>;
   missedTracks: EnrichmentTrack[];
   uniqueMissedArtists: { id: string; name: string; platform: Platform }[];
@@ -770,7 +797,7 @@ export const backgroundEnrichTracks = async (
 export const fetchEnrichmentMaps = async (
   input: EnrichmentTrack[],
   logPrefix = ''
-): Promise<{ audioFeaturesMap: Record<string, any>; artistGenreMap: Record<string, string[]> }> => {
+): Promise<{ audioFeaturesMap: Record<string, Record<string, unknown>>; artistGenreMap: Record<string, string[]> }> => {
   const { audioFeaturesMap, artistGenreMap, missedTracks, uniqueMissedArtists } =
     await readEnrichmentCache(input);
 

@@ -1,4 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
+import { Link } from 'react-router-dom';
+import { PLATFORM_LABELS } from '../utils/platform';
+import type { getPlatformConfig } from '../utils/platform';
 
 // Pill badge in two styles:
 //
@@ -127,6 +130,96 @@ export function SelectionCheckbox({
       ].join(' ')}
     >
       {isSelected && <span className="text-text-primary text-xs font-bold leading-none">✓</span>}
+    </div>
+  );
+}
+
+// Full-page screen shown when the playlist belongs to a different platform than the active account.
+// Detected before any API call — prevents a confusing 404 or auth error.
+export function PlatformMismatchScreen({
+  playlistPlatform,
+  activeAccountPlatform,
+}: {
+  playlistPlatform: string;
+  activeAccountPlatform: string;
+}) {
+  return (
+    <div className="min-h-screen bg-bg-primary flex items-center justify-center px-8">
+      <div className="text-center max-w-md">
+        <p className="text-4xl mb-4">🔄</p>
+        <p className="text-text-primary text-lg font-semibold mb-2">Wrong Platform</p>
+        <p className="text-text-muted text-sm mb-6">
+          This playlist is from{' '}
+          <span className="text-text-primary font-medium">
+            {PLATFORM_LABELS[playlistPlatform] ?? playlistPlatform}
+          </span>
+          , but you're currently logged in with{' '}
+          <span className="text-text-primary font-medium">
+            {PLATFORM_LABELS[activeAccountPlatform] ?? activeAccountPlatform}
+          </span>
+          . Switch accounts on the dashboard to view this playlist.
+        </p>
+        <Link
+          to="/dashboard"
+          className="bg-accent hover:bg-accent-hover text-text-primary font-semibold px-6 py-3 rounded-full transition-all duration-200 inline-block"
+        >
+          Back to Dashboard
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+// Full-page loading state shown while the first page of playlist tracks is being fetched.
+export function PlaylistLoadingScreen() {
+  return (
+    <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+      <div className="text-accent text-xl animate-pulse">Loading playlist...</div>
+    </div>
+  );
+}
+
+// Full-page error state shown when the playlist API call fails.
+// Distinguishes between ownership-restriction errors and generic failures.
+export function PlaylistErrorScreen({
+  isOwner,
+  platformConfig,
+  error,
+}: {
+  isOwner: boolean;
+  platformConfig: ReturnType<typeof getPlatformConfig>;
+  error: string;
+}) {
+  // ownershipRestricted is a per-platform flag in the platform config — no string comparison needed
+  const isOwnershipBlocked = !isOwner && platformConfig.ownershipRestricted;
+
+  return (
+    <div className="min-h-screen bg-bg-primary flex items-center justify-center px-8">
+      <div className="text-center max-w-md">
+        <p className="text-4xl mb-4">{isOwnershipBlocked ? '🔒' : '⚠️'}</p>
+        <p className="text-text-primary text-lg font-semibold mb-2">
+          {isOwnershipBlocked ? 'Playlist Unavailable' : 'Something went wrong'}
+        </p>
+        <p className="text-text-muted text-sm mb-2">{error}</p>
+        {isOwnershipBlocked && (
+          <p className="text-text-muted text-sm mb-4">
+            {platformConfig.label} restricts access to playlists owned by other users.
+          </p>
+        )}
+        {/* Cross-platform hint — shown whenever the error is not an ownership restriction. */}
+        {!isOwnershipBlocked && (
+          <p className="text-text-muted text-sm mb-6">
+            If this playlist belongs to a different platform than the one you're currently logged into,
+            try switching accounts on the dashboard.
+          </p>
+        )}
+        <Link
+          to="/dashboard"
+          className="bg-accent hover:bg-accent-hover text-text-primary font-semibold px-6 py-3 rounded-full transition-all duration-200 inline-block"
+        >
+          Back to Dashboard
+        </Link>
+      </div>
     </div>
   );
 }

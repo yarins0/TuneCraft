@@ -239,10 +239,12 @@ export class SpotifyAdapter implements PlatformAdapter {
       signal
     );
 
-    // Filter out null entries and non-track items (e.g. podcast episodes)
+    // Filter out null entries, non-track items (e.g. podcast episodes), and local files.
+    // Local files have type === 'track' but id === null — they are unplayable on the platform
+    // and have no Spotify ID, so enrichment and all downstream operations would fail on them.
     const items = tracksResponse.data.items.filter((item: any) => {
       const track = item.item || item.track;
-      return track !== null && track !== undefined && track.type === 'track';
+      return track !== null && track !== undefined && track.type === 'track' && track.id !== null;
     });
 
     const rawTracks = items.map((item: any) => item.item || item.track);
@@ -306,8 +308,9 @@ export class SpotifyAdapter implements PlatformAdapter {
       'Spotify'
     );
 
+    // Filter out null tracks, non-track items, and local files (id === null).
     const items = tracksResponse.data.items.filter(
-      (item: any) => item.track !== null && item.track.type === 'track'
+      (item: any) => item.track !== null && item.track.type === 'track' && item.track.id !== null
     );
 
     const rawTracks = items.map((item: any) => item.track);
