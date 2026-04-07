@@ -55,7 +55,7 @@ export default function TrackAudioFeaturesCollapse({ track }: Props) {
       {!hasAny ? (
         <div className="text-text-muted text-xs">No audio features available for this track.</div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-7 gap-y-2 sm:gap-y-3 sm:gap-x-4">
+        <div className="grid grid-cols-2 sm:grid-cols-7 gap-x-3 gap-y-2 sm:gap-y-3 sm:gap-x-4">
           {AUDIO_FEATURES.map(f => {
             const raw = track.audioFeatures[f.key as keyof Track['audioFeatures']];
             if (f.key === 'tempo') {
@@ -65,7 +65,7 @@ export default function TrackAudioFeaturesCollapse({ track }: Props) {
               return (
                 <div key={f.key} className="flex items-center gap-1 min-w-0 sm:flex-col sm:items-start sm:gap-1" title={tooltip} aria-label={tooltip}>
                   <div className="text-[11px] text-text-muted shrink-0 w-[5.5rem] sm:w-full truncate">{f.label}</div>
-                  <div className="text-[11px] text-text-primary truncate">
+                  <div className="text-[11px] leading-none text-text-primary truncate">
                     {raw === null ? '—' : `${Math.round(raw)} bpm`}
                   </div>
                 </div>
@@ -73,9 +73,10 @@ export default function TrackAudioFeaturesCollapse({ track }: Props) {
             }
 
             const normalized = normalizeFeatureValue(raw);
+            const pct = normalized === null ? null : Math.round(normalized * 100);
             const title = raw === null
               ? `${f.label}\n${f.description}\n\nNo data for this track.`
-              : `${f.label}\n${f.description}`;
+              : `${f.label} · ${pct}%\n${f.description}`;
 
             return (
               <FeatureBar

@@ -262,7 +262,7 @@ function StrategyPicker({
       <p className="text-text-muted text-xs uppercase tracking-widest font-semibold mb-3 shrink-0">
         Split by
       </p>
-      <div className="flex flex-row sm:flex-col gap-0.5 overflow-x-auto sm:overflow-y-auto custom-scrollbar pb-1 sm:pb-0">
+      <div className="flex flex-row sm:flex-col gap-0.5 overflow-x-auto sm:overflow-y-auto custom-scrollbar pb-3 sm:pb-0">
         {STRATEGIES.map(s => {
           const isDisabled = AUDIO_FEATURE_STRATEGIES.has(s.value) && audioFeatureCoverage < MIN_AUDIO_FEATURE_COVERAGE;
           return (
