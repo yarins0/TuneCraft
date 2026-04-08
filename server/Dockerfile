@@ -22,7 +22,10 @@ RUN apt-get update -qq && \
 
 # Install node modules
 COPY package-lock.json package.json ./
-RUN npm ci
+# npm install instead of npm ci because the lock file is generated on Windows
+# and does not include Linux-specific optional dependencies (@emnapi packages
+# required by @napi-rs/wasm-runtime on Linux).
+RUN npm install
 
 # Generate Prisma Client
 COPY prisma .
