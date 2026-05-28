@@ -45,7 +45,10 @@ export default function App() {
         />
       </Routes>
       <SpeedInsights />
-      <Analytics/>
+      <Analytics beforeSend={(event) => {
+        if (localStorage.getItem('tunecraft_no_track') === 'true') return null;
+        return event;
+      }} />
     </BrowserRouter>
   );
 }
