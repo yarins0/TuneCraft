@@ -140,7 +140,16 @@ export async function removeAccount(userId: string): Promise<void> {
     // Network error — proceed with local cleanup regardless
   }
 
-  // Remove the account from the local array
+  forgetAccountLocally(userId);
+}
+
+// Removes a single account from the local store without touching the server.
+//
+// Unlike removeAccount, this never deletes the server-side User row — so the user's
+// playlists and reshuffle schedules are preserved. Used by the re-auth flow, which
+// drops a dead-token account locally and sends the user back through sign-in to
+// restore it. If the removed account was active, the active-account keys are cleared.
+export function forgetAccountLocally(userId: string): void {
   const accounts = getAccounts();
   const updated = accounts.filter(a => a.userId !== userId);
   saveAccounts(updated);
@@ -152,7 +161,7 @@ export async function removeAccount(userId: string): Promise<void> {
     localStorage.removeItem('userId');
     localStorage.removeItem('platformUserId');
 
-    // Mirror the removal into sessionStorage as well — getUserId() checks it first
+    // Mirror the removal into sessionStorage as well — getActiveAccount() checks it first
     sessionStorage.removeItem('activeUserId');
     sessionStorage.removeItem('userId');
     sessionStorage.removeItem('platformUserId');

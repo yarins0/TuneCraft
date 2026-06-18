@@ -3,6 +3,7 @@ import type { Playlist } from '@prisma/client';
 import prisma from '../prisma';
 import { applyShuffle } from '../shuffleAlgorithms';
 import { getAdapter, getValidAccessToken } from '../platform/registry';
+import { ReauthRequiredError } from '../platform/errors';
 import type { Platform } from '../platform/types';
 
 // Processes a single playlist reshuffle:
@@ -14,9 +15,17 @@ import type { Platform } from '../platform/types';
 //
 // Returns a status string consumed by the caller to build a summary log line.
 const reshufflePlaylist = async (playlist: Playlist): Promise<'shuffled' | 'deleted' | 'skipped'> => {
-  const tokenResult = await getValidAccessToken(playlist.userId);
-  if (!tokenResult) return 'skipped';
-  const { accessToken } = tokenResult;
+  let accessToken: string;
+  try {
+    const tokenResult = await getValidAccessToken(playlist.userId);
+    if (!tokenResult) return 'skipped';
+    accessToken = tokenResult.accessToken;
+  } catch (error) {
+    // Refresh token expired — getValidAccessToken has already discarded it.
+    // Skip this run; the schedule resumes automatically once the user signs in again.
+    if (error instanceof ReauthRequiredError) return 'skipped';
+    throw error;
+  }
 
   try {
     // Resolve the correct adapter for this playlist's platform

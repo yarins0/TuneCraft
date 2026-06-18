@@ -1,5 +1,5 @@
 import { API_BASE_URL } from './config';
-import { getAuthHeaders } from '../utils/accounts';
+import { apiFetch } from './http';
 
 // Represents the shape of a playlist returned by the Tunecraft API
 export interface Playlist {
@@ -13,9 +13,7 @@ export interface Playlist {
 
 // Fetches all playlists for a given user from the Tunecraft backend
 export const fetchPlaylists = async (userId: string): Promise<Playlist[]> => {
-  const response = await fetch(`${API_BASE_URL}/playlists/${userId}`, {
-    headers: getAuthHeaders(),
-  });
+  const response = await apiFetch(`${API_BASE_URL}/playlists/${userId}`);
 
   if (!response.ok) {
     throw new Error('Failed to fetch playlists');
@@ -36,9 +34,7 @@ export interface LikedSongsPlaylist {
 
 // Fetches the user's Liked Songs count for the dashboard card
 export const fetchLikedSongs = async (userId: string): Promise<LikedSongsPlaylist> => {
-  const response = await fetch(`${API_BASE_URL}/playlists/${userId}/liked`, {
-    headers: getAuthHeaders(),
-  });
+  const response = await apiFetch(`${API_BASE_URL}/playlists/${userId}/liked`);
 
   if (!response.ok) {
     throw new Error('Failed to fetch liked songs');
@@ -60,9 +56,8 @@ export const discoverPlaylist = async (
   trackCount: number;
   imageUrl: string | null;
 }> => {
-  const response = await fetch(
-    `${API_BASE_URL}/playlists/${userId}/discover/${playlistId}`,
-    { headers: getAuthHeaders() }
+  const response = await apiFetch(
+    `${API_BASE_URL}/playlists/${userId}/discover/${playlistId}`
   );
 
   if (!response.ok) {
@@ -86,9 +81,8 @@ export const discoverPlaylistByUrl = async (
   trackCount: number;
   imageUrl: string | null;
 }> => {
-  const response = await fetch(
-    `${API_BASE_URL}/playlists/${userId}/discover?url=${encodeURIComponent(url)}`,
-    { headers: getAuthHeaders() }
+  const response = await apiFetch(
+    `${API_BASE_URL}/playlists/${userId}/discover?url=${encodeURIComponent(url)}`
   );
 
   if (!response.ok) {
@@ -111,11 +105,11 @@ export const shufflePlaylist = async (
     chronological: boolean;
   }
 ): Promise<{ success: boolean }> => {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/playlists/${userId}/${playlistId}/shuffle`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tracks, algorithms }),
     }
   );
@@ -129,11 +123,11 @@ export const copyPlaylist = async (
   tracks: { id: string }[],
   name: string
 ): Promise<{ success: boolean; playlist: { platformId: string; name: string; ownerId: string } }> => {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/playlists/${userId}/copy`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tracks, name }),
     }
   );
@@ -148,11 +142,11 @@ export const mergePlaylist = async (
   tracks: { id: string }[],
   name: string
 ): Promise<{ success: boolean; playlist: { platformId: string; name: string; ownerId: string } }> => {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/playlists/${userId}/merge`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tracks, name }),
     }
   );
@@ -165,11 +159,11 @@ export const splitPlaylist = async (
   userId: string,
   groups: { name: string; tracks: { id: string }[]; description: string }[]
 ): Promise<{ success: boolean; playlists: { platformId: string; name: string; ownerId: string }[] }> => {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/playlists/${userId}/split`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ groups }),
     }
   );
@@ -183,11 +177,11 @@ export const savePlaylist = async (
   playlistId: string,
   tracks: { id: string }[]
 ): Promise<{ success: boolean }> => {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/playlists/${userId}/${playlistId}/save`,
     {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tracks }),
     }
   );

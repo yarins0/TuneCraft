@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { getValidAccessToken } from '../lib/platform/registry';
+import { ReauthRequiredError } from '../lib/platform/errors';
 
 // Checks whether the user's platform access token is expired and refreshes it if needed.
 // After this middleware runs, req.accessToken always holds a valid token and
@@ -45,6 +46,13 @@ export const refreshTokenMiddleware = async (
 
     next();
   } catch (error) {
+    // The user's refresh token is permanently invalid (e.g. expired after Spotify's
+    // six-month limit). The token has already been discarded; tell the client to
+    // send the user back through sign-in.
+    if (error instanceof ReauthRequiredError) {
+      res.status(401).json({ error: 'reauth_required', platform: error.platform });
+      return;
+    }
     console.error('Token refresh failed:', error);
     res.status(500).json({ error: 'Failed to refresh token' });
   }
