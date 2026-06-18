@@ -1,5 +1,5 @@
 import { API_BASE_URL } from './config';
-import { getAuthHeaders } from '../utils/accounts';
+import { apiFetch } from './http';
 
 // The shape of an auto-reshuffle schedule stored in the database
 export interface ReshuffleSchedule {
@@ -33,11 +33,11 @@ export const enableReshuffle = async (
   },
   platform?: string
 ): Promise<{ schedule: ReshuffleSchedule }> => {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/reshuffle/${userId}/${playlistId}`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ playlistName: name, intervalDays, algorithms, platform }),
     }
   );
@@ -51,9 +51,9 @@ export const disableReshuffle = async (
   userId: string,
   playlistId: string
 ): Promise<{ success: boolean }> => {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/reshuffle/${userId}/${playlistId}`,
-    { method: 'DELETE', headers: getAuthHeaders() }
+    { method: 'DELETE' }
   );
   if (!response.ok) throw new Error('Failed to disable auto-reshuffle');
   return response.json();
@@ -65,9 +65,7 @@ export const fetchReshuffleSchedule = async (
   userId: string,
   playlistId: string
 ): Promise<ReshuffleSchedule | null> => {
-  const response = await fetch(`${API_BASE_URL}/reshuffle/${userId}`, {
-    headers: getAuthHeaders(),
-  });
+  const response = await apiFetch(`${API_BASE_URL}/reshuffle/${userId}`);
   if (!response.ok) throw new Error('Failed to fetch reshuffle schedules');
 
   const data: { schedules: ReshuffleSchedule[] } = await response.json();

@@ -33,11 +33,15 @@ interface ActiveModal {
 
 export default function Login() {
   // The OAuth callback redirects back here with an ?error= param on failure.
-  // "denied"     → user cancelled the authorization screen
-  // "auth_failed" → server-side error (e.g. quota exceeded, API misconfiguration)
-  const errorParam = new URLSearchParams(window.location.search).get('error');
-  const denied     = errorParam === 'denied';
-  const authFailed = errorParam === 'auth_failed';
+  // "denied"          → user cancelled the authorization screen
+  // "auth_failed"     → server-side error (e.g. quota exceeded, API misconfiguration)
+  // "session_expired" → the stored token was rejected (e.g. a Spotify refresh token
+  //                     past its six-month expiry); the account was cleared and the
+  //                     user needs to connect again
+  const errorParam     = new URLSearchParams(window.location.search).get('error');
+  const denied         = errorParam === 'denied';
+  const authFailed     = errorParam === 'auth_failed';
+  const sessionExpired = errorParam === 'session_expired';
 
   // Non-null when an access-request gate modal is open for a specific platform.
   const [activeModal, setActiveModal] = useState<ActiveModal | null>(null);
@@ -85,6 +89,13 @@ export default function Login() {
           {authFailed && (
             <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 max-w-xs text-center">
               Connection failed. Please try again in a few minutes.
+            </p>
+          )}
+
+          {/* Stored session no longer valid — token expired or was revoked. */}
+          {sessionExpired && (
+            <p className="text-amber-300 text-sm bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 max-w-xs text-center">
+              Your session expired. Please connect again to continue.
             </p>
           )}
 

@@ -1,4 +1,5 @@
 import { requestWithRetry } from '../requestWithRetry';
+import { ReauthRequiredError, isInvalidGrantError } from './errors';
 import {
   fetchEnrichmentMaps,
   type EnrichmentTrack,
@@ -142,28 +143,38 @@ export class SpotifyAdapter implements PlatformAdapter {
   // Uses a stored refresh token to obtain a new Spotify access token.
   // Called by the token refresh middleware and by getValidAccessToken in the cron.
   async refreshAccessToken(refreshToken: string): Promise<TokenRefreshResult> {
-    const response = await requestWithRetry(
-      'post',
-      'https://accounts.spotify.com/api/token',
-      {
-        headers: {
-          Authorization: spotifyBasicAuth(),
-          'Content-Type': 'application/x-www-form-urlencoded',
+    try {
+      const response = await requestWithRetry(
+        'post',
+        'https://accounts.spotify.com/api/token',
+        {
+          headers: {
+            Authorization: spotifyBasicAuth(),
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
         },
-      },
-      new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-      }),
-      3,
-      'Spotify auth'
-    );
+        new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: refreshToken,
+        }),
+        3,
+        'Spotify auth'
+      );
 
-    const { access_token, expires_in } = response.data;
-    return {
-      accessToken: access_token,
-      expiresAt: new Date(Date.now() + expires_in * 1000),
-    };
+      const { access_token, expires_in } = response.data;
+      return {
+        accessToken: access_token,
+        expiresAt: new Date(Date.now() + expires_in * 1000),
+      };
+    } catch (error) {
+      // A six-month-expired or revoked refresh token returns invalid_grant.
+      // Surface it as a typed error so the caller discards the token and triggers
+      // re-authentication, rather than treating it as a transient failure to retry.
+      if (isInvalidGrantError(error)) {
+        throw new ReauthRequiredError(this.platform);
+      }
+      throw error;
+    }
   }
 
   // Fetches all playlists owned or followed by the authenticated user (up to 50).

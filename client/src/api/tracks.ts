@@ -1,5 +1,5 @@
 import { API_BASE_URL } from './config';
-import { getAuthHeaders } from '../utils/accounts';
+import { apiFetch } from './http';
 
 export interface AudioFeatures {
   energy: number | null;
@@ -57,9 +57,8 @@ export const fetchPendingFeatures = async (
   userId: string,
   trackIds: string[]
 ): Promise<{ features: Record<string, AudioFeatures> }> => {
-  const response = await fetch(
-    `${API_BASE_URL}/playlists/${userId}/features?ids=${trackIds.join(',')}`,
-    { headers: getAuthHeaders() }
+  const response = await apiFetch(
+    `${API_BASE_URL}/playlists/${userId}/features?ids=${trackIds.join(',')}`
   );
   if (!response.ok) throw new Error('Failed to fetch pending features');
   return response.json();
@@ -74,9 +73,8 @@ export const fetchPendingGenres = async (
   artistNames: string[]
 ): Promise<{ genres: Record<string, string[]> }> => {
   const encoded = artistNames.map(n => encodeURIComponent(n)).join(',');
-  const response = await fetch(
-    `${API_BASE_URL}/playlists/${userId}/genres?names=${encoded}`,
-    { headers: getAuthHeaders() }
+  const response = await apiFetch(
+    `${API_BASE_URL}/playlists/${userId}/genres?names=${encoded}`
   );
   if (!response.ok) throw new Error('Failed to fetch pending genres');
   return response.json();
@@ -101,10 +99,9 @@ export const fetchTracksPage = async (
     ? `${API_BASE_URL}/playlists/${userId}/liked/tracks`
     : `${API_BASE_URL}/playlists/${userId}/${playlistId}/tracks`;
 
-  // Pass the signal into fetch so the request can be aborted mid-flight.
-  // If signal is undefined, fetch behaves exactly as before — no behaviour change
-  // for callers that don't pass a signal.
-  const response = await fetch(`${base}?page=${page}`, { signal, headers: getAuthHeaders() });
+  // Pass the signal through so the request can be aborted mid-flight.
+  // If signal is undefined, behaviour is unchanged for callers that don't pass one.
+  const response = await apiFetch(`${base}?page=${page}`, { signal });
 
   if (!response.ok) {
     throw new Error('Failed to fetch tracks');

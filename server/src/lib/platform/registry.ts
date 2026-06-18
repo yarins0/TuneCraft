@@ -3,6 +3,7 @@ import { SpotifyAdapter } from './spotify';
 import { SoundCloudAdapter } from './soundcloud';
 import { TidalAdapter } from './tidal';
 import { YouTubeAdapter } from './youtube';
+import { ReauthRequiredError } from './errors';
 import type { Platform, PlatformAdapter } from './types';
 
 // Registry maps each platform to its singleton adapter instance.
@@ -39,11 +40,26 @@ export interface ValidTokenResult {
   platform: string;
 }
 
+// Clears a user's stored OAuth credentials after their refresh token is rejected.
+// accessToken and refreshToken are non-nullable columns, so they are blanked rather
+// than set to null; tokenExpiresAt is set to the epoch so every expiry check treats
+// the credentials as invalid. The User row itself is preserved, so the user's
+// playlists and reshuffle schedules survive until they sign in again.
+const discardStoredTokens = async (userId: string): Promise<void> => {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { accessToken: '', refreshToken: '', tokenExpiresAt: new Date(0) },
+  });
+};
+
 // Returns a valid access token for any user, regardless of which platform they authenticated with.
 // Checks the token's expiry time — if expired, calls the platform adapter to refresh it
 // and persists the new token to the database before returning.
 //
-// Returns null if the user doesn't exist or the refresh fails.
+// Returns null when the user doesn't exist or the refresh fails transiently (network/5xx),
+// so the caller can safely retry later. Throws ReauthRequiredError when the refresh token
+// is permanently invalid — the stored credentials are discarded first so they are never
+// retried, and the caller must send the user back through sign-in.
 export const getValidAccessToken = async (userId: string): Promise<ValidTokenResult | null> => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return null;
@@ -51,6 +67,12 @@ export const getValidAccessToken = async (userId: string): Promise<ValidTokenRes
   // Token is still valid — return it directly without a network call
   if (user.tokenExpiresAt > new Date()) {
     return { accessToken: user.accessToken, platform: user.platform };
+  }
+
+  // An empty refresh token means it was already discarded after a prior invalid_grant.
+  // Fail fast with reauth instead of calling the platform with a credential we know is dead.
+  if (!user.refreshToken) {
+    throw new ReauthRequiredError(user.platform);
   }
 
   // Token is expired — ask the platform adapter to refresh it
@@ -65,6 +87,13 @@ export const getValidAccessToken = async (userId: string): Promise<ValidTokenRes
 
     return { accessToken, platform: user.platform };
   } catch (error) {
+    // Refresh token is permanently dead — discard the stored credentials so they are
+    // never retried, then rethrow so the caller can trigger re-authentication.
+    if (error instanceof ReauthRequiredError) {
+      await discardStoredTokens(userId);
+      throw error;
+    }
+    // Transient failure (network/5xx) — keep the token so the next request can retry.
     console.error(`Failed to refresh token for user ${userId}:`, error);
     return null;
   }
