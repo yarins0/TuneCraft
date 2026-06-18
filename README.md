@@ -2,6 +2,7 @@
 
 >Smarter playlist management. Analyze, shuffle, organize, and automate your music library.
 
+[**Live demo**](https://tune-craft-seven.vercel.app/)
 ---
 
 ## Features
@@ -586,3 +587,13 @@ All routes are prefixed with the Express base path. The `userId` segment is the 
 ## Roadmap
 
 See [TUNECRAFT_ROADMAP.md](./TUNECRAFT_ROADMAP.md) for the full feature roadmap, current progress, and technical notes.
+
+
+## Author
+
+**Yarin Solomon** — Full Stack Developer
+
+- Email: [yarinso39@gmail.com](mailto:yarinso39@gmail.com)
+- GitHub: [github.com/yarins0](https://github.com/yarins0)
+- LinkedIn: [linkedin.com/in/yarin-solomon](https://www.linkedin.com/in/yarin-solomon/)
+- Portfolio: [yarin-lab](https://yarin-lab.vercel.app/)
