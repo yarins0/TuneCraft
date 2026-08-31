@@ -1,595 +1,225 @@
-# TuneCraft
+# 🎧 TuneCraft
 
->Smarter playlist management. Analyze, shuffle, organize, and automate your music library.
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](client/package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](client/package.json)
+[![Express](https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white)](server/package.json)
+[![Prisma](https://img.shields.io/badge/Prisma-6-2D3748?logo=prisma&logoColor=white)](server/package.json)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Prisma%20ORM-4169E1?logo=postgresql&logoColor=white)](server/package.json)
+[![Vite](https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white)](client/package.json)
+[![Vitest](https://img.shields.io/badge/Vitest-client%20%2B%20server-6E9F18?logo=vitest&logoColor=white)](server/tests)
+[![Deploy](https://img.shields.io/badge/Server-Fly.io-8B5CF6?logo=flydotio&logoColor=white)](.github/workflows/deploy.yml)
+[![Deploy](https://img.shields.io/badge/Client-Vercel-000000?logo=vercel&logoColor=white)](client/vercel.json)
 
-[**Live demo**](https://tune-craft-seven.vercel.app/)
----
+Smarter playlist management: analyze, shuffle, organize, and automate a music library across
+Spotify, SoundCloud, Tidal, and YouTube.
 
-## Features
+A track carries no audio features or genre tags on its own — TuneCraft enriches every track it
+touches with tempo, energy, and genre data, then layers composable shuffle, split, merge, and
+scheduled auto-reshuffle on top. The full feature set, current progress, and technical notes
+live in [`TUNECRAFT_ROADMAP.md`](TUNECRAFT_ROADMAP.md); day-to-day conventions are in
+[`CLAUDE.md`](CLAUDE.md).
 
-### Smart Shuffle
-Apply composable shuffle algorithms to any playlist before saving:
+**Live:** [tune-craft-seven.vercel.app](https://tune-craft-seven.vercel.app/)
 
-- **True Random** — Fisher-Yates equal-probability shuffle
-- **Artist Spread** — no two tracks by the same artist play back-to-back
-- **Genre Spread** — groups similar genres together for smoother listening flow
-- **Chronological Mix** — interleaves tracks from different eras
+## 📑 Table of Contents
 
-Algorithms are composable — combine Genre Spread + Artist Spread in a single pass.
+- [🏗️ Architecture](#-architecture)
+- [🎼 Track enrichment](#-track-enrichment)
+- [💻 Local development](#-local-development)
+- [🔑 Environment variables](#-environment-variables)
+- [🔌 API surface](#-api-surface)
+- [🧪 Testing](#-testing)
+- [🔄 CI/CD pipeline](#-cicd-pipeline)
+- [📁 Repo layout](#-repo-layout)
+- [👤 Author](#-author)
 
-### Auto-Reshuffle
-Set a playlist to automatically reshuffle on a daily, weekly, or monthly schedule. A background cron job handles reshuffling server-side without any manual action.
+## 🏗️ Architecture
 
-### Playlist Organizer
-- **Merge** — combine multiple playlists into one, with optional duplicate removal
-- **Split** — divide a playlist by genre, artist, era/decade, or audio feature (energy, danceability, valence, tempo, and more). Preview, rename, and rearrange groups before saving
-- **Duplicate Finder** — scan a playlist for duplicate tracks and remove them inline
-
-### Track Analysis
-Every track is enriched with:
-- **Audio features** — energy, danceability, valence, tempo, acousticness, instrumentalness, speechiness (via ReccoBeats)
-- **Genres** — artist-level genre tags (via Last.fm)
-- Visualized as donut charts on the playlist detail page
-
-### Playlist Discovery
-Paste any public playlist URL from a supported platform to open and analyze it, even if it's not in your library. Supports Spotify, SoundCloud, Tidal, and YouTube.
-
----
-
-## Architecture
-
-### System Overview
-
-```
-Browser → Vite (5173) → React Router → Page component
-                                           │
-                                   src/api/*.ts  ← typed fetch wrappers
-                                           │
-                         Express server (3000)
-                                           │
-                              refreshTokenMiddleware
-                              (attaches valid access token)
-                                           │
-                         ┌─────────────────┴──────────────────┐
-                         │           Route Handlers           │
-                         │  auth.ts │ playlists.ts │ reshuffle │
-                         └──────────┬──────────────┬──────────┘
-                                    │              │
-                         PlatformAdapter         Prisma ORM
-             (Spotify / SoundCloud / Tidal / YouTube)   │
-                                    │         PostgreSQL
-                               Platform API
-                               Last.fm API
-                               ReccoBeats API
+```mermaid
+flowchart TB
+    User(["Browser"]) --> Vite["Vite dev server / Vercel (client)"]
+    Vite -->|"src/api/*.ts"| API["Express 5 (server, port 3000)"]
+    API --> Refresh["refreshTokenMiddleware"]
+    Refresh --> Handlers["Route handlers<br/>auth · playlists · reshuffle"]
+    Handlers --> Adapter["PlatformAdapter"]
+    Adapter --> Spotify["Spotify"]
+    Adapter --> SoundCloud["SoundCloud"]
+    Adapter --> Tidal["Tidal (PKCE)"]
+    Adapter --> YouTube["YouTube"]
+    Handlers --> DB[("PostgreSQL via Prisma")]
+    Handlers --> LastFM["Last.fm"]
+    Handlers --> ReccoBeats["ReccoBeats"]
+    Cron["node-cron (hourly)"] --> Handlers
 ```
 
-All playlist and reshuffle routes run through `server/src/middleware/refreshToken.ts`, which auto-refreshes expired tokens and attaches the valid access token to `req` before any route handler runs.
+- **Client** (`client/`) — React 19 + Vite + React Router. `src/api/*.ts` holds typed fetch
+  wrappers; every request carries the internal DB `userId` from `localStorage`.
+- **Express 5 server** (`server/src/index.ts`, port 3000) — mounts the route handlers behind
+  `refreshTokenMiddleware` (`server/src/middleware/refreshToken.ts`), which runs before every
+  playlist and reshuffle route, transparently refreshing an expired platform token and
+  attaching the valid one to the request.
+- **Route handlers** (`server/src/controllers/`, split by domain: `library`, `discover`,
+  `tracks`, `operations`) — the layer that talks to Prisma, Last.fm, and ReccoBeats, and calls
+  into the platform adapter for anything that reads or writes the user's actual playlists.
+- **PlatformAdapter** (`server/src/lib/platform/`) — one interface, one implementation per
+  streaming platform (`spotify.ts`, `soundcloud.ts`, `tidal.ts`, `youtube.ts`). Route handlers
+  never call a platform API directly, so adding a platform means implementing the interface and
+  registering it in `registry.ts` — no route changes.
+- **PostgreSQL via Prisma** — `User`, `Playlist` (auto-reshuffle schedules), `TrackCache`
+  (audio features, keyed by ISRC across platforms), and `ArtistCache` (genres, keyed by
+  normalized artist name).
+- **Last.fm and ReccoBeats** — genre tags and audio features respectively; see
+  [Track enrichment](#-track-enrichment).
+- **node-cron** (`server/src/lib/crons/reshuffle.ts`) — runs hourly, reshuffles every playlist
+  whose schedule is due, and deletes orphaned schedules on a platform 404.
 
----
+## 🎼 Track enrichment
 
-### Track Enrichment Pipeline
+A platform API returns track metadata but no audio analysis or genre data. On every tracks
+request the server checks `TrackCache` and `ArtistCache` first — the `TrackCache` lookup queries
+`spotifyId`, `soundcloudId`, `tidalId`, `youtubeId`, and `isrc` in one `OR` query, so a track
+already cached from one platform is never re-fetched for another. Misses go to ReccoBeats
+(batches of 40) for audio features and Last.fm for genre tags, then upsert by ISRC so the same
+recording is never sent to ReccoBeats twice. Full pipeline detail, the cache write-policy table,
+and the shuffle algorithm order are in [`CLAUDE.md`](CLAUDE.md#track-enrichment-pipeline).
 
-Spotify's API returns track metadata (name, artist, album) but no audio analysis or genre data. TuneCraft enriches every track on the way out:
+## 💻 Local development
 
-```
-GET /playlists/:userId/:playlistId/tracks
-          │
-          ▼
-  Fetch raw tracks from Spotify
-          │
-          ▼
-  ┌────────────────────────────────────────────┐
-  │              Audio Features                │
-  │                                            │
-  │  Check TrackCache (spotifyId / soundcloud  │
-  │  Id / isrc — one OR query, all platforms)  │
-  │       ├── HIT  → use cached data           │
-  │       │    └─ ISRC cross-hit? backfill      │
-  │       │       platform ID fire-and-forget  │
-  │       └── MISS → Phase 0: ISRC → spotifyId │
-  │                  (SoundCloud only)         │
-  │                       │                   │
-  │             ReccoBeats API                 │
-  │          (batches of ≤ 40 tracks)          │
-  │                       │                   │
-  │             Upsert TrackCache by ISRC      │
-  │             (links both platform IDs       │
-  │              to a single row)              │
-  └────────────────────────────────────────────┘
-          │
-          ▼
-  ┌───────────────────────────────────────┐
-  │              Genres                   │
-  │                                       │
-  │  Check ArtistCache (by artistId)      │
-  │       ├── HIT  → use cached tags      │
-  │       └── MISS → fetch per artist    │
-  │                       │              │
-  │              Last.fm API              │
-  │          (artist.getTopTags)          │
-  │                       │              │
-  │   genres empty? → skip cache         │
-  │   genres present? → persist          │
-  │             to ArtistCache           │
-  └───────────────────────────────────────┘
-          │
-          ▼
-  Merge audioFeatures + genres onto each track object
-          │
-          ▼
-  Return enriched tracks to client
-```
+**Prerequisites:** Node.js (latest LTS), a PostgreSQL instance, and developer app credentials
+for Spotify, SoundCloud, Tidal, and YouTube — see [Environment variables](#-environment-variables).
 
-**Why two caches?** Audio features are keyed per track (stable — a song's BPM doesn't change). Genres are keyed per artist (one artist → many tracks; caching at the artist level avoids redundant Last.fm calls).
+1. Install from the repo root:
 
-**Cache write policy:**
+   ```bash
+   npm install --prefix server && npm install --prefix client
+   ```
 
-|                           | TrackCache                                          | ArtistCache                                                      |
-| ------------------------- | --------------------------------------------------- | ---------------------------------------------------------------- |
-| API error / 429           | Not cached — retried on next request                | Not cached — retried on next request                             |
-| Empty response (no data)  | Cached — TTL will trigger a fresh fetch in 90 days  | Not cached — retried on every request until Last.fm returns tags |
-| Response with data        | Cached                                              | Cached                                                           |
+2. Create the server environment file:
 
-The asymmetry is intentional: audio features are stable and unlikely to appear after a 200 with no data, so caching the empty response avoids hammering ReccoBeats. Genre tags can be added to Last.fm at any time, so an empty response is never written to the cache — the next request always gets a fresh attempt.
+   ```bash
+   cp server/.env.example server/.env
+   ```
 
-**Cross-platform deduplication:** `TrackCache` holds one row per unique recording, not one row per platform track entry. The row is keyed by ISRC when available, so if a song is loaded on Spotify first and later on SoundCloud, ReccoBeats is never called a second time — the existing features are returned immediately and the SoundCloud ID is backfilled onto the existing row.
+   Fill in the OAuth client IDs/secrets, `DATABASE_URL`, and `HMAC_SECRET` — see
+   [Environment variables](#-environment-variables).
 
-|                            | TrackCache                                                                                                                                                              | ArtistCache                                                                                          |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Cross-platform read hit    | Found via `isrc` in the OR query                                                                                                                                        | Found via `normalizedName` (lowercase artist name)                                                   |
-| Backfill native ID on hit  | `tidalId` / `soundcloudId` written to row fire-and-forget                                                                                                               | `tidalArtistId` / `soundcloudArtistId` written to row fire-and-forget                                |
-| Secondary cache check      | After ISRC → Spotify ID resolution, re-checks DB by `spotifyId` before calling ReccoBeats — avoids a redundant API call when a Spotify-sourced row exists without an ISRC | N/A — `normalizedName` covers the cross-platform hit on the initial read; no secondary check needed  |
-| Write collision handling   | If a `spotifyId` row exists without an ISRC and a new ISRC resolves to that same ID, the ISRC is merged onto the existing row rather than creating a duplicate           | N/A — upsert key is `normalizedName`; the same artist from two platforms always lands on one row     |
+3. Apply the database schema:
 
-**ReccoBeats batch cap:** The API accepts up to 40 track IDs per request. Requests are split into chunks of 40 before dispatch.
+   ```bash
+   cd server && npx prisma generate && npx prisma migrate dev
+   ```
 
-**Prisma JSON columns:** `audioFeatures` is stored as JSON. After retrieval it may deserialize as a string. All consumers guard with:
-```ts
-typeof f === 'string' ? JSON.parse(f) : f
-```
+4. Start everything from the repo root:
 
----
+   ```bash
+   npm run dev
+   ```
 
-### Shuffle Algorithm Pipeline
+   This runs the server, the client, and `prisma studio` concurrently.
 
-`applyShuffle()` applies enabled algorithms in a **fixed order**. Order matters — Artist Spread after Genre Spread produces different results than the reverse.
+5. Open the app at `http://127.0.0.1:5173`. Health check: `http://127.0.0.1:3000/health`.
 
-```
-Input tracks array
-       │
-       ▼
-  ┌──────────────────────────────────────┐
-  │  1. Chronological Mix (if enabled)   │
-  │     Sort by release year,            │
-  │     then interleave eras evenly      │
-  └──────────────────────────────────────┘
-       │
-       ▼
-  ┌──────────────────────────────────────┐
-  │  2. Genre Spread (if enabled)        │
-  │     Group tracks by genre,           │
-  │     round-robin across groups        │
-  └──────────────────────────────────────┘
-       │
-       ▼
-  ┌──────────────────────────────────────┐
-  │  3. Artist Spread (if enabled)       │
-  │     Ensure no adjacent same-artist   │
-  │     pairs using gap insertion        │
-  └──────────────────────────────────────┘
-       │
-       ▼
-  ┌──────────────────────────────────────┐
-  │  4. True Random (mutually exclusive) │
-  │     Fisher-Yates in-place shuffle    │
-  │     (skipped if any above enabled)   │
-  └──────────────────────────────────────┘
-       │
-       ▼
-  Output shuffled tracks array
-```
+## 🔑 Environment variables
 
-**Two identical copies exist** — one server-side for actual saves and the cron job, one client-side for instant preview before the user commits:
+Read by the server from `server/.env`; the full annotated template is
+[`server/.env.example`](server/.env.example).
 
-| File                                    | Used by                            |
-| --------------------------------------- | ---------------------------------- |
-| `server/src/lib/shuffleAlgorithms.ts`   | Shuffle route, auto-reshuffle cron |
-| `client/src/utils/shuffleAlgorithms.ts` | UI preview (instant, no API call)  |
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `SERVER_URL` | yes | — | Backend base URL. OAuth redirect URIs for every platform are derived from it. |
+| `FRONTEND_URL` | yes | — | Where the browser is redirected after OAuth login. |
+| `PORT` | no | `3000` | Server listen port. |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | yes | — | Spotify OAuth app credentials. |
+| `SOUNDCLOUD_CLIENT_ID` / `SOUNDCLOUD_CLIENT_SECRET` | yes | — | SoundCloud OAuth app credentials. |
+| `TIDAL_CLIENT_ID` / `TIDAL_CLIENT_SECRET` | yes | — | Tidal PKCE OAuth app credentials. |
+| `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` | yes | — | Google Cloud OAuth 2.0 credentials for the YouTube Data API v3. |
+| `LASTFM_API_KEY` / `LASTFM_SECRET` | yes | — | Genre tag lookups. |
+| `DATABASE_URL` | yes | — | Pooled Postgres connection, used at runtime. |
+| `DIRECT_DATABASE_URL` | yes | — | Direct (non-pooled) connection, required by `prisma migrate dev`. |
+| `RESEND_API_KEY` | yes | — | Sends Spotify access-request notification emails. |
+| `ADMIN_EMAIL` | yes | — | Recipient for those notifications. |
+| `HMAC_SECRET` | yes | — | Signs user session tokens (HMAC-SHA256). Rotating it logs out every user. |
+| `FLY_API_TOKEN` | no (CI only) | — | GitHub Actions secret used to deploy the server to Fly.io. Not needed locally. |
 
----
-
-### Auto-Reshuffle System
+## 🔌 API surface
 
 ```
-  node-cron  ──── runs every hour (0 * * * *) ────▶  reshuffleCron.ts
-                                                             │
-                                                   Query Playlist table:
-                                              autoReshuffle = true AND
-                                              nextReshuffleAt ≤ NOW
-                                                             │
-                                              For each matching playlist:
-                                                             │
-                                                   ┌─────────┴──────────┐
-                                                   │                    │
-                                           fetchAllTracksMeta     applyShuffle()
-                                           (Spotify, no          (stored algorithm
-                                            enrichment)           settings)
-                                                   │                    │
-                                                   └─────────┬──────────┘
-                                                             │
-                                                   Write order to platform
-                                                   via PlatformAdapter
-                                                             │
-                                                   Update DB:
-                                                   lastReshuffledAt = now
-                                                   nextReshuffleAt = now + intervalDays
-                                                             │
-                                                   Spotify 404?
-                                                   → Delete orphaned schedule
+GET    /auth/login?platform=SPOTIFY|TIDAL|SOUNDCLOUD|YOUTUBE   redirects to platform OAuth/PKCE
+GET    /auth/spotify/callback
+GET    /auth/tidal/callback
+GET    /auth/soundcloud/callback
+GET    /auth/youtube/callback                                  upserts user, redirects to frontend
+
+GET    /playlists/:userId                                      owned + followed playlists
+GET    /playlists/:userId/:playlistId/tracks                   enriched tracks
+PUT    /playlists/:userId/:playlistId/save                     persist a new track order
+POST   /playlists/:userId/:playlistId/shuffle                  shuffle and save
+POST   /playlists/:userId/:playlistId/split                    create multiple playlists from groups
+POST   /playlists/:userId/merge                                merge tracks from several playlists
+POST   /playlists/:userId/copy                                 copy a playlist into the user's library
+GET    /playlists/:userId/discover                              fetch + enrich any public playlist by URL
+
+POST   /reshuffle/:userId/:playlistId/schedule                 create or update auto-reshuffle
+DELETE /reshuffle/:userId/:playlistId/schedule
+GET    /reshuffle/:userId/:playlistId/schedule
+
+GET    /health
 ```
 
-`lastReshuffledAt` is **only** written by:
-1. The shuffle route (manual shuffle + save)
-2. The save route (manual track reorder + save with active schedule)
-3. The auto-reshuffle cron
+`:userId` is the internal DB `cuid`, not a platform ID — it comes from `localStorage` after
+login. Route handlers live in `server/src/controllers/`, split by domain (`library`, `discover`,
+`tracks`, `operations`); `routes/*.ts` files are pure route registration.
 
-The schedule upsert route (`POST /reshuffle/schedule`) intentionally does **not** set `lastReshuffledAt` — creating or updating a schedule is not a shuffle event.
-
----
-
-### Platform Adapter Pattern
-
-All Spotify-specific code lives behind an interface. Routes never call Spotify directly:
-
-```
-routes/playlists.ts
-       │
-       └──▶  getAdapter(platform)          ← resolves 'spotify' → SpotifyAdapter, 'tidal' → TidalAdapter, etc.
-                     │
-                     ▼
-          PlatformAdapter interface
-          ┌─────────────────────────────┐
-          │ getPlaylists(userId)         │
-          │ getTracks(userId, id)        │
-          │ updateTrackOrder(...)        │
-          │ createPlaylist(...)          │
-          │ addTracks(...)               │
-          └─────────────────────────────┘
-                     │
-                     ▼
-          SpotifyAdapter / TidalAdapter / SoundCloudAdapter
-          server/src/lib/platform/{spotify,tidal,soundcloud}.ts
-```
-
-Adding a new platform means implementing `PlatformAdapter` and registering it in `registry.ts` — zero changes to route handlers. `TrackCache` already has a dedicated column for each platform (`spotifyId`, `soundcloudId`, `tidalId`) — add a new column per platform as adapters are built. Tidal (`TidalAdapter`) is fully implemented alongside Spotify and SoundCloud.
-
----
-
-### Authentication Flow
-
-```
-  User clicks "Login with Spotify"
-          │
-          ▼
-  GET /auth/login  → redirects to Spotify OAuth
-          │
-  User grants permission on Spotify
-          │
-          ▼
-  GET /auth/callback  (Spotify redirects here)
-  ├── Exchange code for access + refresh tokens
-  ├── Upsert User record in DB (cuid as internal ID)
-  └── Redirect to frontend /callback?userId=...&platformUserId=...
-          │
-          ▼
-  Callback.tsx reads URL params
-  ├── localStorage.setItem('userId', ...)         ← internal DB cuid
-  └── localStorage.setItem('platformUserId', ...) ← Spotify user ID
-          │
-          ▼
-  Navigate to /dashboard
-
-  Every subsequent API call:
-  ├── Passes userId in URL: /playlists/:userId/...
-  └── refreshTokenMiddleware checks token expiry,
-      fetches new tokens from the platform if needed,
-      attaches fresh access token to req.platformToken
-```
-
-`localStorage` is used (not `sessionStorage`) so that authentication persists across multiple browser tabs opened from the same origin.
-
----
-
-### Rate Limiting
-
-All platform APIs enforce rate limits. `requestWithRetry` in `server/src/lib/requestWithRetry.ts` handles this transparently across every adapter:
-
-1. Make the request
-2. If 429 → read `Retry-After` header (default 5s, floored at 1s, capped at 120s)
-3. Retry up to 3 times
-4. On third failure, propagate the error
-
-The 1s floor prevents APIs that send `Retry-After: 0` from burning all retry attempts with back-to-back requests inside the same rate-limit window.
-
----
-
-## Database Schema
-
-```
-┌─────────────────────────────────────────┐
-│                  User                   │
-│─────────────────────────────────────────│
-│ id                String  (cuid, PK)    │
-│ platformUserId    String                │
-│ displayName       String                │
-│ email             String?               │
-│ accessToken       String                │
-│ refreshToken      String                │
-│ tokenExpiresAt    DateTime              │
-│ platform          Platform (enum)       │
-│ createdAt         DateTime              │
-│ @@unique([platformUserId, platform])    │
-└──────────────────────┬──────────────────┘
-                       │ 1:N
-                       ▼
-┌─────────────────────────────────────────┐
-│               Playlist                  │
-│─────────────────────────────────────────│
-│ id                  String  (cuid, PK)  │
-│ userId              String  (FK → User) │
-│ platformPlaylistId  String              │
-│ name                String              │
-│ autoReshuffle       Boolean             │
-│ intervalDays        Int?                │
-│ algorithms          Json?               │
-│ lastReshuffledAt    DateTime?           │
-│ nextReshuffleAt     DateTime?           │
-│ platform            Platform (enum)     │
-│ @@unique([userId, platformPlaylistId])  │
-└─────────────────────────────────────────┘
-
-┌─────────────────────────────────────────┐
-│              TrackCache                 │
-│─────────────────────────────────────────│
-│ id            String   (cuid, PK)       │
-│ isrc          String?  (unique)         │
-│ spotifyId     String?  (unique)         │
-│ soundcloudId  String?  (unique)         │
-│ tidalId       String?  (unique)         │
-│ youtubeId     String?  (unique)         │
-│ audioFeatures Json                      │
-│ cachedAt      DateTime                  │
-└─────────────────────────────────────────┘
-
-┌─────────────────────────────────────────┐
-│              ArtistCache                │
-│─────────────────────────────────────────│
-│ id                  String  (cuid, PK)  │
-│ artistId            String  (unique)    │
-│ artistName          String              │
-│ normalizedName      String? (unique)    │
-│ spotifyArtistId     String? (unique)    │
-│ tidalArtistId       String? (unique)    │
-│ soundcloudArtistId  String? (unique)    │
-│ youtubeArtistId     String? (unique)    │
-│ genres              Json    (string[])  │
-│ platform            Platform (enum)     │
-│ cachedAt            DateTime            │
-└─────────────────────────────────────────┘
-```
-
-`Playlist` stores only scheduling metadata — track data is never persisted locally. It is always fetched live from the platform and enriched on the fly via the two cache tables.
-
-`TrackCache` holds one row per unique recording. The same song on Spotify and SoundCloud shares a single row, linked by ISRC. Platform-specific ID columns (`spotifyId`, `soundcloudId`) are added as each adapter is built.
-
----
-
-## Tech Stack
-
-| Layer           | Technology                                                                   |
-| --------------- | ---------------------------------------------------------------------------- |
-| Frontend        | React, TypeScript, Vite, Tailwind CSS                                        |
-| Backend         | Node.js, Express, TypeScript                                                 |
-| Database        | PostgreSQL via Prisma ORM                                                    |
-| Auth            | OAuth 2.0 (Spotify, SoundCloud, YouTube) + PKCE (Tidal) with automatic token refresh |
-| External APIs   | Spotify Web API, SoundCloud API, Tidal API (OpenAPI v2), YouTube Data API v3, Last.fm, ReccoBeats |
-| Background jobs | node-cron                                                                    |
-| Tests           | Vitest, @testing-library/react                                               |
-
----
-
-## Prerequisites
-
-- **Node.js** — latest LTS recommended
-- **PostgreSQL** — local or hosted instance
-- **Spotify Developer App** — create one at [developer.spotify.com](https://developer.spotify.com/dashboard). You will need a Client ID, Client Secret, and a configured redirect URI
-- **Tidal Developer App** — register at [developer.tidal.com](https://developer.tidal.com). Uses PKCE OAuth 2.0; requires `user.read`, `collection.read`, `collection.write`, `playlists.read`, `playlists.write` scopes
-- **YouTube Developer App** — create a project in [Google Cloud Console](https://console.cloud.google.com), enable the YouTube Data API v3, and create OAuth 2.0 credentials. Requires `youtube.readonly` and `youtube.force-ssl` scopes
-- **Last.fm API key** — register at [last.fm/api](https://www.last.fm/api/account/create)
-- **ReccoBeats API key** — for audio features (replaces Spotify's deprecated audio features endpoint)
-
----
-
-## Setup
-
-### 1. Install dependencies
-
-From the repo root:
+## 🧪 Testing
 
 ```bash
-npm install
+npm test --prefix server   # Vitest — controllers (tracks, discover) + pure functions (shuffle, ISRC lookup)
+npm test --prefix client   # Vitest + Testing Library — hooks (tracks, actions, reshuffle) + UI screens
 ```
 
-### 2. Configure environment variables
+## 🔄 CI/CD Pipeline
 
-Copy the example file and fill in your values:
-
-```bash
-cp server/.env.example server/.env
+```mermaid
+flowchart LR
+    Push["git push to main<br/>(server/** changed)"] --> Setup["setup-flyctl"]
+    Setup --> Deploy["flyctl deploy --remote-only"]
+    Deploy --> Migrate["release_command:<br/>prisma migrate deploy"]
 ```
 
-`server/.env`:
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) deploys only `server/` to Fly.io,
+and only on a push to `main` that touches `server/**`. [`server/fly.toml`](server/fly.toml) sets
+the app to `tunecraft-server` in `lhr`, with `min_machines_running = 0` — the machine stops when
+idle and Fly's `release_command` runs pending Prisma migrations before every deploy. The client
+is not covered by this workflow; it deploys separately via Vercel.
 
-```env
-# Base URL of this server — redirect URIs for all platforms are derived from it.
-# Dev: http://127.0.0.1:3000  |  Prod: https://your-api-domain.com
-SERVER_URL=http://127.0.0.1:3000
-FRONTEND_URL=http://127.0.0.1:5173
-PORT=3000
-
-SPOTIFY_CLIENT_ID=your_spotify_client_id
-SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
-
-SOUNDCLOUD_CLIENT_ID=your_soundcloud_client_id
-SOUNDCLOUD_CLIENT_SECRET=your_soundcloud_client_secret
-
-TIDAL_CLIENT_ID=your_tidal_client_id
-TIDAL_CLIENT_SECRET=your_tidal_client_secret
-
-YOUTUBE_CLIENT_ID=your_youtube_client_id
-YOUTUBE_CLIENT_SECRET=your_youtube_client_secret
-
-LASTFM_API_KEY=your_lastfm_api_key
-LASTFM_SECRET=your_lastfm_secret
-
-DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DB_NAME?schema=public
-DIRECT_DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DB_NAME?schema=public
-```
-
-
-### 3. Initialize the database
-
-```bash
-cd server
-npx prisma generate
-npx prisma migrate dev
-```
-
----
-
-## Running Locally
-
-From the repo root:
-
-```bash
-npm run dev
-```
-
-This starts all three processes concurrently:
-
-| Process       | URL                       |
-| ------------- | ------------------------- |
-| Backend API   | `http://127.0.0.1:3000`   |
-| Frontend      | `http://127.0.0.1:5173`   |
-| Prisma Studio | launched automatically    |
-
-Health check: `GET http://127.0.0.1:3000/health`
-
----
-
-## Project Structure
+## 📁 Repo Layout
 
 ```
-tunecraft/
-├── client/                        # React frontend (Vite + TypeScript)
-│   └── src/
-│       ├── __tests__/             # Vitest suite — hooks (tracks, actions, reshuffle) + UI screens
-│       ├── api/                   # Typed fetch wrappers (playlists, tracks, reshuffle)
-│       ├── components/            # Modals (Shuffle, Split, Merge, Copy, Duplicates),
-│       │                          #   PlaylistHeader, PlaylistInsights,
-│       │                          #   AppFooter, PlatformSwitcherSidebar
-│       ├── constants/             # Audio feature keys, labels, chart colours
-│       ├── hooks/                 # useAnimatedLabel, usePlaylistTracks, usePlaylistActions, useReshuffleSchedule
-│       ├── pages/                 # Route-level components (Login, Dashboard, PlaylistDetail, Contact, PrivacyPolicy, Callback)
-│       └── utils/                 # shuffleAlgorithms, splitPlaylist, mergePlaylists, platform helpers
-└── server/                        # Express backend (Node.js + TypeScript)
-    ├── tests/                     # Vitest suite — controllers (tracks, discover) + pure functions (shuffle, ISRC lookup)
-    └── src/
-        ├── controllers/           # Route handlers by domain: library, discover, tracks, operations
-        ├── lib/
-        │   ├── crons/             # Auto-reshuffle cron job
-        │   ├── platform/          # PlatformAdapter interface, SpotifyAdapter, TidalAdapter, SoundCloudAdapter, YouTubeAdapter, registry
-        │   ├── playlistHelpers.ts # Shared enqueueWrite (write queue) and calculateAverages
-        │   └── shuffleAlgorithms.ts
-        ├── middleware/            # refreshToken.ts — transparent token refresh
-        └── routes/                # auth.ts, playlists.ts (route registration only), reshuffle.ts
+client/src/
+  api/          typed fetch wrappers (playlists, tracks, reshuffle)
+  components/   modals (Shuffle, Split, Merge, Copy, Duplicates), TrackRow, AppFooter, sidebar
+  hooks/        usePlaylistTracks, usePlaylistActions, useReshuffleSchedule
+  pages/        Login, Dashboard, PlaylistDetail, Contact, PrivacyPolicy, Callback
+  utils/        shuffleAlgorithms, splitPlaylist, mergePlaylists, platform helpers
+  __tests__/    Vitest suite — hooks + UI screens
+server/src/
+  controllers/  route handlers by domain: library, discover, tracks, operations
+  routes/       auth.ts, playlists.ts, reshuffle.ts — registration only
+  middleware/   refreshToken.ts
+  lib/
+    platform/   PlatformAdapter interface + Spotify/SoundCloud/Tidal/YouTube adapters, registry
+    crons/      hourly auto-reshuffle job
+    shuffleAlgorithms.ts
+    playlistHelpers.ts   enqueueWrite (per-user write queue), calculateAverages
+    requestWithRetry.ts  429 handling shared by every platform adapter
+server/tests/   Vitest suite — controllers + pure functions
+server/prisma/  schema and migrations
+shared/         shuffleAlgorithms.ts — shared shuffle algorithm implementation
+TUNECRAFT_ROADMAP.md   full feature roadmap, progress, technical notes
+DESIGN.md               design system reference
 ```
 
----
-
-## Available Scripts
-
-**Repo root:**
-```bash
-npm run dev        # Start client + server + Prisma Studio concurrently
-```
-
-**`server/`:**
-```bash
-npm run dev        # Start server with hot reload (ts-node + nodemon)
-npm run build      # Compile TypeScript to dist/
-npm start          # Run compiled dist/
-npm test           # Run Vitest suite (controllers + pure functions)
-```
-
-**`client/`:**
-```bash
-npm run dev        # Start Vite dev server
-npm run build      # Production build
-npm run lint       # ESLint
-npm run preview    # Preview production build locally
-npm test           # Run Vitest suite (hooks + UI components)
-```
-
-**Database (`server/`):**
-```bash
-npx prisma generate       # Regenerate PrismaClient after schema changes
-npx prisma migrate dev    # Apply migrations in development
-npx prisma studio         # Open DB GUI
-```
-
----
-
-## API Reference
-
-All routes are prefixed with the Express base path. The `userId` segment is the internal DB cuid stored in `localStorage` after login.
-
-### Auth
-| Method | Path                                              | Description                                                          |
-| ------ | ------------------------------------------------- | -------------------------------------------------------------------- |
-| `GET`  | `/auth/login?platform=SPOTIFY\|TIDAL\|SOUNDCLOUD\|YOUTUBE` | Redirects to the appropriate platform OAuth / PKCE flow              |
-| `GET`  | `/auth/spotify/callback`                          | Handles Spotify OAuth redirect, upserts user, redirects to frontend  |
-| `GET`  | `/auth/tidal/callback`                            | Handles Tidal PKCE callback, exchanges code + verifier, upserts user |
-| `GET`  | `/auth/soundcloud/callback`                       | Handles SoundCloud OAuth redirect, upserts user, redirects to frontend |
-| `GET`  | `/auth/youtube/callback`                          | Handles Google OAuth redirect, upserts user, redirects to frontend   |
-
-### Playlists
-| Method | Path                                       | Description                                       |
-| ------ | ------------------------------------------ | ------------------------------------------------- |
-| `GET`  | `/playlists/:userId`                       | List all playlists for user (owned + following)   |
-| `GET`  | `/playlists/:userId/:playlistId/tracks`    | Get enriched tracks for a playlist                |
-| `PUT`  | `/playlists/:userId/:playlistId/save`      | Persist a new track order to Spotify              |
-| `POST` | `/playlists/:userId/:playlistId/shuffle`   | Shuffle and save to Spotify                       |
-| `POST` | `/playlists/:userId/:playlistId/split`     | Create multiple new playlists from grouped tracks |
-| `POST` | `/playlists/:userId/merge`                 | Merge tracks from multiple playlists into one     |
-| `POST` | `/playlists/:userId/copy`                  | Copy a playlist to the user's library             |
-| `GET`  | `/playlists/:userId/discover`              | Fetch and enrich any public playlist by URL       |
-
-### Reshuffle Schedule
-| Method   | Path                                      | Description                                  |
-| -------- | ----------------------------------------- | -------------------------------------------- |
-| `POST`   | `/reshuffle/:userId/:playlistId/schedule` | Create or update an auto-reshuffle schedule  |
-| `DELETE` | `/reshuffle/:userId/:playlistId/schedule` | Remove an auto-reshuffle schedule            |
-| `GET`    | `/reshuffle/:userId/:playlistId/schedule` | Get current schedule for a playlist         |
-
----
-
-## Roadmap
-
-See [TUNECRAFT_ROADMAP.md](./TUNECRAFT_ROADMAP.md) for the full feature roadmap, current progress, and technical notes.
-
-
-## Author
+## 👤 Author
 
 **Yarin Solomon** — Full Stack Developer
 
